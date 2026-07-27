@@ -405,6 +405,27 @@ func FinishSystemTask(taskID string, lockedBy string, status SystemTaskStatus, r
 	return ReleaseSystemTaskLock(taskID, lockedBy)
 }
 
+// CleanupFinishedSystemTasks deletes finished rows updated before cutoff, keeping the latest row per type.
+// It returns the number of deleted rows and never removes pending or running tasks.
+func CleanupFinishedSystemTasks(cutoff int64) (int64, error) {
+	finished := []string{string(SystemTaskStatusSucceeded), string(SystemTaskStatusFailed)}
+	var keepIDs []int64
+	if err := DB.Model(&SystemTask{}).
+		Select("MAX(id)").
+		Where("status IN ? AND updated_at < ?", finished, cutoff).
+		Group("type").
+		Pluck("MAX(id)", &keepIDs).Error; err != nil {
+		return 0, err
+	}
+
+	query := DB.Where("status IN ? AND updated_at < ?", finished, cutoff)
+	if len(keepIDs) > 0 {
+		query = query.Where("id NOT IN ?", keepIDs)
+	}
+	result := query.Delete(&SystemTask{})
+	return result.RowsAffected, result.Error
+}
+
 func (task *SystemTask) DecodePayload(v any) error {
 	return decodeSystemTaskJSONString(task.Payload, v)
 }

@@ -642,3 +642,9 @@ func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "http2_connection_shards")
 }
+
+func TestChannelSettingsConcurrencyWaitTimeout(t *testing.T) {
+	assert.Equal(t, 90, (&ChannelSettings{}).ConcurrencyWaitTimeout())
+	zero := 0
+	assert.Zero(t, (&ChannelSettings{ConcurrencyWaitTimeoutSeconds: &zero}).ConcurrencyWaitTimeout())
+}

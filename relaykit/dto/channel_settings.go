@@ -23,12 +23,21 @@ type ChannelSettings struct {
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
 	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
+	// MaxConcurrency limits in-flight requests for this channel across all instances.
+	// Zero means unlimited.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
+	// ConcurrencyWaitTimeoutSeconds controls how long a request waits for a slot.
+	// Nil uses the default; zero fails immediately.
+	ConcurrencyWaitTimeoutSeconds *int `json:"concurrency_wait_timeout_seconds,omitempty"`
 }
 
 const (
-	HTTPProtocolAuto         = "auto"
-	HTTPProtocolHTTP1        = "http1"
-	MaxHTTP2ConnectionShards = 8
+	HTTPProtocolAuto                     = "auto"
+	HTTPProtocolHTTP1                    = "http1"
+	MaxHTTP2ConnectionShards             = 8
+	MaxChannelConcurrency                = 10000
+	DefaultConcurrencyWaitTimeoutSeconds = 90
+	MaxConcurrencyWaitTimeoutSeconds     = 3600
 )
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
@@ -49,6 +58,30 @@ func (s *ChannelSettings) ValidateHTTPTransport() error {
 		return fmt.Errorf("http2_connection_shards must be 1 when http_protocol is http1")
 	}
 	return nil
+}
+
+// ValidateConcurrency validates the per-channel concurrency limit and wait timeout.
+// It returns an error when either configured value is outside its supported range.
+func (s *ChannelSettings) ValidateConcurrency() error {
+	if s == nil {
+		return nil
+	}
+	if s.MaxConcurrency < 0 || s.MaxConcurrency > MaxChannelConcurrency {
+		return fmt.Errorf("invalid max_concurrency: %d", s.MaxConcurrency)
+	}
+	if s.ConcurrencyWaitTimeoutSeconds != nil && (*s.ConcurrencyWaitTimeoutSeconds < 0 || *s.ConcurrencyWaitTimeoutSeconds > MaxConcurrencyWaitTimeoutSeconds) {
+		return fmt.Errorf("invalid concurrency_wait_timeout_seconds: %d", *s.ConcurrencyWaitTimeoutSeconds)
+	}
+	return nil
+}
+
+// ConcurrencyWaitTimeout returns the configured wait timeout in seconds.
+// It returns 90 seconds when the setting is absent and preserves an explicit zero.
+func (s *ChannelSettings) ConcurrencyWaitTimeout() int {
+	if s == nil || s.ConcurrencyWaitTimeoutSeconds == nil {
+		return DefaultConcurrencyWaitTimeoutSeconds
+	}
+	return *s.ConcurrencyWaitTimeoutSeconds
 }
 
 type VertexKeyType string

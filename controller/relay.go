@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -205,8 +206,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
+		relayInfo.InitChannelMeta(c)
+		cleanupConcurrency, concurrencyErr := acquireChannelConcurrency(c, relayInfo)
+		if concurrencyErr != nil {
+			newAPIError = concurrencyErr
+			break
+		}
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
+			_ = cleanupConcurrency()
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
@@ -226,6 +234,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = geminiRelayHandler(c, relayInfo)
 		default:
 			newAPIError = relayHandler(c, relayInfo)
+		}
+		if err := cleanupConcurrency(); err != nil {
+			newAPIError = newChannelConcurrencyError(err)
 		}
 
 		if newAPIError == nil {
@@ -266,6 +277,47 @@ func addUsedChannel(c *gin.Context, channelId int) {
 	useChannel := c.GetStringSlice("use_channel")
 	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 	c.Set("use_channel", useChannel)
+}
+
+func acquireChannelConcurrency(c *gin.Context, info *relaycommon.RelayInfo) (func() error, *types.NewAPIError) {
+	settings := info.ChannelSetting
+	originalRequest := c.Request
+	limitedCtx, release, err := service.AcquireChannelConcurrency(
+		originalRequest.Context(),
+		info.ChannelId,
+		settings.MaxConcurrency,
+		time.Duration(settings.ConcurrencyWaitTimeout())*time.Second,
+	)
+	if err != nil {
+		return nil, newChannelConcurrencyError(err)
+	}
+	c.Request = originalRequest.WithContext(limitedCtx)
+
+	return func() error {
+		cause := context.Cause(limitedCtx)
+		c.Request = originalRequest
+		release()
+		if errors.Is(cause, service.ErrChannelConcurrencyUnavailable) {
+			return cause
+		}
+		return nil
+	}, nil
+}
+
+func newChannelConcurrencyError(err error) *types.NewAPIError {
+	statusCode := http.StatusServiceUnavailable
+	errorCode := types.ErrorCodeChannelConcurrencyUnavailable
+	if errors.Is(err, service.ErrChannelConcurrencyLimit) {
+		statusCode = http.StatusTooManyRequests
+		errorCode = types.ErrorCodeChannelConcurrencyLimit
+	}
+	return types.NewErrorWithStatusCode(
+		err,
+		errorCode,
+		statusCode,
+		types.ErrOptionWithSkipRetry(),
+		types.ErrOptionWithNoRecordErrorLog(),
+	)
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -543,8 +595,15 @@ func RelayTask(c *gin.Context) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		relayInfo.InitChannelMeta(c)
+		cleanupConcurrency, concurrencyErr := acquireChannelConcurrency(c, relayInfo)
+		if concurrencyErr != nil {
+			taskErr = service.TaskErrorWrapperLocal(concurrencyErr, string(concurrencyErr.GetErrorCode()), concurrencyErr.StatusCode)
+			break
+		}
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
+			_ = cleanupConcurrency()
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
 			} else {
@@ -555,6 +614,10 @@ func RelayTask(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bodyStorage)
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		if err := cleanupConcurrency(); err != nil {
+			concurrencyErr = newChannelConcurrencyError(err)
+			taskErr = service.TaskErrorWrapperLocal(concurrencyErr, string(concurrencyErr.GetErrorCode()), concurrencyErr.StatusCode)
+		}
 		if taskErr == nil {
 			break
 		}

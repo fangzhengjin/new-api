@@ -88,6 +88,8 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
+  max_concurrency?: number
+  concurrency_wait_timeout_seconds?: number
 }
 
 export interface ChannelOtherSettings {
@@ -178,6 +180,15 @@ export interface ChannelOpsResponse {
   message?: string
   data?: {
     retry_times: number
+  }
+}
+
+export interface ChannelConcurrencyResponse {
+  success: boolean
+  message?: string
+  data?: {
+    available: boolean
+    counts: Record<string, { active: number; waiting: number }>
   }
 }
 

@@ -25,6 +25,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelConcurrencyResponse,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -110,6 +111,22 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
  */
 export async function getChannelOps(): Promise<ChannelOpsResponse> {
   const res = await api.get('/api/channel/ops', channelActionConfig())
+  return res.data
+}
+
+/**
+ * Get active request counts for the supplied channels
+ * @param ids - Channel IDs to query.
+ * @returns Availability and active request counts keyed by channel ID.
+ */
+export async function getChannelConcurrency(
+  ids: number[]
+): Promise<ChannelConcurrencyResponse> {
+  const res = await api.post(
+    '/api/channel/concurrency',
+    { ids },
+    channelActionConfig()
+  )
   return res.data
 }
 

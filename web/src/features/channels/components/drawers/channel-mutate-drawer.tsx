@@ -257,6 +257,7 @@ const CHANNEL_EDITOR_MAIN_SECTION_IDS = [
 ]
 const ADVANCED_SETTINGS_SECTION_IDS = {
   routingStrategy: 'channel-section-advanced-routing-strategy',
+  concurrencyControl: 'channel-section-advanced-concurrency-control',
   internalNotes: 'channel-section-advanced-internal-notes',
   overrideRules: 'channel-section-advanced-override-rules',
   extraSettings: 'channel-section-advanced-extra-settings',
@@ -755,6 +756,7 @@ export function ChannelMutateDrawer({
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
+  const currentMaxConcurrency = form.watch('max_concurrency')
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
   const currentAllowServiceTier = form.watch('allow_service_tier')
@@ -1012,6 +1014,7 @@ export function ChannelMutateDrawer({
   const internalNotesConfigured = Boolean(
     currentTag?.trim() || currentRemark?.trim()
   )
+  const concurrencyControlConfigured = Boolean(currentMaxConcurrency)
   const overrideRulesConfigured = Boolean(
     hasConfiguredOverrideValue(currentStatusCodeMapping) ||
     hasConfiguredOverrideValue(currentParamOverride) ||
@@ -1055,6 +1058,7 @@ export function ChannelMutateDrawer({
   )
   const advancedConfigured = Boolean(
     routingStrategyConfigured ||
+    concurrencyControlConfigured ||
     internalNotesConfigured ||
     overrideRulesConfigured ||
     extraSettingsConfigured ||
@@ -1066,6 +1070,11 @@ export function ChannelMutateDrawer({
       id: ADVANCED_SETTINGS_SECTION_IDS.routingStrategy,
       title: t('Routing Strategy'),
       configured: routingStrategyConfigured,
+    },
+    {
+      id: ADVANCED_SETTINGS_SECTION_IDS.concurrencyControl,
+      title: t('Concurrency Control'),
+      configured: concurrencyControlConfigured,
     },
     {
       id: ADVANCED_SETTINGS_SECTION_IDS.internalNotes,
@@ -4044,6 +4053,102 @@ export function ChannelMutateDrawer({
                               />
                             </fieldset>
                           </div>
+                        </div>
+
+                        {/* ── Concurrency Control ── */}
+                        <div
+                          id={ADVANCED_SETTINGS_SECTION_IDS.concurrencyControl}
+                          className={sideDrawerSectionClassName(
+                            configuredAdvancedSectionClassName(
+                              'scroll-mt-4',
+                              concurrencyControlConfigured
+                            )
+                          )}
+                        >
+                          <CardHeading
+                            title={t('Concurrency Control')}
+                            icon={<Boxes className='h-4 w-4' />}
+                            iconTone='warning'
+                          />
+                          <fieldset
+                            disabled={sensitiveLocked}
+                            className='space-y-4 disabled:opacity-60'
+                          >
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                              <FormField
+                                control={form.control}
+                                name='max_concurrency'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Maximum concurrent requests')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        max={10000}
+                                        step={1}
+                                        {...field}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'Maximum in-flight requests across all instances. Set to 0 for unlimited.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='concurrency_wait_timeout_seconds'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>
+                                      {t('Maximum wait time (seconds)')}
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        max={3600}
+                                        step={1}
+                                        disabled={
+                                          sensitiveLocked ||
+                                          !currentMaxConcurrency
+                                        }
+                                        {...field}
+                                        onChange={(event) =>
+                                          field.onChange(
+                                            Number(event.target.value)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t(
+                                        'How long a request waits for a slot. Set to 0 to fail immediately.'
+                                      )}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                            <p className='text-muted-foreground text-xs'>
+                              {t(
+                                'Concurrency limits are shared across instances through Redis. Streaming requests hold a slot until the response ends.'
+                              )}
+                            </p>
+                          </fieldset>
                         </div>
 
                         {/* ── Extra Settings ── */}

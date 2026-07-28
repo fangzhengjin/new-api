@@ -2,7 +2,6 @@ package helper
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/QuantumNous/new-api/relay/common"
@@ -10,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ModelMappedHelper applies one channel model mapping to the relay request.
+// It reads the mapping from c, updates info and the optional request, and returns any parsing error.
 func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) error {
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &common.ChannelMeta{}
@@ -24,35 +25,11 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
 
-		// 支持链式模型重定向，最终使用链尾的模型
-		currentModel := info.OriginModelName
-		visitedModels := map[string]bool{
-			currentModel: true,
-		}
-		for {
-			if mappedModel, exists := modelMap[currentModel]; exists && mappedModel != "" {
-				// 模型重定向循环检测，避免无限循环
-				if visitedModels[mappedModel] {
-					if mappedModel == currentModel {
-						if currentModel == info.OriginModelName {
-							info.IsModelMapped = false
-							return nil
-						} else {
-							info.IsModelMapped = true
-							break
-						}
-					}
-					return errors.New("model_mapping_contains_cycle")
-				}
-				visitedModels[mappedModel] = true
-				currentModel = mappedModel
-				info.IsModelMapped = true
-			} else {
-				break
+		if mappedModel, exists := modelMap[info.OriginModelName]; exists && mappedModel != "" {
+			info.IsModelMapped = mappedModel != info.OriginModelName
+			if info.IsModelMapped {
+				info.UpstreamModelName = mappedModel
 			}
-		}
-		if info.IsModelMapped {
-			info.UpstreamModelName = currentModel
 		}
 	}
 

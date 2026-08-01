@@ -202,7 +202,18 @@ export const COMMON_TIMEZONES: { value: string; label: string }[] = [
   { value: 'Australia/Sydney', label: 'UTC+10 Sydney (Australia/Sydney)' },
 ]
 
-const NUMERIC_LITERAL_REGEX = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/
+const NUMERIC_LITERAL_PATTERN = '-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?'
+const NUMERIC_LITERAL_REGEX = new RegExp(`^${NUMERIC_LITERAL_PATTERN}$`)
+const STRUCTURED_TIER_BODY_PATTERN = `p\\s*\\*\\s*${NUMERIC_LITERAL_PATTERN}\\s*\\+\\s*c\\s*\\*\\s*${NUMERIC_LITERAL_PATTERN}${BILLING_EXTRA_VARS.map(
+  (variable) =>
+    `(?:\\s*\\+\\s*${variable.key}\\s*\\*\\s*${NUMERIC_LITERAL_PATTERN})?`
+).join('')}`
+const STRUCTURED_TIER_CONDITION_PATTERN = `(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*${NUMERIC_LITERAL_PATTERN}`
+const STRUCTURED_TIER_CONDITIONS_PATTERN = `${STRUCTURED_TIER_CONDITION_PATTERN}(?:\\s*&&\\s*${STRUCTURED_TIER_CONDITION_PATTERN})*`
+const STRUCTURED_TIER_PATTERN = `(?:${STRUCTURED_TIER_CONDITIONS_PATTERN}\\s*\\?\\s*)?tier\\("[^"]*",\\s*${STRUCTURED_TIER_BODY_PATTERN}\\)`
+const STRUCTURED_BILLING_EXPR_REGEX = new RegExp(
+  `^${STRUCTURED_TIER_PATTERN}(?:\\s*:\\s*${STRUCTURED_TIER_PATTERN})*$`
+)
 
 export type ParamHeaderCondition = {
   source: 'param' | 'header'
@@ -276,12 +287,13 @@ function parseTierBody(bodyStr: string): Record<string, number> {
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
-    const { body } = stripExprVersion(exprStr)
-    const condGroup =
-      `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
-      `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`
+    const { billingExpr } = splitBillingExprAndRequestRules(exprStr)
+    const { body } = stripExprVersion(billingExpr)
+    if (!STRUCTURED_BILLING_EXPR_REGEX.test(body)) return []
+
+    const condGroup = `(${STRUCTURED_TIER_CONDITIONS_PATTERN})`
     const tierRe = new RegExp(
-      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*([^)]+)\\)`,
+      `(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*(${STRUCTURED_TIER_BODY_PATTERN})\\)`,
       'g'
     )
     const tiers: ParsedTier[] = []
@@ -305,6 +317,15 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       tier.label = m[2]
       tier.conditions = conditions
       tiers.push(tier)
+    }
+    if (
+      tiers.some((tier, index) =>
+        index < tiers.length - 1
+          ? tier.conditions.length === 0
+          : tier.conditions.length > 0
+      )
+    ) {
+      return []
     }
     return tiers
   } catch {
@@ -361,15 +382,33 @@ function splitTopLevelAnd(expr: string): string[] {
   return parts.filter(Boolean)
 }
 
+function parseQuotedStringLiteral(raw: string): string | null {
+  try {
+    const value: unknown = JSON.parse(raw.trim())
+    if (typeof value !== 'string' || value !== value.trim()) return null
+    return value
+  } catch {
+    return null
+  }
+}
+
 function parseExprLiteral(raw: string): string | null {
   const text = raw.trim()
   if (text === 'true' || text === 'false') return text
   if (NUMERIC_LITERAL_REGEX.test(text)) return text
-  try {
-    return JSON.parse(text) as string
-  } catch {
-    return null
+
+  const value = parseQuotedStringLiteral(text)
+  if (value !== null) {
+    if (
+      value === 'true' ||
+      value === 'false' ||
+      NUMERIC_LITERAL_REGEX.test(value)
+    ) {
+      return null
+    }
+    return value
   }
+  return null
 }
 
 function tryParseTimeCondition(expr: string): RequestCondition | null {
@@ -470,7 +509,10 @@ function tryParseRequestCondition(expr: string): RequestCondition | null {
 
   m = expr.match(/^(param|header)\("([^"]+)"\) == (.+)$/)
   if (m) {
-    const parsedValue = parseExprLiteral(m[3])
+    const parsedValue =
+      m[1] === SOURCE_HEADER
+        ? parseQuotedStringLiteral(m[3])
+        : parseExprLiteral(m[3])
     if (parsedValue === null) return null
     return {
       source: m[1] as 'param' | 'header',
@@ -783,7 +825,11 @@ function buildRequestConditionExpr(cond: RequestCondition): string {
     }
     case MATCH_EQ:
     default:
-      return `${sourceExpr} == ${buildExprLiteral(normalized.mode, normalized.value)}`
+      return `${sourceExpr} == ${
+        normalized.source === SOURCE_HEADER
+          ? JSON.stringify(normalized.value.trim())
+          : buildExprLiteral(normalized.mode, normalized.value)
+      }`
   }
 }
 

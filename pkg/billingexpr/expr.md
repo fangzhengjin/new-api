@@ -183,7 +183,7 @@ When a request arrives and the model uses `tiered_expr` billing:
 2. Builds `RequestInput` (headers + body) for `param()` / `header()` functions
 3. Runs expression with estimated tokens: `RunExprWithRequest(expr, {P, C}, requestInput)`
 4. Converts output to quota: `rawCost / 1,000,000 * QuotaPerUnit`
-5. Creates `BillingSnapshot` and stores it on `RelayInfo`. Expression and request state stay frozen for settlement. An auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If a free initial group skipped pre-consume and the retry selects a paid group, the billing session is created before that attempt. If an existing session moves to a more expensive group, its reservation is raised to that group's estimate before sending; cheaper groups are refunded only after actual usage is settled.
+5. Creates `BillingSnapshot` and stores it on `RelayInfo`. Immediately before each upstream attempt, request-aware conditions are re-evaluated from the final converted/overridden HTTP body and headers; that final request input is then frozen for settlement. An auto-group retry refreshes group-dependent fields from the selected group before the next upstream attempt. If the final request or selected group raises the estimate, the reservation is raised before sending; lower estimates are refunded only after actual usage is settled.
 
 ### 4. Settlement (Actual Billing)
 

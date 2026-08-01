@@ -76,6 +76,20 @@ func (s *textQuotaSummary) hasBillableUsage() bool {
 	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
 }
 
+// inputTokensTotal returns the provider-neutral total input stored in usage logs.
+func (s textQuotaSummary) inputTokensTotal() int {
+	total := s.PromptTokens
+	if s.IsClaudeUsageSemantic {
+		total += s.CacheTokens + cacheWriteTokensTotal(s)
+	}
+	return total
+}
+
+// tokenUsed returns the dashboard total without double-counting provider cache fields.
+func (s textQuotaSummary) tokenUsed() int {
+	return s.inputTokensTotal() + s.CompletionTokens
+}
+
 func cacheWriteTokensTotal(summary textQuotaSummary) int {
 	if summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0 {
 		splitCacheWriteTokens := summary.CacheCreationTokens5m + summary.CacheCreationTokens1h
@@ -510,7 +524,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		// to cache_creation_tokens.
 		other["cache_write_tokens"] = cacheWriteTokens
 	}
-	if relayInfo.GetFinalRequestRelayFormat() != types.RelayFormatClaude && billingUsage != nil && billingUsage.UsageSource != "" && billingUsage.InputTokens > 0 {
+	inputTokensTotal := summary.inputTokensTotal()
+	if summary.IsClaudeUsageSemantic {
+		other["input_tokens_total"] = inputTokensTotal
+	} else if relayInfo.GetFinalRequestRelayFormat() != types.RelayFormatClaude && billingUsage != nil && billingUsage.UsageSource != "" && billingUsage.InputTokens > 0 {
 		// input_tokens_total: explicit normalized total input used by the usage log UI.
 		// Only write this field when upstream/current conversion has already provided a
 		// reliable total input value and tagged the usage source. Do not infer it from
@@ -524,18 +541,19 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	attachQuotaSaturation(ctx, relayInfo, other)
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
-		ChannelId:        relayInfo.ChannelId,
-		PromptTokens:     summary.PromptTokens,
-		CompletionTokens: summary.CompletionTokens,
-		ModelName:        logModel,
-		TokenName:        summary.TokenName,
-		Quota:            summary.Quota,
-		Content:          logContent,
-		TokenId:          relayInfo.TokenId,
-		UseTimeSeconds:   int(summary.UseTimeSeconds),
-		IsStream:         relayInfo.IsStream,
-		Group:            relayInfo.UsingGroup,
-		Other:            other,
+		ChannelId:          relayInfo.ChannelId,
+		PromptTokens:       inputTokensTotal,
+		CompletionTokens:   summary.CompletionTokens,
+		QuotaDataTokenUsed: summary.tokenUsed(),
+		ModelName:          logModel,
+		TokenName:          summary.TokenName,
+		Quota:              summary.Quota,
+		Content:            logContent,
+		TokenId:            relayInfo.TokenId,
+		UseTimeSeconds:     int(summary.UseTimeSeconds),
+		IsStream:           relayInfo.IsStream,
+		Group:              relayInfo.UsingGroup,
+		Other:              other,
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))

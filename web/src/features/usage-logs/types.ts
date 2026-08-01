@@ -170,10 +170,13 @@ export interface LogOtherData {
   text_input?: number
   text_output?: number
   cache_tokens?: number
+  cache_write_tokens?: number
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number
   claude?: boolean
+  usage_semantic?: string
+  input_tokens_total?: number
   model_ratio?: number
   completion_ratio?: number
   model_price?: number

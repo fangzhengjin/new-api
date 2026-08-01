@@ -531,17 +531,18 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	consumedTime := float64(milliseconds) / 1000.0
 	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
 	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
-		ChannelId:        channel.Id,
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		ModelName:        info.OriginModelName,
-		TokenName:        "模型测试",
-		Quota:            quota,
-		Content:          "模型测试",
-		UseTimeSeconds:   int(consumedTime),
-		IsStream:         info.IsStream,
-		Group:            info.UsingGroup,
-		Other:            other,
+		ChannelId:          channel.Id,
+		PromptTokens:       usage.PromptTokens,
+		CompletionTokens:   usage.CompletionTokens,
+		QuotaDataTokenUsed: channelTestTokenUsed(info, usage),
+		ModelName:          info.OriginModelName,
+		TokenName:          "模型测试",
+		Quota:              quota,
+		Content:            "模型测试",
+		UseTimeSeconds:     int(consumedTime),
+		IsStream:           info.IsStream,
+		Group:              info.UsingGroup,
+		Other:              other,
 	})
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
@@ -586,9 +587,61 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 	return int(priceData.ModelPrice * common.QuotaPerUnit), nil
 }
 
+// channelTestTokenUsed normalizes analytics only; channel test quota remains unchanged.
+func channelTestTokenUsed(info *relaycommon.RelayInfo, usage *dto.Usage) int {
+	if usage == nil {
+		return 0
+	}
+	total := usage.PromptTokens + usage.CompletionTokens
+	if channelTestUsageSemantic(info, usage) != dto.BillingUsageSemanticAnthropic {
+		return total
+	}
+
+	cacheWriteTokens := max(
+		usage.PromptTokensDetails.CacheCreationTokensTotal(),
+		usage.ClaudeCacheCreation5mTokens+usage.ClaudeCacheCreation1hTokens,
+	)
+	return total + max(usage.PromptTokensDetails.CachedTokens, 0) + cacheWriteTokens
+}
+
+func channelTestUsageSemantic(info *relaycommon.RelayInfo, usage *dto.Usage) string {
+	if usage != nil {
+		if usage.UsageSemantic != "" {
+			return usage.UsageSemantic
+		}
+		if usage.BillingUsage != nil && usage.BillingUsage.Semantic != "" {
+			return usage.BillingUsage.Semantic
+		}
+	}
+	if info != nil && info.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+		return dto.BillingUsageSemanticAnthropic
+	}
+	return ""
+}
+
 func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) map[string]interface{} {
 	other := service.GenerateTextOtherInfo(c, info, priceData.ModelRatio, priceData.GroupRatioInfo.GroupRatio, priceData.CompletionRatio,
 		usage.PromptTokensDetails.CachedTokens, priceData.CacheRatio, priceData.ModelPrice, priceData.GroupRatioInfo.GroupSpecialRatio)
+	if usageSemantic := channelTestUsageSemantic(info, usage); usageSemantic != "" {
+		other["usage_semantic"] = usageSemantic
+	}
+	cacheCreationTokens := usage.PromptTokensDetails.CacheCreationTokensTotal()
+	if cacheCreationTokens > 0 {
+		other["cache_creation_tokens"] = cacheCreationTokens
+	}
+	if usage.ClaudeCacheCreation5mTokens > 0 {
+		other["cache_creation_tokens_5m"] = usage.ClaudeCacheCreation5mTokens
+	}
+	if usage.ClaudeCacheCreation1hTokens > 0 {
+		other["cache_creation_tokens_1h"] = usage.ClaudeCacheCreation1hTokens
+	}
+	cacheWriteTokens := max(
+		cacheCreationTokens,
+		usage.ClaudeCacheCreation5mTokens+usage.ClaudeCacheCreation1hTokens,
+	)
+	if cacheWriteTokens > 0 {
+		other["cache_write_tokens"] = cacheWriteTokens
+	}
 	if tieredResult != nil {
 		service.InjectTieredBillingInfo(other, info, tieredResult)
 	}

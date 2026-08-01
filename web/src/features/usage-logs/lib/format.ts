@@ -330,6 +330,73 @@ export function hasAnyCacheTokens(
   )
 }
 
+/** Provider-neutral token totals and cache breakdown for one usage log. */
+export interface LogTokenSummary {
+  inputTotal: number
+  outputTotal: number
+  cacheRead: number
+  cacheWrite: number
+  cacheWrite5m: number
+  cacheWrite1h: number
+  cacheWriteUnclassified: number
+  cacheTotal: number
+  uncachedInput: number
+  inputBreakdownValid: boolean
+}
+
+/**
+ * Normalize provider-specific log token fields for display.
+ * @param log Stored prompt/output token fields.
+ * @param other Parsed provider-specific token details.
+ * @returns Total input/output with cache components identified separately.
+ */
+export function getLogTokenSummary(
+  log: UsageLog,
+  other: LogOtherData | null | undefined
+): LogTokenSummary {
+  const promptTokens = log.prompt_tokens || 0
+  const cacheRead = Math.max(other?.cache_tokens || 0, 0)
+  const cacheWrite5m = Math.max(other?.cache_creation_tokens_5m || 0, 0)
+  const cacheWrite1h = Math.max(other?.cache_creation_tokens_1h || 0, 0)
+  const classifiedCacheWrite = cacheWrite5m + cacheWrite1h
+  const cacheWrite = Math.max(
+    other?.cache_write_tokens || 0,
+    other?.cache_creation_tokens || 0,
+    classifiedCacheWrite,
+    0
+  )
+  const isAnthropic =
+    other?.usage_semantic === 'anthropic' ||
+    (!other?.usage_semantic && other?.claude === true)
+
+  let inputTotal = promptTokens
+  if (
+    typeof other?.input_tokens_total === 'number' &&
+    Number.isFinite(other.input_tokens_total) &&
+    other.input_tokens_total > 0
+  ) {
+    inputTotal = other.input_tokens_total
+  } else if (isAnthropic) {
+    inputTotal += cacheRead + cacheWrite
+  }
+
+  const cacheTotal = cacheRead + cacheWrite
+  const inputBreakdownValid = cacheTotal <= inputTotal
+
+  return {
+    inputTotal,
+    outputTotal: log.completion_tokens || 0,
+    cacheRead,
+    cacheWrite,
+    cacheWrite5m,
+    cacheWrite1h,
+    cacheWriteUnclassified: Math.max(cacheWrite - classifiedCacheWrite, 0),
+    cacheTotal,
+    uncachedInput: inputBreakdownValid ? inputTotal - cacheTotal : 0,
+    inputBreakdownValid,
+  }
+}
+
 export function getTieredBillingSummary(
   other: LogOtherData | null
 ): TieredBillingSummary | null {

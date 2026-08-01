@@ -66,6 +66,7 @@ import { cn } from '@/lib/utils'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
+  getLogTokenSummary,
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
@@ -404,68 +405,120 @@ function BillingBreakdown(props: {
   )
 }
 
-function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
+export function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const { t } = useTranslation()
   const { log, other } = props
 
-  const promptTokens = log.prompt_tokens || 0
-  const completionTokens = log.completion_tokens || 0
-  const cacheRead = other.cache_tokens || 0
-  const cacheWrite = other.cache_creation_tokens || 0
-  const cacheWrite5m = other.cache_creation_tokens_5m || 0
-  const cacheWrite1h = other.cache_creation_tokens_1h || 0
-  const hasTokens = promptTokens > 0 || completionTokens > 0
+  const tokenSummary = getLogTokenSummary(log, other)
+  const hasTokens = tokenSummary.inputTotal > 0 || tokenSummary.outputTotal > 0
 
   if (!hasTokens) return null
 
-  const rows: Array<{ label: string; value: string }> = []
-
-  rows.push({ label: t('Input Tokens'), value: promptTokens.toLocaleString() })
-  rows.push({
-    label: t('Output Tokens'),
-    value: completionTokens.toLocaleString(),
-  })
-
-  if (cacheRead > 0) {
-    rows.push({
-      label: t('Cache Read'),
-      value: cacheRead.toLocaleString(),
-    })
-  }
-
-  if (cacheWrite > 0 && cacheWrite5m === 0 && cacheWrite1h === 0) {
-    rows.push({
-      label: t('Cache Write'),
-      value: cacheWrite.toLocaleString(),
-    })
-  }
-
-  if (cacheWrite5m > 0) {
-    rows.push({
-      label: t('Cache Write (5m)'),
-      value: cacheWrite5m.toLocaleString(),
-    })
-  }
-
-  if (cacheWrite1h > 0) {
-    rows.push({
-      label: t('Cache Write (1h)'),
-      value: cacheWrite1h.toLocaleString(),
-    })
-  }
-
-  if (other.image && other.image_output) {
-    rows.push({
-      label: t('Image Tokens'),
-      value: other.image_output.toLocaleString(),
-    })
-  }
+  const inputMetrics = tokenSummary.inputBreakdownValid
+    ? [
+        [t('Uncached Input'), tokenSummary.uncachedInput],
+        [t('Cache Read'), tokenSummary.cacheRead],
+        [t('Cache Write'), tokenSummary.cacheWrite],
+      ]
+    : [[t('Recorded Cache'), tokenSummary.cacheTotal]]
+  const cacheWriteTtlMetrics = [
+    [t('5 minutes'), tokenSummary.cacheWrite5m],
+    [t('1 hour'), tokenSummary.cacheWrite1h],
+    [t('Unknown'), tokenSummary.cacheWriteUnclassified],
+  ]
 
   return (
     <DetailSection label={t('Token Breakdown')}>
-      {rows.map((row) => (
-        <DetailRow key={row.label} label={row.label} value={row.value} mono />
-      ))}
+      <div className='-m-2.5 max-sm:-m-2'>
+        <dl className='flex items-baseline justify-between gap-4 px-3 py-2'>
+          <dt className='text-muted-foreground text-xs'>
+            {t('Total Input Tokens')}
+          </dt>
+          <dd className='text-sm font-semibold tabular-nums'>
+            {tokenSummary.inputTotal.toLocaleString()}
+          </dd>
+        </dl>
+
+        <div className='bg-muted/40 border-y px-3 py-2.5'>
+          <div className='text-muted-foreground mb-2 text-xs font-medium'>
+            {t('Input Breakdown')}
+          </div>
+          <dl
+            aria-label={t('Input Breakdown')}
+            className={cn(
+              'divide-border grid grid-cols-1 divide-y',
+              tokenSummary.inputBreakdownValid &&
+                'sm:grid-cols-3 sm:divide-x sm:divide-y-0'
+            )}
+          >
+            {inputMetrics.map(([label, value]) => (
+              <div
+                key={label}
+                className={cn(
+                  'flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0',
+                  tokenSummary.inputBreakdownValid &&
+                    'sm:block sm:px-3 sm:py-0 sm:first:pl-0 sm:last:pr-0'
+                )}
+              >
+                <dt className='text-muted-foreground text-xs'>{label}</dt>
+                <dd
+                  className={cn(
+                    'text-xs font-semibold tabular-nums',
+                    tokenSummary.inputBreakdownValid && 'sm:mt-1'
+                  )}
+                >
+                  {value.toLocaleString()}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          {tokenSummary.inputBreakdownValid ? (
+            <div className='border-border/70 mt-3 grid grid-cols-1 gap-2 border-t pt-3 sm:grid-cols-[minmax(7.5rem,1fr)_minmax(0,2fr)] sm:items-baseline sm:gap-4'>
+              <span className='text-muted-foreground text-xs font-medium'>
+                {t('Cache Write TTL')}
+              </span>
+              <dl
+                aria-label={t('Cache Write TTL')}
+                className='grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4'
+              >
+                {cacheWriteTtlMetrics.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className='flex items-baseline justify-between gap-2'
+                  >
+                    <dt className='text-muted-foreground text-xs'>{label}</dt>
+                    <dd className='text-xs font-semibold tabular-nums'>
+                      {value.toLocaleString()}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
+        </div>
+
+        <div className='space-y-2 px-3 py-2'>
+          <dl className='flex items-baseline justify-between gap-4'>
+            <dt className='text-muted-foreground text-xs'>
+              {t('Output Tokens')}
+            </dt>
+            <dd className='text-sm font-semibold tabular-nums'>
+              {tokenSummary.outputTotal.toLocaleString()}
+            </dd>
+          </dl>
+          {other.image && other.image_output ? (
+            <dl className='flex items-baseline justify-between gap-4'>
+              <dt className='text-muted-foreground text-xs'>
+                {t('Image Tokens')}
+              </dt>
+              <dd className='text-xs tabular-nums'>
+                {other.image_output.toLocaleString()}
+              </dd>
+            </dl>
+          ) : null}
+        </div>
+      </div>
     </DetailSection>
   )
 }

@@ -199,7 +199,12 @@ export interface LogOtherData {
   expr_b64?: string
   matched_tier?: string
   request_rules?: RequestRuleTrace[]
-  reasoning_effort?: string
+  reasoning_effort?:
+    | string
+    | {
+        original?: string
+        final?: string
+      }
   image?: boolean
   image_ratio?: number
   image_output?: number

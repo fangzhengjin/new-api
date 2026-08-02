@@ -206,8 +206,31 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == operation_setting.ToolPriceOptionKey {
+	switch key {
+	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
+	case "GroupRatio":
+		return ratio_setting.CheckGroupRatio(value)
+	case "ModelRequestRateLimitGroup":
+		return setting.CheckModelRequestRateLimitGroup(value)
+	case "AutomaticDisableStatusCodes", "AutomaticRetryStatusCodes":
+		_, err := operation_setting.ParseHTTPStatusCodeRanges(value)
+		return err
+	case "Chats", "PayMethods":
+		var entries []map[string]string
+		return common.UnmarshalJsonStr(value, &entries)
+	case "AutoGroups":
+		var groups []string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "UserUsableGroups":
+		var groups map[string]string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "GroupGroupRatio":
+		var ratios map[string]map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
+	case "TopupGroupRatio", "ModelRatio", "CompletionRatio", "ModelPrice", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio":
+		var ratios map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)

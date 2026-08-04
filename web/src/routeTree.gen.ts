@@ -35,6 +35,8 @@ import { Route as RankingsIndexRouteImport } from './routes/rankings/index'
 import { Route as SetupIndexRouteImport } from './routes/setup/index'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
+import { Route as AuthenticatedChannelsDiscoveryRouteImport } from './routes/_authenticated/channels/discovery'
+import { Route as AuthenticatedChannelsNormalizationRouteImport } from './routes/_authenticated/channels/normalization'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
@@ -196,6 +198,18 @@ const AuthenticatedChannelsIndexRoute =
   AuthenticatedChannelsIndexRouteImport.update({
     id: '/channels/',
     path: '/channels/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedChannelsDiscoveryRoute =
+  AuthenticatedChannelsDiscoveryRouteImport.update({
+    id: '/channels/discovery',
+    path: '/channels/discovery',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedChannelsNormalizationRoute =
+  AuthenticatedChannelsNormalizationRouteImport.update({
+    id: '/channels/normalization',
+    path: '/channels/normalization',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedChatChatIdRoute = AuthenticatedChatChatIdRouteImport.update({
@@ -411,6 +425,8 @@ export interface FileRoutesByFullPath {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/channels/discovery': typeof AuthenticatedChannelsDiscoveryRoute
+  '/channels/normalization': typeof AuthenticatedChannelsNormalizationRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -468,6 +484,8 @@ export interface FileRoutesByTo {
   '/rankings': typeof RankingsIndexRoute
   '/setup': typeof SetupIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/channels/discovery': typeof AuthenticatedChannelsDiscoveryRoute
+  '/channels/normalization': typeof AuthenticatedChannelsNormalizationRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -529,6 +547,8 @@ export interface FileRoutesById {
   '/rankings/': typeof RankingsIndexRoute
   '/setup/': typeof SetupIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
+  '/_authenticated/channels/discovery': typeof AuthenticatedChannelsDiscoveryRoute
+  '/_authenticated/channels/normalization': typeof AuthenticatedChannelsNormalizationRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -589,6 +609,8 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/user/reset'
+    | '/channels/discovery'
+    | '/channels/normalization'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -646,6 +668,8 @@ export interface FileRouteTypes {
     | '/rankings'
     | '/setup'
     | '/user/reset'
+    | '/channels/discovery'
+    | '/channels/normalization'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -706,6 +730,8 @@ export interface FileRouteTypes {
     | '/rankings/'
     | '/setup/'
     | '/(auth)/user/reset'
+    | '/_authenticated/channels/discovery'
+    | '/_authenticated/channels/normalization'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
@@ -942,6 +968,20 @@ declare module '@tanstack/react-router' {
       path: '/channels'
       fullPath: '/channels/'
       preLoaderRoute: typeof AuthenticatedChannelsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/channels/discovery': {
+      id: '/_authenticated/channels/discovery'
+      path: '/channels/discovery'
+      fullPath: '/channels/discovery'
+      preLoaderRoute: typeof AuthenticatedChannelsDiscoveryRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/channels/normalization': {
+      id: '/_authenticated/channels/normalization'
+      path: '/channels/normalization'
+      fullPath: '/channels/normalization'
+      preLoaderRoute: typeof AuthenticatedChannelsNormalizationRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chat/$chatId': {
@@ -1257,6 +1297,8 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
+  AuthenticatedChannelsDiscoveryRoute: typeof AuthenticatedChannelsDiscoveryRoute
+  AuthenticatedChannelsNormalizationRoute: typeof AuthenticatedChannelsNormalizationRoute
   AuthenticatedChatChatIdRoute: typeof AuthenticatedChatChatIdRoute
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
@@ -1280,6 +1322,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSystemSettingsRouteRoute:
     AuthenticatedSystemSettingsRouteRouteWithChildren,
   AuthenticatedChat2linkRoute: AuthenticatedChat2linkRoute,
+  AuthenticatedChannelsDiscoveryRoute: AuthenticatedChannelsDiscoveryRoute,
+  AuthenticatedChannelsNormalizationRoute:
+    AuthenticatedChannelsNormalizationRoute,
   AuthenticatedChatChatIdRoute: AuthenticatedChatChatIdRoute,
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,

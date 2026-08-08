@@ -1,0 +1,209 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+export type CycleStatus = 'scheduled' | 'active' | 'closed'
+export type PlanStatus = 'draft' | 'executed' | 'cancelled'
+export type PlanType = 'initialization' | 'adjustment'
+export type AdjustmentAction =
+  | 'initialize'
+  | 'increase'
+  | 'decrease'
+  | 'grant'
+  | 'reclaim'
+export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped'
+
+export type QuotaCycle = {
+  id: number
+  cycle_start_at: number
+  cycle_end_at: number
+  budget_quota: string
+  initial_grant_quota: string
+  status: CycleStatus
+  created_at: number
+  created_by: string
+  updated_at: number
+  updated_by: string
+}
+
+export type QuotaPlan = {
+  id: number
+  cycle_id: number
+  plan_type: PlanType
+  stage_percent: number
+  snapshot_at: number
+  next_adjustment_at: number | null
+  algorithm_version: string
+  parameters: Record<string, unknown>
+  budget_quota_snapshot: string
+  total_spend_quota: string
+  managed_balance_quota: string
+  planned_delta_quota: string
+  status: PlanStatus
+  created_at: number
+  created_by: string
+  executed_at: number | null
+  executed_by: string
+  cancelled_at: number | null
+  cancelled_by: string
+  cancel_reason: string
+}
+
+export type QuotaItem = {
+  id: number
+  plan_id: number
+  user_id: number
+  username: string
+  display_name: string
+  email: string
+  action: AdjustmentAction
+  snapshot_balance_quota: string
+  adjustment_quota: string
+  retained_quota: string
+  calculation_data: Record<string, unknown>
+  basis_text: string
+  actual_before_quota: string | null
+  actual_after_quota: string | null
+  log_content: string
+  log_status: NotificationStatus
+  log_sent_at: number | null
+  log_error: string
+  email_status: NotificationStatus
+  email_sent_at: number | null
+  email_error: string
+}
+
+export type QuotaCategory = { count: number; total: string }
+
+export type PlanSummary = {
+  base_increase: QuotaCategory
+  supplement: QuotaCategory
+  bonus: QuotaCategory
+  weighted_pool: QuotaCategory
+  increase: QuotaCategory
+  ordinary_decrease: QuotaCategory
+  final_low_decrease: QuotaCategory
+  disabled_decrease: QuotaCategory
+  decrease: QuotaCategory
+  affected: number
+  budget: string
+  stage_cap: string
+  total_spend: string
+  managed_balance: string
+  occupied_before: string
+  occupied_after: string
+  balance_after: string
+  available_before_reclaim: string
+  stage_source_total: string
+  reclaimed_used_for_increases: string
+  reclaimed_used_to_cover_overage: string
+  reclaimed_unused: string
+  stage_original_unused: string
+  stage_remaining: string
+  pool_remaining: string
+  future_reserved: string
+  final_stage: boolean
+}
+
+export type CycleDefaults = { start_at: number; end_at: number }
+export type InitialGrantRecommendation = {
+  quota: string
+  reference_start: number
+  reference_end: number
+  user_count: number
+  total_spend: string
+  average_spend: string
+  buffered: string
+  stability_floor: string
+}
+
+export type CycleListData = {
+  cycles: QuotaCycle[]
+  defaults: CycleDefaults
+  recommendation: InitialGrantRecommendation | null
+}
+
+export type SchedulePoint = { time: number; percent: number; label: string }
+export type QuotaSchedule = {
+  current: SchedulePoint
+  next: SchedulePoint
+  events: SchedulePoint[]
+  note: string
+}
+
+export type PlanDefaults = {
+  plan_type: PlanType
+  stage_percent: number
+  next_adjustment_at: number
+  basis_mode: 'actual' | 'week'
+  early_reclaim: boolean
+  reclaim_cap_percent: number
+  usage_bonus_percent: number
+}
+
+export type PlanOptions = {
+  cycle: QuotaCycle | null
+  schedule: QuotaSchedule | null
+  initialization_required: boolean
+  defaults?: PlanDefaults
+}
+
+export type CycleDetailData = {
+  cycle: QuotaCycle
+  plans: QuotaPlan[]
+  recommendation: InitialGrantRecommendation | null
+}
+export type PlanDetailData = {
+  plan: QuotaPlan
+  cycle: QuotaCycle
+  items: QuotaItem[]
+  summary: PlanSummary
+  confirmation_phrase: string
+}
+
+export type CycleWrite = {
+  cycle_start_at: number
+  cycle_end_at: number
+  budget_quota: string
+  initial_grant_quota: string
+}
+
+export type CycleUpdate = {
+  budget_quota: string
+  initial_grant_quota?: string
+}
+
+export type PlanWrite = {
+  cycle_id: number
+  plan_type: PlanType
+  stage_percent: number
+  next_adjustment_at: number
+  basis_mode: 'actual' | 'week'
+  early_reclaim: boolean
+  reclaim_cap_percent: number
+  usage_bonus_percent: number
+  thorough_release: boolean
+}
+
+export type NotificationRetryResult = {
+  logs_sent: number
+  logs_failed: number
+  emails_sent: number
+  emails_failed: number
+  skipped: number
+}

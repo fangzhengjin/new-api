@@ -291,6 +291,37 @@ func TestSendEmailUsesExplicitStartTLSWithInsecureCertificate(t *testing.T) {
 		require.Contains(t, message, "Subject: =?UTF-8?B?")
 		require.Contains(t, message, "<p>123456</p>")
 	case <-time.After(2 * time.Second):
+		require.FailNow(t, "timed out waiting for SMTP DATA")
+	}
+}
+
+func TestSendEmailMultipartIncludesPlainTextAndHTMLAlternatives(t *testing.T) {
+	server := newFakeSMTPServerWithSTARTTLSAdvertisement(t, false)
+	defer server.close()
+	withSMTPSettings(t)
+
+	SMTPServer = server.host
+	SMTPPort = server.port
+	SMTPSSLEnabled = false
+	SMTPStartTLSEnabled = false
+	SMTPAccount = ""
+	SMTPFrom = "sender@example.com"
+	SMTPToken = ""
+	SystemName = "New API"
+
+	require.NoError(t, SendEmailMultipart(
+		"额度通知", "receiver@example.com", "纯文本额度通知", "<p>HTML额度通知</p>",
+	))
+
+	select {
+	case message := <-server.messages:
+		require.Contains(t, message, "MIME-Version: 1.0")
+		require.Contains(t, message, "Content-Type: multipart/alternative;")
+		require.Contains(t, message, "Content-Type: text/plain; charset=UTF-8")
+		require.Contains(t, message, "纯文本额度通知")
+		require.Contains(t, message, "Content-Type: text/html; charset=UTF-8")
+		require.Contains(t, message, "<p>HTML额度通知</p>")
+	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SMTP DATA")
 	}
 }

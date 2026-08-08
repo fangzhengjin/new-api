@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  Coins,
   CreditCard,
   FileText,
   FlaskConical,
@@ -36,7 +37,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -149,6 +150,13 @@ export function useSidebarData(): SidebarData {
             url: '/system-info',
             icon: ServerCog,
             requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
+            title: t('Quota Management'),
+            url: '/quota-management',
+            activeUrls: ['/quota-management'],
+            icon: Coins,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('System Settings'),

@@ -44,6 +44,7 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  getDistinctUserDisplayName,
   getLogTokenSummary,
   getTieredBillingSummary,
   hasAnyCacheTokens,
@@ -489,11 +490,17 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           const log = row.original
 
           if (!log.username) return null
+          const displayName = sensitiveVisible
+            ? getDistinctUserDisplayName(log)
+            : ''
+          const showTooltip =
+            sensitiveVisible &&
+            (log.username.length > 12 || displayName.length > 12)
 
           return (
             <button
               type='button'
-              className='flex items-center gap-1.5 text-left'
+              className='flex min-w-0 items-center gap-1.5 text-left'
               onClick={(e) => {
                 e.stopPropagation()
                 setSelectedUserId(log.user_id)
@@ -519,14 +526,30 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <span className='text-muted-foreground max-w-[100px] truncate text-sm hover:underline' />
+                      <div className='group flex max-w-[120px] min-w-0 flex-col gap-0.5' />
                     }
                   >
-                    {sensitiveVisible ? log.username : '••••'}
+                    <span className='text-muted-foreground truncate text-sm group-hover:underline'>
+                      {sensitiveVisible ? log.username : '••••'}
+                    </span>
+                    {displayName ? (
+                      <span className='text-muted-foreground/70 truncate text-xs'>
+                        {displayName}
+                      </span>
+                    ) : null}
                   </TooltipTrigger>
-                  {sensitiveVisible && log.username.length > 12 && (
-                    <TooltipContent side='top'>{log.username}</TooltipContent>
-                  )}
+                  {showTooltip ? (
+                    <TooltipContent side='top'>
+                      <div className='flex flex-col gap-0.5'>
+                        <span>{log.username}</span>
+                        {displayName ? (
+                          <span className='text-muted-foreground text-xs'>
+                            {displayName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TooltipContent>
+                  ) : null}
                 </Tooltip>
               </TooltipProvider>
             </button>

@@ -4165,6 +4165,7 @@
     "Select models or add custom ones": "モデルを選択するか、カスタムモデルを追加",
     "Select models to process. Unselected \"add\" models will be ignored.": "処理するモデルを選択してください。未選択の「追加」モデルは無視されます。",
     "Select models to run batch tests.": "バッチテストを実行するモデルを選択してください。",
+    "Select models to run batch tests. Successful tests may restore automatically disabled channels or keys.": "バッチテストするモデルを選択してください。テストに成功すると、自動無効化されたチャネルまたはキーが再有効化される場合があります。",
     "Select or enter color value": "色の値を選択または入力",
     "Select or enter method identifier": "決済方法の識別子を選択または入力",
     "Select or enter model name": "モデル名を選択または入力",

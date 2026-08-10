@@ -4165,6 +4165,7 @@
     "Select models or add custom ones": "選擇模型或新增自訂模型",
     "Select models to process. Unselected \"add\" models will be ignored.": "勾選要處理的模型，未勾選的「新增」模型將作為忽略處理。",
     "Select models to run batch tests.": "選擇要執行大量測試的模型。",
+    "Select models to run batch tests. Successful tests may restore automatically disabled channels or keys.": "選擇模型進行批次測試。測試成功可能會恢復自動停用的渠道或金鑰。",
     "Select or enter color value": "選擇或輸入顏色值",
     "Select or enter method identifier": "選擇或輸入支付方式標識",
     "Select or enter model name": "選擇或輸入模型名稱",

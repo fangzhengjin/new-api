@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -118,6 +120,25 @@ func TestResponsesCompactChannelSupport(t *testing.T) {
 			assert.Equal(t, test.want, common.SupportsResponsesCompact(test.channelType, test.apiType))
 		})
 	}
+}
+
+func TestChannelTestStreamDefaultsAndEndpointSupport(t *testing.T) {
+	assert.True(t, shouldUseStreamForAutomaticChannelTest(&model.Channel{Type: constant.ChannelTypeOpenAI}))
+
+	defaultContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	defaultContext.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/1", nil)
+	assert.True(t, parseChannelTestStream(defaultContext))
+
+	synchronousContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	synchronousContext.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/1?stream=false", nil)
+	assert.False(t, parseChannelTestStream(synchronousContext))
+
+	imageRequest := buildTestRequest("gpt-image-1", string(constant.EndpointTypeImageGeneration), nil, true)
+	assert.True(t, imageRequest.IsStream(defaultContext.Request))
+	assert.Equal(t, string(constant.EndpointTypeImageGeneration), normalizeChannelTestEndpoint(nil, "gpt-image-1", ""))
+
+	embeddingRequest := buildTestRequest("text-embedding-3-small", string(constant.EndpointTypeEmbeddings), nil, true)
+	assert.False(t, embeddingRequest.IsStream(defaultContext.Request))
 }
 
 func TestMultiprotocolGatewayEndpointTypes(t *testing.T) {
@@ -294,6 +315,108 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 2, userID)
+}
+
+func TestManualModelBatchRecoversOnlyAutoDisabledMultiKeys(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	originalAutomaticEnable := common.AutomaticEnableChannelEnabled
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalSelfUseModeEnabled := operation_setting.SelfUseModeEnabled
+	originalStreamingTimeout := constant.StreamingTimeout
+	common.AutomaticEnableChannelEnabled = true
+	common.LogConsumeEnabled = false
+	common.MemoryCacheEnabled = false
+	operation_setting.SelfUseModeEnabled = true
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() {
+		common.AutomaticEnableChannelEnabled = originalAutomaticEnable
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		operation_setting.SelfUseModeEnabled = originalSelfUseModeEnabled
+		constant.StreamingTimeout = originalStreamingTimeout
+	})
+
+	var requestMu sync.Mutex
+	requestedKeys := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("Authorization")
+		requestMu.Lock()
+		requestedKeys[key]++
+		requestMu.Unlock()
+		if key != "Bearer key-a" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"invalid key"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n"))
+	}))
+	t.Cleanup(server.Close)
+
+	root := &model.User{
+		Id:       1,
+		Username: "root",
+		Role:     common.RoleRootUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		Quota:    1000000,
+	}
+	require.NoError(t, db.Create(root).Error)
+	channel := &model.Channel{
+		Name:    "multi-key recovery",
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "key-a\nkey-b\nkey-c",
+		BaseURL: common.GetPointer(server.URL),
+		Models:  "gpt-4o-mini",
+		Group:   "default",
+		Status:  common.ChannelStatusAutoDisabled,
+		ChannelInfo: model.ChannelInfo{
+			IsMultiKey: true,
+			MultiKeyStatusList: map[int]int{
+				0: common.ChannelStatusAutoDisabled,
+				1: common.ChannelStatusAutoDisabled,
+				2: common.ChannelStatusManuallyDisabled,
+			},
+		},
+	}
+	require.NoError(t, db.Create(channel).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "gpt-4o-mini",
+		ChannelId: channel.Id,
+		Enabled:   false,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(channel.Id)}}
+	ctx.Set("id", root.Id)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/1?model=gpt-4o-mini&manual_model_batch=true", nil)
+
+	TestChannel(ctx)
+
+	var response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Success, response.Message)
+
+	var stored model.Channel
+	require.NoError(t, db.First(&stored, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+	assert.NotContains(t, stored.ChannelInfo.MultiKeyStatusList, 0)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, stored.ChannelInfo.MultiKeyStatusList[1])
+	assert.Equal(t, common.ChannelStatusManuallyDisabled, stored.ChannelInfo.MultiKeyStatusList[2])
+
+	requestMu.Lock()
+	defer requestMu.Unlock()
+	assert.Equal(t, map[string]int{
+		"Bearer key-a": 1,
+		"Bearer key-b": 1,
+	}, requestedKeys)
 }
 
 func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *testing.T) {

@@ -86,6 +86,56 @@ func TestUpdateChannelStatusPersistsMultiKeyState(t *testing.T) {
 	assert.Equal(t, 1, stored.ChannelInfo.MultiKeyPollingIndex)
 }
 
+func TestGetNextEnabledKeyExcludingSkipsExhaustedTarget(t *testing.T) {
+	setupChannelStatusCacheTest(t, false)
+	channel := &Channel{
+		Id:     1,
+		Key:    "key-a\nkey-b",
+		Status: common.ChannelStatusEnabled,
+		ChannelInfo: ChannelInfo{
+			IsMultiKey:   true,
+			MultiKeySize: 2,
+			MultiKeyMode: constant.MultiKeyModePolling,
+		},
+	}
+	CacheUpdateChannel(channel)
+
+	key, index, err := channel.GetNextEnabledKeyExcluding(map[int]struct{}{0: {}})
+	require.Nil(t, err)
+	assert.Equal(t, "key-b", key)
+	assert.Equal(t, 1, index)
+}
+
+func TestGetRandomSatisfiedChannelWithoutCacheSelectsNextPriorityAfterExclusion(t *testing.T) {
+	setupChannelStatusCacheTest(t, true)
+	initCol()
+	common.MemoryCacheEnabled = false
+	highPriority := int64(100)
+	lowPriority := int64(0)
+	for _, fixture := range []struct {
+		channelID int
+		priority  *int64
+	}{
+		{channelID: 1, priority: &highPriority},
+		{channelID: 2, priority: &lowPriority},
+	} {
+		channel := Channel{Id: fixture.channelID, Key: "key", Status: common.ChannelStatusEnabled}
+		require.NoError(t, DB.Create(&channel).Error)
+		require.NoError(t, DB.Create(&Ability{
+			Group:     "default",
+			Model:     "model-a",
+			ChannelId: fixture.channelID,
+			Enabled:   true,
+			Priority:  fixture.priority,
+		}).Error)
+	}
+
+	channel, err := GetRandomSatisfiedChannel("default", "model-a", 0, "", map[int]struct{}{1: {}})
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	assert.Equal(t, 2, channel.Id)
+}
+
 func TestSaveStatusStateFromSingleKeySnapshotPreservesUnownedColumns(t *testing.T) {
 	setupChannelStatusPersistenceTest(t)
 
@@ -182,7 +232,7 @@ func TestUpdateChannelStatusRollsBackBeforeUpdatingCache(t *testing.T) {
 	cached, err := CacheGetChannel(channel.Id)
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusEnabled, cached.Status)
-	selected, err := GetRandomSatisfiedChannel("default", "model-a", 0, "")
+	selected, err := GetRandomSatisfiedChannel("default", "model-a", 0, "", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, selected)
 }
@@ -219,11 +269,11 @@ func TestChannelCacheReturnsSnapshotsAndTracksStatusRoutes(t *testing.T) {
 	assert.EqualValues(t, 10, *second.Priority)
 
 	require.True(t, UpdateChannelStatus(channel.Id, "", common.ChannelStatusManuallyDisabled, "manual"))
-	selected, err := GetRandomSatisfiedChannel("default", "model-a", 0, "")
+	selected, err := GetRandomSatisfiedChannel("default", "model-a", 0, "", nil)
 	require.NoError(t, err)
 	assert.Nil(t, selected)
 	require.True(t, UpdateChannelStatus(channel.Id, "", common.ChannelStatusEnabled, "manual"))
-	selected, err = GetRandomSatisfiedChannel("default", "model-a", 0, "")
+	selected, err = GetRandomSatisfiedChannel("default", "model-a", 0, "", nil)
 	require.NoError(t, err)
 	assert.NotNil(t, selected)
 }

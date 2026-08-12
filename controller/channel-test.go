@@ -1055,7 +1055,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	}
 
 	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, true)
 		summary.Disabled++
 	}
 
@@ -1092,7 +1092,6 @@ func runChannelTestWorkers(
 	workerCount := min(operation_setting.NormalizeChannelTestConcurrency(concurrency), total)
 	jobs := make(chan *model.Channel)
 	results := make(chan channelTestSummary)
-
 	var workers sync.WaitGroup
 	workers.Add(workerCount)
 	for range workerCount {

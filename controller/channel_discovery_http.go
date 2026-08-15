@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -15,6 +16,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 )
 
@@ -418,36 +423,70 @@ func fetchChannelDiscoveryModels(ctx context.Context, endpoint string, origin st
 // under ctx. It returns the first successful same-origin path, never a full URL
 // that could be persisted as a foreign route.
 func probeChannelDiscoveryEndpoint(ctx context.Context, block channelDiscoveryBlock, key string, protocol string, modelName string) (string, error) {
-	encoded, err := common.Marshal(channelDiscoveryProbeBody(protocol, modelName))
-	if err != nil {
-		return "", err
-	}
 	for _, endpoint := range channelDiscoveryProtocolEndpoints(block, block.ModelsPath, protocol) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("Content-Type", "application/json")
-		if protocol == "messages" {
-			req.Header.Set("x-api-key", key)
-			req.Header.Set("anthropic-version", "2023-06-01")
-		} else {
-			req.Header.Set("Authorization", "Bearer "+key)
-		}
-		response, err := channelDiscoveryHTTPClient(block.Origin).Do(req)
-		if err != nil {
-			continue
-		}
-		body, readErr := readChannelDiscoveryBody(response.Body)
-		_ = response.Body.Close()
-		if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices &&
-			readErr == nil && isChannelDiscoveryProbeResponse(protocol, body) {
-			parsed, _ := url.Parse(endpoint)
-			return channelDiscoveryRouteTarget(block, parsed.Path), nil
+		for _, stream := range []bool{true, false} {
+			req, err := newChannelDiscoveryProbeRequest(ctx, endpoint, key, protocol, modelName, stream)
+			if err != nil {
+				return "", err
+			}
+			response, err := channelDiscoveryHTTPClient(block.Origin).Do(req)
+			if err != nil {
+				continue
+			}
+			valid := false
+			if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+				if stream {
+					valid, _ = readChannelDiscoveryStreamProbe(protocol, response.Body)
+				} else {
+					body, readErr := readChannelDiscoveryBody(response.Body)
+					valid = readErr == nil && isChannelDiscoveryProbeResponse(protocol, body)
+				}
+			}
+			_ = response.Body.Close()
+			if valid {
+				parsed, _ := url.Parse(endpoint)
+				return channelDiscoveryRouteTarget(block, parsed.Path), nil
+			}
 		}
 	}
 	return "", fmt.Errorf("%s protocol probe failed", protocol)
+}
+
+// newChannelDiscoveryProbeRequest builds the exact stream or JSON probe sent
+// before a channel exists, including the shared OpenAI identity fallback.
+func newChannelDiscoveryProbeRequest(ctx context.Context, endpoint string, key string, protocol string, modelName string, stream bool) (*http.Request, error) {
+	encoded, err := common.Marshal(channelDiscoveryProbeBody(protocol, modelName, stream))
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
+	if stream {
+		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if protocol == "messages" {
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		return req, nil
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	format := types.RelayFormatOpenAI
+	var request dto.Request = &dto.GeneralOpenAIRequest{Model: modelName}
+	if protocol == "responses" {
+		format = types.RelayFormatOpenAIResponses
+		request = &dto.OpenAIResponsesRequest{Model: modelName}
+	}
+	relaychannel.ApplyCodexRequestHeaderFallback(nil, req, &relaycommon.RelayInfo{
+		RelayFormat: format,
+		Request:     request,
+	})
+	return req, nil
 }
 
 func channelDiscoveryProtocolEndpoints(block channelDiscoveryBlock, modelsPath string, protocol string) []string {
@@ -493,13 +532,69 @@ func isChannelDiscoveryProbeResponse(protocol string, body []byte) bool {
 	return field != "" && ok
 }
 
-func channelDiscoveryProbeBody(protocol string, modelName string) any {
+func isChannelDiscoveryStreamProbePayload(protocol string, body []byte) bool {
+	if isChannelDiscoveryProbeResponse(protocol, body) {
+		return true
+	}
+	var payload map[string]any
+	if common.Unmarshal(body, &payload) != nil || payload["error"] != nil {
+		return false
+	}
+	eventType, _ := payload["type"].(string)
+	switch protocol {
+	case "responses":
+		return strings.HasPrefix(eventType, "response.") && eventType != "response.failed"
+	case "messages":
+		return strings.HasPrefix(eventType, "message_") || strings.HasPrefix(eventType, "content_block_")
+	default:
+		return false
+	}
+}
+
+func readChannelDiscoveryStreamProbe(protocol string, reader io.Reader) (bool, error) {
+	limited := io.LimitReader(reader, channelDiscoveryMaxResponseBytes+1)
+	scanner := bufio.NewScanner(limited)
+	scanner.Buffer(make([]byte, 64*1024), channelDiscoveryMaxResponseBytes+1)
+	total := 0
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		total += len(line) + 1
+		if total > channelDiscoveryMaxResponseBytes {
+			return false, fmt.Errorf("upstream response exceeds %d MiB", channelDiscoveryMaxResponseBytes/(1024*1024))
+		}
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+			continue
+		}
+		if isChannelDiscoveryStreamProbePayload(protocol, payload) {
+			return true, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func channelDiscoveryProbeBody(protocol string, modelName string, stream bool) any {
 	// Protocol probes are real inference calls, so keep their output bound small.
 	message := "Reply with OK."
+	body := map[string]any{"model": modelName}
 	if protocol == "responses" {
-		return map[string]any{"model": modelName, "input": message, "max_output_tokens": 32}
+		body["input"] = message
+		body["max_output_tokens"] = 32
+	} else {
+		body["messages"] = []map[string]string{{"role": "user", "content": message}}
+		body["max_tokens"] = 32
 	}
-	return map[string]any{"model": modelName, "messages": []map[string]string{{"role": "user", "content": message}}, "max_tokens": 32}
+	if stream {
+		body["stream"] = true
+	}
+	return body
 }
 
 func channelDiscoveryHTTPClient(origin string) *http.Client {

@@ -5,12 +5,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -173,6 +175,71 @@ func TestChannelDiscoveryProbeResponseRequiresProtocolPayload(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			assert.Equal(t, test.valid, isChannelDiscoveryProbeResponse(test.protocol, []byte(test.body)))
+		})
+	}
+}
+
+func TestChannelDiscoveryProbeRequestUsesStreamAndCodexFallback(t *testing.T) {
+	settings := model_setting.GetCodexSettings()
+	originalSettings := *settings
+	settings.RequestHeaderFallbackEnabled = true
+	defer func() { *settings = originalSettings }()
+
+	req, err := newChannelDiscoveryProbeRequest(
+		context.Background(),
+		"https://api.example.test/v1/responses",
+		"secret-key",
+		"responses",
+		"gpt-5.6-luna",
+		true,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, "text/event-stream", req.Header.Get("Accept"))
+	assert.Contains(t, req.Header.Get("User-Agent"), "codex-tui/")
+	assert.Equal(t, "codex-tui", req.Header.Get("Originator"))
+	assert.NotEmpty(t, req.Header.Get("Session-Id"))
+
+	var body map[string]any
+	require.NoError(t, common.DecodeJson(req.Body, &body))
+	assert.Equal(t, "gpt-5.6-luna", body["model"])
+	assert.Equal(t, true, body["stream"])
+
+	nonStreamReq, err := newChannelDiscoveryProbeRequest(
+		context.Background(),
+		"https://api.example.test/v1/responses",
+		"secret-key",
+		"responses",
+		"gpt-5.6-luna",
+		false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "application/json", nonStreamReq.Header.Get("Accept"))
+	body = nil
+	require.NoError(t, common.DecodeJson(nonStreamReq.Body, &body))
+	_, hasStream := body["stream"]
+	assert.False(t, hasStream)
+}
+
+func TestReadChannelDiscoveryStreamProbeRequiresProtocolEvent(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol string
+		stream   string
+		valid    bool
+	}{
+		{name: "responses", protocol: "responses", stream: "event: response.created\ndata: {\"type\":\"response.created\"}\n\n", valid: true},
+		{name: "chat", protocol: "chat", stream: "data: {\"choices\":[{\"delta\":{}}]}\n\n", valid: true},
+		{name: "messages", protocol: "messages", stream: "event: message_start\ndata: {\"type\":\"message_start\"}\n\n", valid: true},
+		{name: "generic event", protocol: "responses", stream: "data: {\"ok\":true}\n\n"},
+		{name: "upstream error", protocol: "responses", stream: "data: {\"type\":\"response.failed\",\"error\":{\"message\":\"bad route\"}}\n\n"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			valid, err := readChannelDiscoveryStreamProbe(test.protocol, strings.NewReader(test.stream))
+			require.NoError(t, err)
+			assert.Equal(t, test.valid, valid)
 		})
 	}
 }

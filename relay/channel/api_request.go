@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -16,13 +17,21 @@ import (
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+)
+
+const (
+	codexTUIClientName    = "codex-tui"
+	codexTUIClientVersion = "0.147.0"
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
@@ -310,6 +319,137 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+// ApplyCodexRequestHeaderFallback completes a missing OpenAI outbound identity
+// without replacing headers supplied by the client or explicit override rules.
+func ApplyCodexRequestHeaderFallback(c *gin.Context, req *http.Request, info *common.RelayInfo) {
+	// A missing UA triggers the whole fallback; otherwise the client or manual
+	// header rules remain the authoritative identity source.
+	if req == nil || info == nil ||
+		!model_setting.GetCodexSettings().RequestHeaderFallbackEnabled ||
+		strings.TrimSpace(req.Header.Get("User-Agent")) != "" {
+		return
+	}
+
+	format := info.GetFinalRequestRelayFormat()
+	userAgentOnly := format == types.RelayFormatOpenAI ||
+		format == types.RelayFormatOpenAIImage ||
+		format == types.RelayFormatOpenAIAudio ||
+		format == types.RelayFormatEmbedding
+	responsesIdentity := format == types.RelayFormatOpenAIResponses ||
+		format == types.RelayFormatOpenAIResponsesCompaction
+	if !userAgentOnly && !responsesIdentity {
+		return
+	}
+
+	system := runtime.GOOS
+	switch system {
+	case "darwin":
+		system = "Darwin"
+	case "linux":
+		system = "Linux"
+	case "windows":
+		system = "Windows"
+	}
+	machine := runtime.GOARCH
+	if machine == "amd64" {
+		machine = "x86_64"
+	}
+	terminal := "unknown"
+	if runtime.GOOS == "windows" {
+		terminal = "WindowsTerminal"
+	}
+	userAgent := fmt.Sprintf(
+		"%s/%s (%s unknown; %s) %s (%s; %s)",
+		codexTUIClientName,
+		codexTUIClientVersion,
+		system,
+		machine,
+		terminal,
+		codexTUIClientName,
+		codexTUIClientVersion,
+	)
+
+	req.Header.Set("User-Agent", userAgent)
+	// Only Responses formats carry Codex turn and session semantics.
+	if userAgentOnly {
+		return
+	}
+
+	firstHeader := func(names ...string) string {
+		for _, name := range names {
+			if value := strings.TrimSpace(req.Header.Get(name)); value != "" {
+				return value
+			}
+		}
+		return ""
+	}
+	setIfMissing := func(name, value string) {
+		if strings.TrimSpace(req.Header.Get(name)) == "" {
+			req.Header.Set(name, value)
+		}
+	}
+
+	// Reuse a stable client identity when possible so fallback headers do not
+	// break upstream session affinity across related requests.
+	sessionID := firstHeader("Session-Id", "Session_id", "Thread-Id", "Thread_id", "X-Client-Request-Id")
+	if sessionID == "" {
+		var promptCacheKey string
+		switch request := info.Request.(type) {
+		case *dto.GeneralOpenAIRequest:
+			promptCacheKey = strings.TrimSpace(request.PromptCacheKey)
+		case *dto.OpenAIResponsesRequest:
+			_ = common2.Unmarshal(request.PromptCacheKey, &promptCacheKey)
+		case *dto.OpenAIResponsesCompactionRequest:
+			_ = common2.Unmarshal(request.PromptCacheKey, &promptCacheKey)
+		}
+		if promptCacheKey != "" {
+			sessionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(promptCacheKey)).String()
+		} else {
+			sessionID = uuid.NewString()
+		}
+	}
+
+	threadID := firstHeader("Thread-Id", "Thread_id")
+	if threadID == "" {
+		threadID = sessionID
+	}
+	installationID := firstHeader("X-Codex-Installation-Id")
+	if installationID == "" {
+		installationID = sessionID
+	}
+	windowID := firstHeader("X-Codex-Window-Id")
+	if windowID == "" {
+		windowID = sessionID + ":0"
+	}
+	turnID := uuid.NewString()
+	requestKind := "turn"
+	if format == types.RelayFormatOpenAIResponsesCompaction {
+		requestKind = "compaction"
+	}
+	turnMetadata, err := common2.Marshal(map[string]any{
+		"installation_id":         installationID,
+		"session_id":              sessionID,
+		"thread_id":               threadID,
+		"turn_id":                 turnID,
+		"window_id":               windowID,
+		"request_kind":            requestKind,
+		"thread_source":           "user",
+		"sandbox":                 "none",
+		"turn_started_at_unix_ms": time.Now().UnixMilli(),
+	})
+
+	setIfMissing("Originator", codexTUIClientName)
+	setIfMissing("Session-Id", sessionID)
+	setIfMissing("Thread-Id", threadID)
+	setIfMissing("X-Client-Request-Id", threadID)
+	setIfMissing("X-Codex-Installation-Id", installationID)
+	setIfMissing("X-Codex-Window-Id", windowID)
+	// X-Codex-Turn-State is server-issued sticky state and must never be forged.
+	if err == nil {
+		setIfMissing("X-Codex-Turn-Metadata", string(turnMetadata))
+	}
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
@@ -491,6 +631,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if billingErr := service.PrepareTieredBillingForUpstreamRequest(c, info, req); billingErr != nil {
 		return nil, billingErr
 	}
+	ApplyCodexRequestHeaderFallback(c, req, info)
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)

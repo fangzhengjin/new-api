@@ -5,7 +5,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	common2 "github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -190,4 +195,126 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))
+}
+
+func TestApplyCodexRequestHeaderFallbackPreservesManualHeaders(t *testing.T) {
+	settings := model_setting.GetCodexSettings()
+	originalEnabled := settings.RequestHeaderFallbackEnabled
+	settings.RequestHeaderFallbackEnabled = true
+	defer func() { settings.RequestHeaderFallbackEnabled = originalEnabled }()
+
+	req := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	req.Header.Set("Originator", "custom-originator")
+	req.Header.Set("Session_id", "session-from-client")
+	info := &relaycommon.RelayInfo{
+		RelayFormat:             types.RelayFormatClaude,
+		FinalRequestRelayFormat: types.RelayFormatOpenAIResponses,
+	}
+
+	ApplyCodexRequestHeaderFallback(nil, req, info)
+
+	require.Contains(t, req.Header.Get("User-Agent"), "codex-tui/")
+	require.Equal(t, "custom-originator", req.Header.Get("Originator"))
+	require.Equal(t, "session-from-client", req.Header.Get("Session-Id"))
+	require.Equal(t, "session-from-client", req.Header.Get("Thread-Id"))
+	require.Equal(t, "session-from-client", req.Header.Get("X-Client-Request-Id"))
+	require.Equal(t, "session-from-client", req.Header.Get("X-Codex-Installation-Id"))
+	require.Equal(t, "session-from-client:0", req.Header.Get("X-Codex-Window-Id"))
+
+	var metadata map[string]any
+	require.NoError(t, common2.Unmarshal([]byte(req.Header.Get("X-Codex-Turn-Metadata")), &metadata))
+	require.Equal(t, "session-from-client", metadata["session_id"])
+	require.Equal(t, "session-from-client", metadata["thread_id"])
+}
+
+func TestApplyCodexRequestHeaderFallbackUsesPromptCacheKeyForSession(t *testing.T) {
+	settings := model_setting.GetCodexSettings()
+	originalEnabled := settings.RequestHeaderFallbackEnabled
+	settings.RequestHeaderFallbackEnabled = true
+	defer func() { settings.RequestHeaderFallbackEnabled = originalEnabled }()
+
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		Request: &dto.OpenAIResponsesRequest{
+			PromptCacheKey: []byte(`"cache-key"`),
+		},
+	}
+	first := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	second := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+
+	ApplyCodexRequestHeaderFallback(nil, first, info)
+	ApplyCodexRequestHeaderFallback(nil, second, info)
+
+	require.NotEmpty(t, first.Header.Get("Session-Id"))
+	require.Equal(t, first.Header.Get("Session-Id"), second.Header.Get("Session-Id"))
+}
+
+func TestApplyCodexRequestHeaderFallbackProtocolScope(t *testing.T) {
+	settings := model_setting.GetCodexSettings()
+	originalEnabled := settings.RequestHeaderFallbackEnabled
+	defer func() { settings.RequestHeaderFallbackEnabled = originalEnabled }()
+	settings.RequestHeaderFallbackEnabled = true
+
+	chat := httptest.NewRequest(http.MethodPost, "https://example.com/v1/chat/completions", nil)
+	ApplyCodexRequestHeaderFallback(nil, chat, &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI})
+	require.Contains(t, chat.Header.Get("User-Agent"), "codex-tui/")
+	require.Empty(t, chat.Header.Get("Originator"))
+
+	for _, format := range []types.RelayFormat{
+		types.RelayFormatOpenAIImage,
+		types.RelayFormatOpenAIAudio,
+		types.RelayFormatEmbedding,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "https://example.com", nil)
+		ApplyCodexRequestHeaderFallback(nil, req, &relaycommon.RelayInfo{RelayFormat: format})
+		require.Contains(t, req.Header.Get("User-Agent"), "codex-tui/")
+		require.Empty(t, req.Header.Get("Originator"))
+	}
+
+	manual := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	manual.Header.Set("User-Agent", "custom-client/1.0")
+	ApplyCodexRequestHeaderFallback(nil, manual, &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIResponses})
+	require.Equal(t, "custom-client/1.0", manual.Header.Get("User-Agent"))
+	require.Empty(t, manual.Header.Get("Originator"))
+
+	nonOpenAI := httptest.NewRequest(http.MethodPost, "https://example.com/v1/messages", nil)
+	ApplyCodexRequestHeaderFallback(nil, nonOpenAI, &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude})
+	require.Empty(t, nonOpenAI.Header.Get("User-Agent"))
+
+	settings.RequestHeaderFallbackEnabled = false
+	disabled := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	ApplyCodexRequestHeaderFallback(nil, disabled, &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIResponses})
+	require.Empty(t, disabled.Header.Get("User-Agent"))
+}
+
+func TestDoRequestAppliesCodexRequestHeaderFallbackBeforeTransport(t *testing.T) {
+	settings := model_setting.GetCodexSettings()
+	originalEnabled := settings.RequestHeaderFallbackEnabled
+	settings.RequestHeaderFallbackEnabled = true
+	defer func() { settings.RequestHeaderFallbackEnabled = originalEnabled }()
+	service.InitHttpClient()
+
+	receivedHeaders := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		receivedHeaders <- req.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/v1/responses", http.NoBody)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	resp, err := doRequest(c, req, info)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	headers := <-receivedHeaders
+	require.Contains(t, headers.Get("User-Agent"), "codex-tui/")
+	require.Equal(t, codexTUIClientName, headers.Get("Originator"))
+	require.NotEmpty(t, headers.Get("Session-Id"))
 }

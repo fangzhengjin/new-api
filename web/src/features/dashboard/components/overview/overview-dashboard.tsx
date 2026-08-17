@@ -37,7 +37,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -60,6 +60,7 @@ import {
   useApiInfo,
   useDashboardContentVisibility,
 } from '../../hooks/use-status-data'
+import type { OverviewPanelId } from '../../lib/overview-panels'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -464,6 +465,7 @@ export function OverviewDashboard() {
     announcements: showAnnouncementsPanel,
     faq: showFAQPanel,
     uptimeKuma: showUptimePanel,
+    panelOrder,
   } = useDashboardContentVisibility()
   const [manualSetupGuideExpanded, setManualSetupGuideExpanded] = useState<
     boolean | null
@@ -607,9 +609,16 @@ export function OverviewDashboard() {
   const setupStatusReady = apiKeysQuery.isFetched && Boolean(user)
   const setupGuideExpanded =
     manualSetupGuideExpanded ?? (setupStatusReady && !setupComplete)
-  const showLeftContentPanels =
-    isAdmin || showApiInfoPanel || showAnnouncementsPanel || showFAQPanel
-  const showContentPanels = showLeftContentPanels || showUptimePanel
+  const contentPanels: Record<OverviewPanelId, ReactNode | null> = {
+    'api-info': showApiInfoPanel ? <ApiInfoPanel /> : null,
+    announcements: showAnnouncementsPanel ? <AnnouncementsPanel /> : null,
+    faq: showFAQPanel ? <FAQPanel /> : null,
+    'uptime-kuma': showUptimePanel ? <UptimePanel /> : null,
+  }
+  const visiblePanelIds = panelOrder.filter(
+    (panelId) => contentPanels[panelId] !== null
+  )
+  const showContentPanels = isAdmin || visiblePanelIds.length > 0
 
   const handleSetupGuideToggle = () => {
     const nextExpanded = !setupGuideExpanded
@@ -620,7 +629,12 @@ export function OverviewDashboard() {
   return (
     <div className='flex flex-col gap-4'>
       {setupGuideExpanded ? (
-        <CardStaggerContainer className='grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]'>
+        <CardStaggerContainer
+          className={cn(
+            'grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]',
+            setupComplete && 'hidden'
+          )}
+        >
           <CardStaggerItem className='bg-card h-full overflow-hidden rounded-2xl border shadow-xs'>
             <div className='relative h-full overflow-hidden p-4 sm:p-5'>
               <SetupGuideBackdrop />
@@ -696,7 +710,7 @@ export function OverviewDashboard() {
           </CardStaggerItem>
         </CardStaggerContainer>
       ) : (
-        <CardStaggerContainer>
+        <CardStaggerContainer className={cn(setupComplete && 'hidden')}>
           <CardStaggerItem className='bg-card overflow-hidden rounded-2xl border shadow-xs'>
             <div className='relative overflow-hidden px-4 py-3 sm:px-5'>
               <SetupGuideBackdrop compact />
@@ -752,49 +766,17 @@ export function OverviewDashboard() {
       <SummaryCards />
 
       {showContentPanels && (
-        <CardStaggerContainer
-          className={cn(
-            'grid grid-cols-1 gap-4',
-            showLeftContentPanels &&
-              showUptimePanel &&
-              'xl:grid-cols-[minmax(0,1fr)_22rem]'
-          )}
-        >
-          {showLeftContentPanels && (
-            <div
-              className={cn(
-                'grid min-w-0 grid-cols-1 gap-4',
-                (showApiInfoPanel || showAnnouncementsPanel || showFAQPanel) &&
-                  'lg:grid-cols-2'
-              )}
-            >
-              {isAdmin && (
-                <CardStaggerItem className='lg:col-span-2'>
-                  <PerformanceHealthPanel />
-                </CardStaggerItem>
-              )}
-              {showApiInfoPanel && (
-                <CardStaggerItem>
-                  <ApiInfoPanel />
-                </CardStaggerItem>
-              )}
-              {showAnnouncementsPanel && (
-                <CardStaggerItem>
-                  <AnnouncementsPanel />
-                </CardStaggerItem>
-              )}
-              {showFAQPanel && (
-                <CardStaggerItem>
-                  <FAQPanel />
-                </CardStaggerItem>
-              )}
-            </div>
-          )}
-          {showUptimePanel && (
-            <CardStaggerItem>
-              <UptimePanel />
+        <CardStaggerContainer className='grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3'>
+          {isAdmin && (
+            <CardStaggerItem className='lg:col-span-2 xl:col-span-3'>
+              <PerformanceHealthPanel />
             </CardStaggerItem>
           )}
+          {visiblePanelIds.map((panelId) => (
+            <CardStaggerItem key={panelId} className='min-w-0'>
+              {contentPanels[panelId]}
+            </CardStaggerItem>
+          ))}
         </CardStaggerContainer>
       )}
     </div>

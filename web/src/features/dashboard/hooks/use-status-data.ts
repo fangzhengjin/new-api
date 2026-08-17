@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useStatus } from '@/hooks/use-status'
 
+import { normalizeOverviewPanelOrder } from '../lib/overview-panels'
 import type { AnnouncementItem, ApiInfoItem, FAQItem } from '../types'
 
 /**
@@ -70,5 +71,6 @@ export function useDashboardContentVisibility() {
     announcements: hasStatus && status?.announcements_enabled !== false,
     faq: hasStatus && status?.faq_enabled !== false,
     uptimeKuma: hasStatus && status?.uptime_kuma_enabled !== false,
+    panelOrder: normalizeOverviewPanelOrder(status?.overview_panel_order),
   }
 }

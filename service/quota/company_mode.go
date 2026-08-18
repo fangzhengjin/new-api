@@ -54,7 +54,7 @@ func SetQuotaWhitelist(userID int, enabled bool, operator string) error {
 				if err != nil {
 					return err
 				}
-				stageCap, err := bigRatio([]int64{cycle.BudgetQuota, int64(stagePercent)}, []int64{10_000}, false)
+				stageCap, err := regularStageCap(cycle.BudgetQuota, cycle.RecoveryReserveQuota, stagePercent)
 				if err != nil {
 					return err
 				}
@@ -139,7 +139,7 @@ func ManualAdjustUserQuota(userID int, target int64, reason, operator string) (*
 			if err != nil {
 				return err
 			}
-			stageCap, err := bigRatio([]int64{cycle.BudgetQuota, int64(stagePercent)}, []int64{10_000}, false)
+			stageCap, err := regularStageCap(cycle.BudgetQuota, cycle.RecoveryReserveQuota, stagePercent)
 			if err != nil {
 				return err
 			}
@@ -156,7 +156,7 @@ func ManualAdjustUserQuota(userID int, target int64, reason, operator string) (*
 		if err != nil {
 			return err
 		}
-		plan := model.QuotaPlan{CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: stagePercent, SnapshotAt: now, NextAdjustmentAt: &cycle.CycleEndAt, AlgorithmVersion: AlgorithmVersion, Parameters: string(params), BudgetQuotaSnapshot: cycle.BudgetQuota, TotalSpendQuota: spend, ManagedBalanceQuota: managed, PlannedDeltaQuota: delta, Status: model.QuotaPlanStatusDraft, CreatedAt: now, CreatedBy: operator}
+		plan := model.QuotaPlan{CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: stagePercent, SnapshotAt: now, NextAdjustmentAt: &cycle.CycleEndAt, AlgorithmVersion: cycleAlgorithmVersion(cycle), Parameters: string(params), BudgetQuotaSnapshot: cycle.BudgetQuota, TotalSpendQuota: spend, ManagedBalanceQuota: managed, PlannedDeltaQuota: delta, Status: model.QuotaPlanStatusDraft, CreatedAt: now, CreatedBy: operator}
 		if err := tx.Create(&plan).Error; err != nil {
 			return err
 		}

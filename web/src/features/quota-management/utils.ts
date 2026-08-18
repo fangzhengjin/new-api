@@ -39,18 +39,27 @@ export function quotaToDisplayAmount(value: string): string {
   return amount.toFixed(6).replace(/\.?0+$/, '')
 }
 
-export function quotaFromDisplayAmount(value: string): string | null {
+export function quotaFromDisplayAmount(
+  value: string,
+  allowZero = false
+): string | null {
   const { meta } = getCurrencyDisplay()
   if (meta.kind === 'tokens') {
     if (!/^\d+$/.test(value)) return null
     const quota = BigInt(value)
-    return quota > 0n && quota <= MAX_INT64 ? quota.toString() : null
+    return (allowZero ? quota >= 0n : quota > 0n) && quota <= MAX_INT64
+      ? quota.toString()
+      : null
   }
 
   const amount = Number(value)
-  if (!Number.isFinite(amount) || amount <= 0) return null
+  if (!Number.isFinite(amount) || (allowZero ? amount < 0 : amount <= 0)) {
+    return null
+  }
   const quota = parseQuotaFromDollars(amount)
-  return Number.isSafeInteger(quota) && quota > 0 ? String(quota) : null
+  return Number.isSafeInteger(quota) && (allowZero ? quota >= 0 : quota > 0)
+    ? String(quota)
+    : null
 }
 
 export function formatDateTime(timestamp?: number | null): string {
@@ -105,4 +114,6 @@ export const queryKeys = {
   options: ['quota-management', 'options'] as const,
   cycle: (id: number) => ['quota-management', 'cycle', id] as const,
   plan: (id: number) => ['quota-management', 'plan', id] as const,
+  recoveryRequests: ['quota-management', 'recovery-requests'] as const,
+  algorithm: ['quota-management', 'algorithm'] as const,
 }

@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { QuotaRecoveryRequest } from '@/features/quota-recovery/types'
 import { api } from '@/lib/api'
 
 import type {
@@ -23,12 +24,14 @@ import type {
   CycleListData,
   CycleUpdate,
   CycleWrite,
+  FairnessShadowComparison,
   NotificationRetryResult,
   PlanDetailData,
   PlanOptions,
   PlanWrite,
   QuotaCycle,
   QuotaPlan,
+  QuotaAlgorithmStatus,
 } from './types'
 
 type Envelope<T> = {
@@ -129,6 +132,15 @@ export async function generatePlan(input: PlanWrite) {
   return unwrap(data)
 }
 
+export async function comparePlanFairness(input: PlanWrite) {
+  const { data } = await api.post<Envelope<FairnessShadowComparison>>(
+    '/api/quota-management/plans/shadow',
+    input,
+    requestConfig
+  )
+  return unwrap(data)
+}
+
 export async function getPlan(id: number) {
   const { data } = await api.get<Envelope<PlanDetailData>>(
     `/api/quota-management/plans/${id}`,
@@ -189,6 +201,63 @@ export async function manualQuotaAdjust(input: {
   const { data } = await api.post<Envelope<unknown>>(
     '/api/quota-management/manual-adjust',
     input,
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function listRecoveryRequests() {
+  const { data } = await api.get<Envelope<QuotaRecoveryRequest[]>>(
+    '/api/quota-management/recovery-requests',
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function approveRecoveryRequest(
+  id: number,
+  approvedQuota: string,
+  reason: string
+) {
+  const { data } = await api.post<Envelope<{ request: QuotaRecoveryRequest }>>(
+    `/api/quota-management/recovery-requests/${id}/approve`,
+    { approved_quota: approvedQuota, reason },
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function rejectRecoveryRequest(id: number, reason: string) {
+  const { data } = await api.post<Envelope<QuotaRecoveryRequest>>(
+    `/api/quota-management/recovery-requests/${id}/reject`,
+    { reason },
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function getQuotaAlgorithmStatus() {
+  const { data } = await api.get<Envelope<QuotaAlgorithmStatus>>(
+    '/api/quota-management/algorithm',
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function recordFairnessEvidence(input: PlanWrite) {
+  const { data } = await api.post<
+    Envelope<{ cycle_id: number; qualified: boolean }>
+  >('/api/quota-management/algorithm/evidence', input, requestConfig)
+  return unwrap(data)
+}
+
+export async function switchQuotaAlgorithm(
+  targetVersion: string,
+  confirmation: string
+) {
+  const { data } = await api.post<Envelope<Partial<QuotaAlgorithmStatus>>>(
+    '/api/quota-management/algorithm/switch',
+    { target_version: targetVersion, confirmation },
     requestConfig
   )
   return unwrap(data)

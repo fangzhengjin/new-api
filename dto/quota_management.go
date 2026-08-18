@@ -2,17 +2,29 @@ package dto
 
 // QuotaCycleCreateRequest creates a purchasing cycle from Unix-second boundaries and raw quota strings.
 type QuotaCycleCreateRequest struct {
-	CycleStartAt      int64  `json:"cycle_start_at" binding:"required"`
-	CycleEndAt        int64  `json:"cycle_end_at" binding:"required"`
-	BudgetQuota       string `json:"budget_quota" binding:"required"`
-	InitialGrantQuota string `json:"initial_grant_quota" binding:"required"`
-	BalancePolicy     string `json:"balance_policy" binding:"required"`
+	CycleStartAt               int64  `json:"cycle_start_at" binding:"required"`
+	CycleEndAt                 int64  `json:"cycle_end_at" binding:"required"`
+	BudgetQuota                string `json:"budget_quota" binding:"required"`
+	InitialGrantQuota          string `json:"initial_grant_quota" binding:"required"`
+	RecoveryReserveQuota       string `json:"recovery_reserve_quota"`
+	AutoRecoveryEnabled        bool   `json:"auto_recovery_enabled"`
+	AutoRecoverySingleQuota    string `json:"auto_recovery_single_quota"`
+	AutoRecoveryThresholdQuota string `json:"auto_recovery_threshold_quota"`
+	AutoRecoveryMaxCount       int    `json:"auto_recovery_max_count"`
+	AutoRecoveryMaxQuota       string `json:"auto_recovery_max_quota"`
+	BalancePolicy              string `json:"balance_policy" binding:"required"`
 }
 
 // QuotaCycleUpdateRequest updates budget and optionally the scheduled initial grant.
 type QuotaCycleUpdateRequest struct {
-	BudgetQuota       string  `json:"budget_quota" binding:"required"`
-	InitialGrantQuota *string `json:"initial_grant_quota"`
+	BudgetQuota                string  `json:"budget_quota" binding:"required"`
+	InitialGrantQuota          *string `json:"initial_grant_quota"`
+	RecoveryReserveQuota       *string `json:"recovery_reserve_quota"`
+	AutoRecoveryEnabled        *bool   `json:"auto_recovery_enabled"`
+	AutoRecoverySingleQuota    *string `json:"auto_recovery_single_quota"`
+	AutoRecoveryThresholdQuota *string `json:"auto_recovery_threshold_quota"`
+	AutoRecoveryMaxCount       *int    `json:"auto_recovery_max_count"`
+	AutoRecoveryMaxQuota       *string `json:"auto_recovery_max_quota"`
 }
 
 // QuotaPlanGenerateRequest contains the administrator-reviewed allocation controls.
@@ -45,21 +57,29 @@ type QuotaCycleRestoreRequest struct {
 
 // QuotaCycleResponse keeps quota values as decimal strings for JavaScript safety.
 type QuotaCycleResponse struct {
-	ID                int    `json:"id"`
-	CycleStartAt      int64  `json:"cycle_start_at"`
-	CycleEndAt        int64  `json:"cycle_end_at"`
-	BudgetQuota       string `json:"budget_quota"`
-	InitialGrantQuota string `json:"initial_grant_quota"`
-	BalancePolicy     string `json:"balance_policy"`
-	Status            string `json:"status"`
-	SettlementPlanID  *int   `json:"settlement_plan_id"`
-	SettledAt         *int64 `json:"settled_at"`
-	RestoredAt        *int64 `json:"restored_at"`
-	RestoredBy        string `json:"restored_by"`
-	CreatedAt         int64  `json:"created_at"`
-	CreatedBy         string `json:"created_by"`
-	UpdatedAt         int64  `json:"updated_at"`
-	UpdatedBy         string `json:"updated_by"`
+	ID                         int    `json:"id"`
+	CycleStartAt               int64  `json:"cycle_start_at"`
+	CycleEndAt                 int64  `json:"cycle_end_at"`
+	BudgetQuota                string `json:"budget_quota"`
+	InitialGrantQuota          string `json:"initial_grant_quota"`
+	RecoveryReserveQuota       string `json:"recovery_reserve_quota"`
+	AutoRecoveryEnabled        bool   `json:"auto_recovery_enabled"`
+	AutoRecoverySingleQuota    string `json:"auto_recovery_single_quota"`
+	AutoRecoveryThresholdQuota string `json:"auto_recovery_threshold_quota"`
+	AutoRecoveryMaxCount       int    `json:"auto_recovery_max_count"`
+	AutoRecoveryMaxQuota       string `json:"auto_recovery_max_quota"`
+	AllocationAlgorithmVersion string `json:"allocation_algorithm_version"`
+	LegacyRollbackAllowed      bool   `json:"legacy_rollback_allowed"`
+	BalancePolicy              string `json:"balance_policy"`
+	Status                     string `json:"status"`
+	SettlementPlanID           *int   `json:"settlement_plan_id"`
+	SettledAt                  *int64 `json:"settled_at"`
+	RestoredAt                 *int64 `json:"restored_at"`
+	RestoredBy                 string `json:"restored_by"`
+	CreatedAt                  int64  `json:"created_at"`
+	CreatedBy                  string `json:"created_by"`
+	UpdatedAt                  int64  `json:"updated_at"`
+	UpdatedBy                  string `json:"updated_by"`
 }
 
 // QuotaPlanResponse serializes every persisted quota snapshot as a string.
@@ -145,5 +165,89 @@ type QuotaPlanSummaryResponse struct {
 	StageRemaining              string                `json:"stage_remaining"`
 	PoolRemaining               string                `json:"pool_remaining"`
 	FutureReserved              string                `json:"future_reserved"`
+	RecoveryReserve             string                `json:"recovery_reserve"`
 	FinalStage                  bool                  `json:"final_stage"`
+}
+
+// QuotaFairnessMetricsResponse contains deterministic basis-point coverage metrics.
+type QuotaFairnessMetricsResponse struct {
+	Population            int    `json:"population"`
+	MinimumCoverage       int64  `json:"minimum_coverage_basis_points"`
+	P10Coverage           int64  `json:"p10_coverage_basis_points"`
+	P50Coverage           int64  `json:"p50_coverage_basis_points"`
+	P90Coverage           int64  `json:"p90_coverage_basis_points"`
+	MinimumSafetyCoverage int64  `json:"minimum_safety_coverage_basis_points"`
+	SafetyUnmet           int    `json:"safety_unmet"`
+	NewUserCount          int    `json:"new_user_count"`
+	NewUserCoverage       *int64 `json:"new_user_coverage_basis_points"`
+	ReclaimedQuota        string `json:"reclaimed_quota"`
+	RecoveryReserveQuota  string `json:"recovery_reserve_quota"`
+	OccupiedAfterQuota    string `json:"occupied_after_quota"`
+}
+
+// QuotaFairnessShadowItemResponse compares both algorithms without a persisted plan.
+type QuotaFairnessShadowItemResponse struct {
+	UserID                   int    `json:"user_id"`
+	Username                 string `json:"username"`
+	CurrentBalanceQuota      string `json:"current_balance_quota"`
+	SafetyTargetQuota        string `json:"safety_target_quota"`
+	DemandTargetQuota        string `json:"demand_target_quota"`
+	TargetQuota              string `json:"target_quota"`
+	CurrentAdjustmentQuota   string `json:"current_adjustment_quota"`
+	CandidateAdjustmentQuota string `json:"candidate_adjustment_quota"`
+	CurrentAfterQuota        string `json:"current_after_quota"`
+	CandidateAfterQuota      string `json:"candidate_after_quota"`
+	CurrentCoverage          int64  `json:"current_coverage_basis_points"`
+	CandidateCoverage        int64  `json:"candidate_coverage_basis_points"`
+}
+
+// QuotaFairnessShadowResponse is the read-only current/candidate comparison.
+type QuotaFairnessShadowResponse struct {
+	SnapshotAt                int64                             `json:"snapshot_at"`
+	StageCapQuota             string                            `json:"stage_cap_quota"`
+	CurrentAlgorithmVersion   string                            `json:"current_algorithm_version"`
+	CandidateAlgorithmVersion string                            `json:"candidate_algorithm_version"`
+	CandidateQualified        bool                              `json:"candidate_qualified"`
+	Current                   QuotaFairnessMetricsResponse      `json:"current"`
+	Candidate                 QuotaFairnessMetricsResponse      `json:"candidate"`
+	Items                     []QuotaFairnessShadowItemResponse `json:"items"`
+}
+
+// QuotaRecoveryCreateRequest submits one idempotent temporary-quota request.
+type QuotaRecoveryCreateRequest struct {
+	IdempotencyKey string `json:"idempotency_key" binding:"required"`
+	RequestedQuota string `json:"requested_quota" binding:"required"`
+	Reason         string `json:"reason" binding:"required"`
+}
+
+// QuotaRecoveryDecisionRequest approves or rejects one pending request.
+type QuotaRecoveryDecisionRequest struct {
+	ApprovedQuota string `json:"approved_quota"`
+	Reason        string `json:"reason" binding:"required"`
+}
+
+// QuotaRecoveryRequestResponse keeps persisted amounts safe for JavaScript clients.
+type QuotaRecoveryRequestResponse struct {
+	ID             int    `json:"id"`
+	CycleID        int    `json:"cycle_id"`
+	UserID         int    `json:"user_id"`
+	Username       string `json:"username"`
+	DisplayName    string `json:"display_name"`
+	RequestedQuota string `json:"requested_quota"`
+	Reason         string `json:"reason"`
+	Status         string `json:"status"`
+	Decision       string `json:"decision"`
+	ApprovedQuota  string `json:"approved_quota"`
+	PlanID         *int   `json:"plan_id"`
+	ReviewedBy     string `json:"reviewed_by"`
+	ReviewReason   string `json:"review_reason"`
+	CreatedAt      int64  `json:"created_at"`
+	ReviewedAt     *int64 `json:"reviewed_at"`
+	ExecutedAt     *int64 `json:"executed_at"`
+}
+
+// QuotaAlgorithmSwitchRequest carries the exact switch confirmation phrase.
+type QuotaAlgorithmSwitchRequest struct {
+	TargetVersion string `json:"target_version" binding:"required"`
+	Confirmation  string `json:"confirmation" binding:"required"`
 }

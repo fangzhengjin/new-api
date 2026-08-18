@@ -76,7 +76,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	if executedAt == 0 {
 		executedAt = time.Now().Unix()
 	}
-	if plan.AlgorithmVersion != AlgorithmVersion {
+	if plan.AlgorithmVersion != cycleAlgorithmVersion(&cycle) {
 		return nil, errors.New("该草稿由旧版调配规则生成，请重新生成后再执行")
 	}
 	if executedAt < plan.SnapshotAt {
@@ -91,6 +91,10 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	if planParameters.ThoroughRelease && executedAt < finalAdjustmentTime(cycle.CycleStartAt, cycle.CycleEndAt) {
 		return nil, errors.New("彻底释放只能在最终调配窗口执行")
 	}
+	if planParameters.ThoroughRelease &&
+		(cycleAlgorithmVersion(&cycle) != CandidateAlgorithmVersion || cycle.RecoveryReserveQuota <= 0) {
+		return nil, errors.New("彻底释放需要可用的小额恢复渠道和候选算法")
+	}
 
 	var items []model.QuotaItem
 	if err := model.LockForUpdate(tx).Where("plan_id = ?", plan.Id).Order("id").Find(&items).Error; err != nil {
@@ -101,12 +105,22 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	}
 	hasDecrease := false
 	hasIncrease := false
+	hasRestore := false
+	restoreOnly := len(items) > 0
 	for _, item := range items {
 		if item.AdjustmentQuota < 0 {
 			hasDecrease = true
 		} else if item.AdjustmentQuota > 0 {
 			hasIncrease = true
 		}
+		if item.Action == model.QuotaAdjustmentActionRestore {
+			hasRestore = true
+		} else {
+			restoreOnly = false
+		}
+	}
+	if hasRestore && !restoreOnly {
+		return nil, errors.New("恢复方案不能混入普通调配条目")
 	}
 	if hasDecrease && executedAt-plan.SnapshotAt > decreaseDraftLifetimeSeconds {
 		snapshot := time.Unix(plan.SnapshotAt, 0).In(shanghaiLocation).Format("2006-01-02 15:04:05")
@@ -144,6 +158,19 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	stageCap, err := bigRatio([]int64{cycle.BudgetQuota, int64(plan.StagePercent)}, []int64{10_000}, false)
 	if err != nil {
 		return nil, err
+	}
+	if !restoreOnly {
+		if plan.PlanType == model.QuotaPlanTypeInitialization {
+			stageCap = cycle.BudgetQuota - cycle.RecoveryReserveQuota
+			if stageCap < 0 {
+				return nil, errors.New("小额恢复池超过周期预算")
+			}
+		} else {
+			stageCap, err = regularStageCap(cycle.BudgetQuota, cycle.RecoveryReserveQuota, plan.StagePercent)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if hasIncrease {
 		totalSpendBefore, err := totalSpendAt(tx, logDatabaseForTransaction(tx), cycle.Id, cycle.CycleStartAt, executedAt)
@@ -361,6 +388,9 @@ func GenerateLogContent(item model.QuotaItem, actualBefore int64, actualAfter in
 		model.QuotaAdjustmentActionGrant:      "额度补发",
 		model.QuotaAdjustmentActionReclaim:    "停用回收",
 		model.QuotaAdjustmentActionRestore:    "清零恢复",
+	}
+	if item.Action == model.QuotaAdjustmentActionRestore && strings.HasPrefix(item.BasisText, "临时额度恢复：") {
+		actionNames[item.Action] = "临时额度恢复"
 	}
 	formatLogDate := func(timestamp int64) string {
 		date := time.Unix(timestamp, 0).In(shanghaiLocation)

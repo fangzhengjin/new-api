@@ -48,6 +48,7 @@ describe('quota management formatting', () => {
     assert.equal(formatQuota('2500'), '$0.005')
     assert.equal(quotaToDisplayAmount('750000'), '1.5')
     assert.equal(quotaFromDisplayAmount('1.5'), '750000')
+    assert.equal(quotaFromDisplayAmount('0', true), '0')
 
     useSystemConfigStore.getState().setConfig({
       currency: {

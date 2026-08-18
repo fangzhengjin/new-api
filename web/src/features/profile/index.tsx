@@ -21,8 +21,10 @@ import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { QuotaRecoveryCard } from '@/features/quota-recovery/quota-recovery-card'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
@@ -39,6 +41,9 @@ export function Profile() {
   const { profile, loading, refreshProfile } = useProfile()
   const { status } = useStatus()
   const permissions = useAuthStore((s) => s.auth.user?.permissions)
+  const companyQuotaModeEnabled = useSystemConfigStore(
+    (state) => state.config.companyQuotaModeEnabled === true
+  )
 
   const checkinEnabled =
     !companyQuotaModeEnabled && status?.checkin_enabled === true
@@ -73,6 +78,7 @@ export function Profile() {
               </div>
 
               <div className='space-y-4 sm:space-y-6 xl:sticky xl:top-6'>
+                {companyQuotaModeEnabled && <QuotaRecoveryCard />}
                 {checkinEnabled && (
                   <CheckinCalendarCard
                     checkinEnabled={checkinEnabled}

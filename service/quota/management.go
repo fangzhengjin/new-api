@@ -48,12 +48,23 @@ type CycleDetail struct {
 
 // CreateCycleParams contains validated quota units and Unix-second boundaries.
 type CreateCycleParams struct {
-	StartAt           int64
-	EndAt             int64
-	BudgetQuota       int64
-	InitialGrantQuota int64
-	BalancePolicy     model.QuotaCycleBalancePolicy
-	CreatedBy         string
+	StartAt              int64
+	EndAt                int64
+	BudgetQuota          int64
+	InitialGrantQuota    int64
+	RecoveryReserveQuota int64
+	RecoveryPolicy       RecoveryPolicy
+	BalancePolicy        model.QuotaCycleBalancePolicy
+	CreatedBy            string
+}
+
+// RecoveryPolicy is the scheduled-cycle auto-approval policy frozen at activation.
+type RecoveryPolicy struct {
+	Enabled        bool
+	SingleQuota    int64
+	ThresholdQuota int64
+	MaxCount       int
+	MaxQuota       int64
 }
 
 func validateInitialGrantQuota(quota int64) error {
@@ -62,6 +73,48 @@ func validateInitialGrantQuota(quota int64) error {
 	}
 	if quota > int64(common.MaxQuota) {
 		return errors.New("人均首次额度超出单用户可支持范围")
+	}
+	return nil
+}
+
+func validateRecoveryReserveQuota(budgetQuota int64, reserveQuota int64) error {
+	if reserveQuota < 0 || reserveQuota >= budgetQuota {
+		return errors.New("小额恢复池必须大于等于0且小于采购总额")
+	}
+	minimumStageCap, err := bigRatio([]int64{budgetQuota, 7_500}, []int64{10_000}, false)
+	if err != nil {
+		return err
+	}
+	if reserveQuota > minimumStageCap {
+		return errors.New("小额恢复池不能超过75%普通调配阶段上限")
+	}
+	return nil
+}
+
+func validateRecoveryPolicy(policy RecoveryPolicy, reserveQuota int64) error {
+	if !policy.Enabled {
+		if policy.SingleQuota != 0 || policy.ThresholdQuota != 0 || policy.MaxCount != 0 || policy.MaxQuota != 0 {
+			return errors.New("关闭自动恢复时额度和次数参数必须为0")
+		}
+		return nil
+	}
+	if reserveQuota <= 0 {
+		return errors.New("开启自动恢复前必须配置正数小额恢复池")
+	}
+	if policy.SingleQuota <= 0 || policy.SingleQuota > int64(common.MaxQuota) {
+		return errors.New("自动恢复单次上限不在支持范围内")
+	}
+	if policy.ThresholdQuota <= 0 || policy.ThresholdQuota > int64(common.MaxQuota) {
+		return errors.New("自动恢复余额门槛不在支持范围内")
+	}
+	if policy.MaxCount <= 0 || policy.MaxCount > common.MaxQuota {
+		return errors.New("自动恢复每用户次数上限不在支持范围内")
+	}
+	if policy.MaxQuota < policy.SingleQuota || policy.MaxQuota > int64(common.MaxQuota) {
+		return errors.New("自动恢复每用户总额上限必须不小于单次上限且不超过单用户额度上限")
+	}
+	if policy.MaxQuota > reserveQuota {
+		return errors.New("自动恢复每用户总额上限不能超过小额恢复池")
 	}
 	return nil
 }
@@ -126,16 +179,33 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 	if err := validateInitialGrantQuota(params.InitialGrantQuota); err != nil {
 		return nil, err
 	}
+	if err := validateRecoveryReserveQuota(params.BudgetQuota, params.RecoveryReserveQuota); err != nil {
+		return nil, err
+	}
+	if err := validateRecoveryPolicy(params.RecoveryPolicy, params.RecoveryReserveQuota); err != nil {
+		return nil, err
+	}
 	if !params.BalancePolicy.Valid() {
 		return nil, errors.New("周期余额策略必须是 reset 或 carry")
 	}
 	cycle := model.QuotaCycle{
 		CycleStartAt: params.StartAt, CycleEndAt: params.EndAt,
 		BudgetQuota: params.BudgetQuota, InitialGrantQuota: params.InitialGrantQuota,
-		BalancePolicy: params.BalancePolicy,
-		Status:        model.QuotaCycleStatusScheduled, CreatedBy: params.CreatedBy,
+		RecoveryReserveQuota: params.RecoveryReserveQuota, BalancePolicy: params.BalancePolicy,
+		AutoRecoveryEnabled:        params.RecoveryPolicy.Enabled,
+		AutoRecoverySingleQuota:    params.RecoveryPolicy.SingleQuota,
+		AutoRecoveryThresholdQuota: params.RecoveryPolicy.ThresholdQuota,
+		AutoRecoveryMaxCount:       params.RecoveryPolicy.MaxCount,
+		AutoRecoveryMaxQuota:       params.RecoveryPolicy.MaxQuota,
+		Status:                     model.QuotaCycleStatusScheduled, CreatedBy: params.CreatedBy,
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		var latest model.QuotaCycle
+		err := model.LockForUpdate(tx).Order("cycle_start_at DESC").First(&latest).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		cycle.AllocationAlgorithmVersion = cycleAlgorithmVersion(&latest)
 		var overlap int64
 		if err := tx.Model(&model.QuotaCycle{}).
 			Where("cycle_start_at < ? AND cycle_end_at > ?", params.EndAt, params.StartAt).
@@ -153,8 +223,8 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 	return &cycle, nil
 }
 
-// UpdateCycleSettings updates budget and, only before activation, the initial grant.
-func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int64, updatedBy string) error {
+// UpdateCycleSettings updates budget and scheduled-only allocation settings.
+func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int64, recoveryReserveQuota *int64, recoveryPolicy *RecoveryPolicy, updatedBy string) error {
 	if budgetQuota <= 0 {
 		return errors.New("采购总额必须大于0")
 	}
@@ -169,7 +239,37 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 		if cycle.Status == model.QuotaCycleStatusClosed {
 			return errors.New("周期已关闭")
 		}
-		settingsChanged := budgetQuota != cycle.BudgetQuota || (initialGrantQuota != nil && *initialGrantQuota != cycle.InitialGrantQuota)
+		reserveQuota := cycle.RecoveryReserveQuota
+		if recoveryReserveQuota != nil {
+			if cycle.Status != model.QuotaCycleStatusScheduled {
+				return errors.New("只有已规划周期可以修改小额恢复池")
+			}
+			reserveQuota = *recoveryReserveQuota
+		}
+		if err := validateRecoveryReserveQuota(budgetQuota, reserveQuota); err != nil {
+			return err
+		}
+		if recoveryPolicy != nil {
+			if cycle.Status != model.QuotaCycleStatusScheduled {
+				return errors.New("只有已规划周期可以修改自动恢复策略")
+			}
+			if err := validateRecoveryPolicy(*recoveryPolicy, reserveQuota); err != nil {
+				return err
+			}
+		} else if err := validateRecoveryPolicy(RecoveryPolicy{
+			Enabled: cycle.AutoRecoveryEnabled, SingleQuota: cycle.AutoRecoverySingleQuota,
+			ThresholdQuota: cycle.AutoRecoveryThresholdQuota, MaxCount: cycle.AutoRecoveryMaxCount,
+			MaxQuota: cycle.AutoRecoveryMaxQuota,
+		}, reserveQuota); err != nil {
+			return err
+		}
+		settingsChanged := budgetQuota != cycle.BudgetQuota ||
+			(initialGrantQuota != nil && *initialGrantQuota != cycle.InitialGrantQuota) ||
+			(recoveryReserveQuota != nil && *recoveryReserveQuota != cycle.RecoveryReserveQuota) ||
+			(recoveryPolicy != nil && (recoveryPolicy.Enabled != cycle.AutoRecoveryEnabled ||
+				recoveryPolicy.SingleQuota != cycle.AutoRecoverySingleQuota ||
+				recoveryPolicy.ThresholdQuota != cycle.AutoRecoveryThresholdQuota ||
+				recoveryPolicy.MaxCount != cycle.AutoRecoveryMaxCount || recoveryPolicy.MaxQuota != cycle.AutoRecoveryMaxQuota))
 		if model.CompanyQuotaModeEnabled() && cycle.Status == model.QuotaCycleStatusActive && budgetQuota != cycle.BudgetQuota {
 			spend, err := model.SumQuotaCycleSettlement(tx, cycle.Id, time.Now().Unix())
 			if err != nil {
@@ -199,6 +299,16 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 			}
 			updates["initial_grant_quota"] = *initialGrantQuota
 		}
+		if recoveryReserveQuota != nil {
+			updates["recovery_reserve_quota"] = *recoveryReserveQuota
+		}
+		if recoveryPolicy != nil {
+			updates["auto_recovery_enabled"] = recoveryPolicy.Enabled
+			updates["auto_recovery_single_quota"] = recoveryPolicy.SingleQuota
+			updates["auto_recovery_threshold_quota"] = recoveryPolicy.ThresholdQuota
+			updates["auto_recovery_max_count"] = recoveryPolicy.MaxCount
+			updates["auto_recovery_max_quota"] = recoveryPolicy.MaxQuota
+		}
 		if err := tx.Model(&model.QuotaCycle{}).Where("id = ?", cycleID).Updates(updates).Error; err != nil {
 			return err
 		}
@@ -209,7 +319,7 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 			Where("cycle_id = ? AND status = ?", cycleID, model.QuotaPlanStatusDraft).
 			Updates(map[string]interface{}{
 				"status": model.QuotaPlanStatusCancelled, "cancelled_at": time.Now().Unix(),
-				"cancelled_by": updatedBy, "cancel_reason": "周期预算或首次额度变更",
+				"cancelled_by": updatedBy, "cancel_reason": "周期预算、首次额度或恢复策略变更",
 			}).Error
 	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 }
@@ -361,6 +471,7 @@ type DetailedPlanSummary struct {
 	StageRemaining              int64
 	PoolRemaining               int64
 	FutureReserved              int64
+	RecoveryReserve             int64
 	FinalStage                  bool
 }
 
@@ -413,7 +524,7 @@ func GetPlanDetail(planID int) (*PlanDetail, error) {
 	if err := common.Unmarshal([]byte(plan.Parameters), &parameters); err != nil {
 		return nil, fmt.Errorf("方案参数无效: %w", err)
 	}
-	summary, err := summarizePlan(plan, items)
+	summary, err := summarizePlan(plan, items, cycle.RecoveryReserveQuota)
 	if err != nil {
 		return nil, err
 	}
@@ -571,10 +682,27 @@ type calculationFields struct {
 	WeightedPoolQuota string `json:"weighted_pool_quota"`
 }
 
-func summarizePlan(plan model.QuotaPlan, items []model.QuotaItem) (DetailedPlanSummary, error) {
+func summarizePlan(plan model.QuotaPlan, items []model.QuotaItem, recoveryReserve int64) (DetailedPlanSummary, error) {
 	stageCap, err := bigRatio([]int64{plan.BudgetQuotaSnapshot, int64(plan.StagePercent)}, []int64{10_000}, false)
 	if err != nil {
 		return DetailedPlanSummary{}, err
+	}
+	restoreOnly := len(items) > 0
+	for _, item := range items {
+		if item.Action != model.QuotaAdjustmentActionRestore {
+			restoreOnly = false
+			break
+		}
+	}
+	if !restoreOnly {
+		if plan.PlanType == model.QuotaPlanTypeInitialization {
+			stageCap = plan.BudgetQuotaSnapshot - recoveryReserve
+		} else {
+			stageCap, err = regularStageCap(plan.BudgetQuotaSnapshot, recoveryReserve, plan.StagePercent)
+			if err != nil {
+				return DetailedPlanSummary{}, err
+			}
+		}
 	}
 	occupiedBefore, err := checkedAdd(plan.TotalSpendQuota, plan.ManagedBalanceQuota)
 	if err != nil {
@@ -678,6 +806,10 @@ func summarizePlan(plan model.QuotaPlan, items []model.QuotaItem) (DetailedPlanS
 	reclaimedUsedForIncreases := minQuota(increaseTotal, reclaimedAvailableForIncreases)
 	stageSourceTotal := increaseTotal - reclaimedUsedForIncreases
 	reclaimedUnused := maxQuota(0, decreaseTotal-reclaimedUsedToCoverOverage-reclaimedUsedForIncreases)
+	futureReserved := maxQuota(0, plan.BudgetQuotaSnapshot-stageCap)
+	if !restoreOnly {
+		futureReserved = maxQuota(0, futureReserved-recoveryReserve)
+	}
 	return DetailedPlanSummary{
 		BaseIncrease: baseIncrease, Supplement: supplement, Bonus: bonus, WeightedPool: weighted,
 		Increase:         CategorySummary{Count: countPositiveItems(items), Total: increaseTotal},
@@ -693,7 +825,8 @@ func summarizePlan(plan model.QuotaPlan, items []model.QuotaItem) (DetailedPlanS
 		StageOriginalUnused:         maxQuota(0, availableBeforeReclaim-stageSourceTotal),
 		StageRemaining:              maxQuota(0, stageCap-occupiedAfter),
 		PoolRemaining:               maxQuota(0, plan.BudgetQuotaSnapshot-occupiedAfter),
-		FutureReserved:              maxQuota(0, plan.BudgetQuotaSnapshot-stageCap),
+		FutureReserved:              futureReserved,
+		RecoveryReserve:             recoveryReserve,
 		FinalStage:                  plan.StagePercent >= 10_000,
 	}, nil
 }

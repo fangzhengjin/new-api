@@ -157,6 +157,79 @@ func TestExecutePlanFreezesPositiveItemsWhenPositionAlreadyExceedsStage(t *testi
 	assert.Zero(t, stored[1].Quota)
 }
 
+func TestExecutePlanKeepsRecoveryReserveForOrdinaryItems(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		RecoveryReserveQuota: mustQuota(t, "100"), Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "ordinary-reserve", AffCode: "ordinary-reserve", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "640"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	plan := model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 7_500,
+		SnapshotAt: now, AlgorithmVersion: AlgorithmVersion, Status: model.QuotaPlanStatusDraft,
+	}
+	require.NoError(t, db.Create(&plan).Error)
+	require.NoError(t, db.Create(&model.QuotaItem{
+		PlanId: plan.Id, UserId: user.Id, Username: user.Username, Action: model.QuotaAdjustmentActionIncrease,
+		SnapshotBalanceQuota: int64(user.Quota), AdjustmentQuota: mustQuota(t, "20"),
+	}).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, cycle.Id, "root", now+60)
+		return executeErr
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "超过当前阶段上限")
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(mustQuota(t, "640")), user.Quota)
+}
+
+func TestExecutePlanAllowsRestoreItemsToUseReservedCapacity(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		RecoveryReserveQuota: mustQuota(t, "100"), Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "restore-reserve", AffCode: "restore-reserve", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "640"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	plan := model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 7_500,
+		SnapshotAt: now, AlgorithmVersion: AlgorithmVersion, Status: model.QuotaPlanStatusDraft,
+	}
+	require.NoError(t, db.Create(&plan).Error)
+	require.NoError(t, db.Create(&model.QuotaItem{
+		PlanId: plan.Id, UserId: user.Id, Username: user.Username, Action: model.QuotaAdjustmentActionRestore,
+		SnapshotBalanceQuota: int64(user.Quota), AdjustmentQuota: mustQuota(t, "20"),
+	}).Error)
+
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, cycle.Id, "root", now+60)
+		return executeErr
+	}))
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(mustQuota(t, "660")), user.Quota)
+}
+
+func TestExecutePlanRejectsOldAlgorithmVersion(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle, _, plan, _ := seedExecutableDecrease(t, db, now)
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("id = ?", plan.Id).Update("algorithm_version", "1.7.0").Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, cycle.Id, "root", now+60)
+		return executeErr
+	})
+	require.EqualError(t, err, "该草稿由旧版调配规则生成，请重新生成后再执行")
+}
+
 func TestSplitLogOutboxConvergesByDeterministicRequestID(t *testing.T) {
 	mainDB := setupQuotaTestDB(t)
 	logDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "logs.db")), &gorm.Config{})

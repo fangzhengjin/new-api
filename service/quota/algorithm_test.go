@@ -80,6 +80,67 @@ func TestAllocationPreservesCapAndMaterialThreshold(t *testing.T) {
 	assert.True(t, isMaterialAdjustment(mustQuota(t, "1.01"), mustQuota(t, "1")))
 }
 
+func TestFairAllocationMaximizesLowestDemandCoverage(t *testing.T) {
+	t.Parallel()
+	allocations, err := allocateFairRequests([]requestRow{
+		{UserID: 1, Balance: mustQuota(t, "10"), Target: mustQuota(t, "100"), Requested: mustQuota(t, "90")},
+		{UserID: 2, Balance: mustQuota(t, "90"), Target: mustQuota(t, "100"), Requested: mustQuota(t, "10")},
+	}, mustQuota(t, "40"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.Equal(t, mustQuota(t, "40"), allocations[1])
+	assert.Zero(t, allocations[2])
+}
+
+func TestFairAllocationCompletesSafetyLayerBeforeDemandLayer(t *testing.T) {
+	t.Parallel()
+	allocations, err := allocateFairRequests([]requestRow{
+		{UserID: 1, SafetyTarget: mustQuota(t, "50"), Target: mustQuota(t, "100"), Requested: mustQuota(t, "100")},
+		{UserID: 2, Target: mustQuota(t, "100"), Requested: mustQuota(t, "100")},
+	}, mustQuota(t, "60"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.Equal(t, mustQuota(t, "50"), allocations[1])
+	assert.Equal(t, mustQuota(t, "10"), allocations[2])
+}
+
+func TestFairAllocationUsesWaitTimeWhenMinimumUnitsAreScarce(t *testing.T) {
+	t.Parallel()
+	allocations, err := allocateFairRequests([]requestRow{
+		{UserID: 1, Target: mustQuota(t, "100"), Requested: mustQuota(t, "100"), LastPositiveAt: 200},
+		{UserID: 2, Target: mustQuota(t, "100"), Requested: mustQuota(t, "100"), LastPositiveAt: 100},
+	}, mustQuota(t, "1.01"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.NotContains(t, allocations, 1)
+	assert.Equal(t, mustQuota(t, "1.01"), allocations[2])
+}
+
+func TestFairAllocationPrioritizesUnmetSafetyWhenMinimumUnitsAreScarce(t *testing.T) {
+	t.Parallel()
+	allocations, err := allocateFairRequests([]requestRow{
+		{UserID: 1, Target: mustQuota(t, "100"), Requested: mustQuota(t, "100")},
+		{UserID: 2, Balance: mustQuota(t, "90"), SafetyTarget: mustQuota(t, "100"), Target: mustQuota(t, "100"), Requested: mustQuota(t, "10")},
+	}, mustQuota(t, "1.01"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.NotContains(t, allocations, 1)
+	assert.Equal(t, mustQuota(t, "1.01"), allocations[2])
+}
+
+func TestFairAllocationHandlesEmptySingleAndZeroCapacity(t *testing.T) {
+	t.Parallel()
+	empty, err := allocateFairRequests(nil, mustQuota(t, "10"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+
+	zero, err := allocateFairRequests([]requestRow{{UserID: 1, Requested: mustQuota(t, "100")}}, 0, mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.Empty(t, zero)
+
+	single, err := allocateFairRequests([]requestRow{
+		{UserID: 1, Target: mustQuota(t, "100"), Requested: mustQuota(t, "100")},
+	}, mustQuota(t, "40"), mustQuota(t, "1"))
+	require.NoError(t, err)
+	assert.Equal(t, mustQuota(t, "40"), single[1])
+}
+
 func TestDemandAndReclaimRulesMatchSourceTool(t *testing.T) {
 	t.Parallel()
 

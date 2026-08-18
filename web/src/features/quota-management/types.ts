@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-
 export type CycleStatus = 'scheduled' | 'active' | 'closed'
 export type BalancePolicy = 'reset' | 'carry'
 export type PlanStatus = 'draft' | 'executed' | 'cancelled'
@@ -37,6 +36,14 @@ export type QuotaCycle = {
   cycle_end_at: number
   budget_quota: string
   initial_grant_quota: string
+  recovery_reserve_quota: string
+  auto_recovery_enabled: boolean
+  auto_recovery_single_quota: string
+  auto_recovery_threshold_quota: string
+  auto_recovery_max_count: number
+  auto_recovery_max_quota: string
+  allocation_algorithm_version: string
+  legacy_rollback_allowed: boolean
   balance_policy: BalancePolicy
   status: CycleStatus
   settlement_plan_id: number | null
@@ -125,6 +132,7 @@ export type PlanSummary = {
   stage_remaining: string
   pool_remaining: string
   future_reserved: string
+  recovery_reserve: string
   final_stage: boolean
 }
 
@@ -189,12 +197,24 @@ export type CycleWrite = {
   cycle_end_at: number
   budget_quota: string
   initial_grant_quota: string
+  recovery_reserve_quota: string
+  auto_recovery_enabled: boolean
+  auto_recovery_single_quota: string
+  auto_recovery_threshold_quota: string
+  auto_recovery_max_count: number
+  auto_recovery_max_quota: string
   balance_policy: BalancePolicy
 }
 
 export type CycleUpdate = {
   budget_quota: string
   initial_grant_quota?: string
+  recovery_reserve_quota?: string
+  auto_recovery_enabled?: boolean
+  auto_recovery_single_quota?: string
+  auto_recovery_threshold_quota?: string
+  auto_recovery_max_count?: number
+  auto_recovery_max_quota?: string
 }
 
 export type PlanWrite = {
@@ -209,10 +229,68 @@ export type PlanWrite = {
   thorough_release: boolean
 }
 
+export type FairnessMetrics = {
+  population: number
+  minimum_coverage_basis_points: number
+  p10_coverage_basis_points: number
+  p50_coverage_basis_points: number
+  p90_coverage_basis_points: number
+  minimum_safety_coverage_basis_points: number
+  safety_unmet: number
+  new_user_count: number
+  new_user_coverage_basis_points: number | null
+  reclaimed_quota: string
+  recovery_reserve_quota: string
+  occupied_after_quota: string
+}
+
+export type FairnessShadowItem = {
+  user_id: number
+  username: string
+  current_balance_quota: string
+  safety_target_quota: string
+  demand_target_quota: string
+  target_quota: string
+  current_adjustment_quota: string
+  candidate_adjustment_quota: string
+  current_after_quota: string
+  candidate_after_quota: string
+  current_coverage_basis_points: number
+  candidate_coverage_basis_points: number
+}
+
+export type FairnessShadowComparison = {
+  snapshot_at: number
+  stage_cap_quota: string
+  current_algorithm_version: string
+  candidate_algorithm_version: string
+  candidate_qualified: boolean
+  current: FairnessMetrics
+  candidate: FairnessMetrics
+  items: FairnessShadowItem[]
+}
+
 export type NotificationRetryResult = {
   logs_sent: number
   logs_failed: number
   emails_sent: number
   emails_failed: number
   skipped: number
+}
+
+export type QuotaAlgorithmStatus = {
+  legacy_version: string
+  current_version: string
+  candidate_version: string
+  enable_confirmation_phrase: string
+  rollback_confirmation_phrase: string
+  required_qualified_cycles: number
+  qualified_cycle_ids: number[]
+  active_cycle_id: number | null
+  recovery_ready: boolean
+  draft_count: number
+  can_switch: boolean
+  rollback_allowed: boolean
+  can_record_evidence: boolean
+  blockers: string[]
 }

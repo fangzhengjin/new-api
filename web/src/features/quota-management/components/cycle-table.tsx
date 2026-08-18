@@ -52,6 +52,7 @@ export function CycleTable(props: { cycles: QuotaCycle[] }) {
             <TableHead>{t('Status')}</TableHead>
             <TableHead>{t('Budget')}</TableHead>
             <TableHead>{t('Initial grant per user')}</TableHead>
+            <TableHead>{t('Recovery reserve')}</TableHead>
             <TableHead>{t('Balance at cycle end')}</TableHead>
             <TableHead>{t('Created by')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
@@ -72,6 +73,7 @@ export function CycleTable(props: { cycles: QuotaCycle[] }) {
               </TableCell>
               <TableCell>{formatQuota(cycle.budget_quota)}</TableCell>
               <TableCell>{formatQuota(cycle.initial_grant_quota)}</TableCell>
+              <TableCell>{formatQuota(cycle.recovery_reserve_quota)}</TableCell>
               <TableCell>
                 {cycle.balance_policy === 'reset'
                   ? t('Reset to zero')

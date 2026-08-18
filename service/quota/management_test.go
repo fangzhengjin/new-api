@@ -11,12 +11,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateRecoveryPolicyRequiresCompleteBoundedConfiguration(t *testing.T) {
+	require.NoError(t, validateRecoveryPolicy(RecoveryPolicy{}, mustQuota(t, "100")))
+	require.EqualError(t, validateRecoveryPolicy(RecoveryPolicy{SingleQuota: 1}, mustQuota(t, "100")), "关闭自动恢复时额度和次数参数必须为0")
+	policy := RecoveryPolicy{
+		Enabled: true, SingleQuota: mustQuota(t, "10"), ThresholdQuota: mustQuota(t, "5"),
+		MaxCount: 2, MaxQuota: mustQuota(t, "20"),
+	}
+	require.EqualError(t, validateRecoveryPolicy(policy, 0), "开启自动恢复前必须配置正数小额恢复池")
+	require.NoError(t, validateRecoveryPolicy(policy, mustQuota(t, "100")))
+	policy.MaxQuota = mustQuota(t, "9")
+	require.EqualError(t, validateRecoveryPolicy(policy, mustQuota(t, "100")), "自动恢复每用户总额上限必须不小于单次上限且不超过单用户额度上限")
+}
+
 func TestValidateInitialGrantQuotaRejectsUnsupportedUserBalance(t *testing.T) {
 	require.EqualError(
 		t,
 		validateInitialGrantQuota(int64(common.MaxQuota)+1),
 		"人均首次额度超出单用户可支持范围",
 	)
+}
+
+func TestRecoveryReserveValidationUsesSmallestOrdinaryStage(t *testing.T) {
+	t.Parallel()
+	budget := mustQuota(t, "1000")
+	require.NoError(t, validateRecoveryReserveQuota(budget, 0))
+	require.NoError(t, validateRecoveryReserveQuota(budget, mustQuota(t, "750")))
+	assert.EqualError(t, validateRecoveryReserveQuota(budget, budget), "小额恢复池必须大于等于0且小于采购总额")
+	assert.EqualError(t, validateRecoveryReserveQuota(budget, mustQuota(t, "750.01")), "小额恢复池不能超过75%普通调配阶段上限")
+}
+
+func TestActiveCycleCannotChangeRecoveryReserve(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		RecoveryReserveQuota: mustQuota(t, "50"), Status: model.QuotaCycleStatusActive,
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	updatedReserve := mustQuota(t, "60")
+
+	err := UpdateCycleSettings(cycle.Id, cycle.BudgetQuota, nil, &updatedReserve, nil, "root")
+	require.EqualError(t, err, "只有已规划周期可以修改小额恢复池")
+
+	var stored model.QuotaCycle
+	require.NoError(t, db.First(&stored, cycle.Id).Error)
+	assert.Equal(t, mustQuota(t, "50"), stored.RecoveryReserveQuota)
 }
 
 func TestCreateCycleRejectsOverlappingWindow(t *testing.T) {
@@ -58,7 +99,7 @@ func TestUpdateActiveCycleRejectsBudgetBelowManagedPosition(t *testing.T) {
 	require.NoError(t, db.Create(&cycle).Error)
 	require.NoError(t, db.Create(&user).Error)
 
-	err := UpdateCycleSettings(cycle.Id, mustQuota(t, "50"), nil, "root")
+	err := UpdateCycleSettings(cycle.Id, mustQuota(t, "50"), nil, nil, nil, "root")
 	require.EqualError(t, err, "新周期预算不能低于当前受管头寸")
 
 	var stored model.QuotaCycle
@@ -144,7 +185,7 @@ func TestSummarizePlanPreservesAdjustmentAndFundFlowTotals(t *testing.T) {
 		},
 	}
 
-	summary, err := summarizePlan(plan, items)
+	summary, err := summarizePlan(plan, items, 0)
 	require.NoError(t, err)
 	assert.Equal(t, CategorySummary{Count: 1, Total: mustQuota(t, "60")}, summary.BaseIncrease)
 	assert.Equal(t, CategorySummary{Count: 1, Total: mustQuota(t, "20")}, summary.Bonus)
@@ -154,6 +195,20 @@ func TestSummarizePlanPreservesAdjustmentAndFundFlowTotals(t *testing.T) {
 	assert.Equal(t, mustQuota(t, "100"), summary.ReclaimedUsedForIncreases)
 	assert.Equal(t, int64(0), summary.StageSourceTotal)
 	assert.Equal(t, mustQuota(t, "600"), summary.OccupiedAfter)
+}
+
+func TestSummarizePlanSeparatesRecoveryReserveFromFutureStages(t *testing.T) {
+	t.Parallel()
+	plan := model.QuotaPlan{
+		PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 7_500,
+		BudgetQuotaSnapshot: mustQuota(t, "1000"),
+	}
+
+	summary, err := summarizePlan(plan, nil, mustQuota(t, "100"))
+	require.NoError(t, err)
+	assert.Equal(t, mustQuota(t, "650"), summary.StageCap)
+	assert.Equal(t, mustQuota(t, "250"), summary.FutureReserved)
+	assert.Equal(t, mustQuota(t, "100"), summary.RecoveryReserve)
 }
 
 func TestRegeneratePlanCreatesDraftAndCancelsOriginalTogether(t *testing.T) {

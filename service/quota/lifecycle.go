@@ -295,7 +295,7 @@ func createResetSettlementPlan(tx *gorm.DB, cycle model.QuotaCycle, now int64, u
 	}
 	plan := model.QuotaPlan{
 		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeSettlement, StagePercent: 10_000,
-		SnapshotAt: now, AlgorithmVersion: AlgorithmVersion, Parameters: string(parameterJSON),
+		SnapshotAt: now, AlgorithmVersion: cycleAlgorithmVersion(&cycle), Parameters: string(parameterJSON),
 		BudgetQuotaSnapshot: cycle.BudgetQuota, TotalSpendQuota: spend,
 		ManagedBalanceQuota: managed, PlannedDeltaQuota: -managed,
 		Status: model.QuotaPlanStatusExecuted, CreatedAt: now, CreatedBy: updatedBy,
@@ -510,7 +510,7 @@ func RestoreCycleSettlement(cycleID int, restoredBy string) (*ExecuteResult, err
 		plan := model.QuotaPlan{
 			CycleId: target.Id, PlanType: model.QuotaPlanTypeAdjustment,
 			StagePercent: int(stagePercent64), SnapshotAt: now, NextAdjustmentAt: &target.CycleEndAt,
-			AlgorithmVersion: AlgorithmVersion, Parameters: string(parameters),
+			AlgorithmVersion: cycleAlgorithmVersion(&target), Parameters: string(parameters),
 			BudgetQuotaSnapshot: target.BudgetQuota, TotalSpendQuota: spend,
 			ManagedBalanceQuota: managed, PlannedDeltaQuota: restoreTotal,
 			Status: model.QuotaPlanStatusDraft, CreatedAt: now, CreatedBy: restoredBy,

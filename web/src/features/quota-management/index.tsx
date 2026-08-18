@@ -28,9 +28,11 @@ import { Button } from '@/components/ui/button'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { listCycles } from './api'
+import { AlgorithmSwitchCard } from './components/algorithm-switch-card'
 import { CreateCycleDialog } from './components/create-cycle-dialog'
 import { CycleTable } from './components/cycle-table'
 import { ManualQuotaDialog } from './components/manual-quota-dialog'
+import { RecoveryRequestsCard } from './components/recovery-requests-card'
 import { PageError, PageLoading } from './components/shared'
 import { queryKeys } from './utils'
 
@@ -90,7 +92,13 @@ export function QuotaManagement() {
             {t('Create cycle')}
           </Button>
         </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>{cyclesContent}</SectionPageLayout.Content>
+        <SectionPageLayout.Content>
+          <div className='space-y-6'>
+            {cyclesContent}
+            {companyQuotaModeEnabled && <RecoveryRequestsCard />}
+            {companyQuotaModeEnabled && <AlgorithmSwitchCard />}
+          </div>
+        </SectionPageLayout.Content>
       </SectionPageLayout>
       {cyclesQuery.data && (
         <CreateCycleDialog

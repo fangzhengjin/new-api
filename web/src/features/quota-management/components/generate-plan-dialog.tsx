@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -55,8 +55,18 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { handleServerError } from '@/lib/handle-server-error'
 
-import { generatePlan } from '../api'
-import type { GeneratablePlanType, PlanOptions } from '../types'
+import {
+  comparePlanFairness,
+  generatePlan,
+  recordFairnessEvidence,
+} from '../api'
+import type {
+  FairnessShadowComparison,
+  GeneratablePlanType,
+  PlanOptions,
+  PlanWrite,
+  QuotaCycle,
+} from '../types'
 import {
   formatDateTime,
   formatQuota,
@@ -64,6 +74,7 @@ import {
   queryKeys,
   toShanghaiDateInput,
 } from '../utils'
+import { FairnessShadowResult } from './fairness-shadow-comparison'
 
 type FormValues = {
   planType: GeneratablePlanType
@@ -76,6 +87,29 @@ type FormValues = {
   thorough: boolean
 }
 
+function planWriteFromForm(values: FormValues, cycle: QuotaCycle): PlanWrite {
+  return {
+    cycle_id: cycle.id,
+    plan_type: values.planType,
+    stage_percent: Number(values.stagePercent),
+    next_adjustment_at: fromShanghaiAdjustmentDate(
+      values.nextAdjustmentAt,
+      cycle.cycle_end_at
+    ),
+    basis_mode: values.basisMode,
+    early_reclaim: values.earlyReclaim,
+    reclaim_cap_percent:
+      values.reclaimCapPercent.trim() === ''
+        ? 30
+        : Number(values.reclaimCapPercent),
+    usage_bonus_percent:
+      values.usageBonusPercent.trim() === ''
+        ? 30
+        : Number(values.usageBonusPercent),
+    thorough_release: values.thorough,
+  }
+}
+
 export function GeneratePlanDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -84,6 +118,9 @@ export function GeneratePlanDialog(props: {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [shadowResult, setShadowResult] =
+    useState<FairnessShadowComparison | null>(null)
+  const [shadowParams, setShadowParams] = useState<PlanWrite | null>(null)
   const schema = useMemo(
     () =>
       z.object({
@@ -151,6 +188,14 @@ export function GeneratePlanDialog(props: {
     })
   }, [form, props.open, props.options])
 
+  useEffect(() => {
+    const subscription = form.watch(() => {
+      setShadowResult(null)
+      setShadowParams(null)
+    })
+    return () => subscription.unsubscribe()
+  }, [form])
+
   const mutation = useMutation({
     mutationFn: generatePlan,
     onSuccess: async ({ plan_id }) => {
@@ -167,6 +212,22 @@ export function GeneratePlanDialog(props: {
         to: '/quota-management/plans/$planId',
         params: { planId: String(plan_id) },
       })
+    },
+    onError: handleServerError,
+  })
+  const shadowMutation = useMutation({
+    mutationFn: comparePlanFairness,
+    onSuccess: (result, params) => {
+      setShadowResult(result)
+      setShadowParams(params)
+    },
+    onError: handleServerError,
+  })
+  const evidenceMutation = useMutation({
+    mutationFn: recordFairnessEvidence,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.algorithm })
+      toast.success(t('Qualified shadow evidence recorded'))
     },
     onError: handleServerError,
   })
@@ -217,31 +278,16 @@ export function GeneratePlanDialog(props: {
 
   const submit = form.handleSubmit((values) => {
     if (!props.options?.cycle) return
-    mutation.mutate({
-      cycle_id: props.options.cycle.id,
-      plan_type: values.planType,
-      stage_percent: Number(values.stagePercent),
-      next_adjustment_at: fromShanghaiAdjustmentDate(
-        values.nextAdjustmentAt,
-        props.options.cycle.cycle_end_at
-      ),
-      basis_mode: values.basisMode,
-      early_reclaim: values.earlyReclaim,
-      reclaim_cap_percent:
-        values.reclaimCapPercent.trim() === ''
-          ? 30
-          : Number(values.reclaimCapPercent),
-      usage_bonus_percent:
-        values.usageBonusPercent.trim() === ''
-          ? 30
-          : Number(values.usageBonusPercent),
-      thorough_release: values.thorough,
-    })
+    mutation.mutate(planWriteFromForm(values, props.options.cycle))
+  })
+  const compare = form.handleSubmit((values) => {
+    if (!props.options?.cycle) return
+    shadowMutation.mutate(planWriteFromForm(values, props.options.cycle))
   })
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-lg'>
+      <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-4xl'>
         <DialogHeader>
           <DialogTitle>{t('Generate quota plan')}</DialogTitle>
           <DialogDescription>
@@ -533,20 +579,65 @@ export function GeneratePlanDialog(props: {
               </FieldGroup>
             </form>
           )}
+        {shadowResult && <FairnessShadowResult result={shadowResult} />}
         <DialogFooter>
           <Button
             type='button'
             variant='outline'
-            disabled={mutation.isPending}
+            disabled={
+              mutation.isPending ||
+              shadowMutation.isPending ||
+              evidenceMutation.isPending
+            }
             onClick={() => props.onOpenChange(false)}
           >
             {t('Cancel')}
+          </Button>
+          {shadowResult?.candidate_qualified &&
+            shadowParams?.stage_percent === 10_000 &&
+            shadowParams.thorough_release && (
+              <Button
+                type='button'
+                variant='outline'
+                disabled={
+                  mutation.isPending ||
+                  shadowMutation.isPending ||
+                  evidenceMutation.isPending
+                }
+                onClick={() => evidenceMutation.mutate(shadowParams)}
+              >
+                {evidenceMutation.isPending && (
+                  <Spinner data-icon='inline-start' />
+                )}
+                {t('Record gate evidence')}
+              </Button>
+            )}
+          <Button
+            type='button'
+            variant='outline'
+            disabled={
+              disabled ||
+              planType !== 'adjustment' ||
+              props.options?.initialization_required ||
+              mutation.isPending ||
+              shadowMutation.isPending ||
+              evidenceMutation.isPending
+            }
+            onClick={compare}
+          >
+            {shadowMutation.isPending && <Spinner data-icon='inline-start' />}
+            {t('Compare fairness')}
           </Button>
           <Button
             type='submit'
             form='generate-quota-plan'
             variant={thorough ? 'destructive' : 'default'}
-            disabled={disabled || mutation.isPending}
+            disabled={
+              disabled ||
+              mutation.isPending ||
+              shadowMutation.isPending ||
+              evidenceMutation.isPending
+            }
           >
             {mutation.isPending && <Spinner data-icon='inline-start' />}
             {t('Generate draft')}

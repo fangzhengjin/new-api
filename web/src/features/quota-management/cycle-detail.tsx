@@ -26,7 +26,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -60,12 +60,14 @@ import {
 } from '@/components/ui/dialog'
 import {
   Field,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import { Switch } from '@/components/ui/switch'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 
@@ -92,7 +94,16 @@ import {
   quotaToDisplayAmount,
 } from './utils'
 
-type FormValues = { budgetAmount: string; initialGrantAmount: string }
+type FormValues = {
+  budgetAmount: string
+  initialGrantAmount: string
+  recoveryReserveAmount: string
+  autoRecoveryEnabled: boolean
+  autoRecoverySingleAmount: string
+  autoRecoveryThresholdAmount: string
+  autoRecoveryMaxCount: string
+  autoRecoveryMaxAmount: string
+}
 const currencyAmountPattern = /^\d+(?:\.\d{1,6})?$/
 const tokenAmountPattern = /^\d+$/
 
@@ -121,27 +132,81 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
   })
   const schema = useMemo(
     () =>
-      z.object({
-        budgetAmount: z
-          .string()
-          .regex(amountPattern, amountError)
-          .refine(
-            (value) => quotaFromDisplayAmount(value) !== null,
-            amountError
-          ),
-        initialGrantAmount: z
-          .string()
-          .regex(amountPattern, amountError)
-          .refine(
-            (value) => quotaFromDisplayAmount(value) !== null,
-            amountError
-          ),
-      }),
-    [amountError, amountPattern]
+      z
+        .object({
+          budgetAmount: z
+            .string()
+            .regex(amountPattern, amountError)
+            .refine(
+              (value) => quotaFromDisplayAmount(value) !== null,
+              amountError
+            ),
+          initialGrantAmount: z
+            .string()
+            .regex(amountPattern, amountError)
+            .refine(
+              (value) => quotaFromDisplayAmount(value) !== null,
+              amountError
+            ),
+          recoveryReserveAmount: z
+            .string()
+            .regex(amountPattern, amountError)
+            .refine(
+              (value) => quotaFromDisplayAmount(value, true) !== null,
+              amountError
+            ),
+          autoRecoveryEnabled: z.boolean(),
+          autoRecoverySingleAmount: z.string(),
+          autoRecoveryThresholdAmount: z.string(),
+          autoRecoveryMaxCount: z.string(),
+          autoRecoveryMaxAmount: z.string(),
+        })
+        .superRefine((values, context) => {
+          if (!values.autoRecoveryEnabled) return
+          const amountFields = [
+            ['autoRecoverySingleAmount', values.autoRecoverySingleAmount],
+            ['autoRecoveryThresholdAmount', values.autoRecoveryThresholdAmount],
+            ['autoRecoveryMaxAmount', values.autoRecoveryMaxAmount],
+          ] as const
+          for (const [path, value] of amountFields) {
+            if (
+              !amountPattern.test(value) ||
+              quotaFromDisplayAmount(value) === null
+            ) {
+              context.addIssue({
+                code: 'custom',
+                path: [path],
+                message: amountError,
+              })
+            }
+          }
+          const maxCount = Number(values.autoRecoveryMaxCount)
+          if (
+            !/^\d+$/.test(values.autoRecoveryMaxCount) ||
+            !Number.isSafeInteger(maxCount) ||
+            maxCount <= 0
+          ) {
+            context.addIssue({
+              code: 'custom',
+              path: ['autoRecoveryMaxCount'],
+              message: t('Enter a positive whole number'),
+            })
+          }
+        }),
+    [amountError, amountPattern, t]
   )
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { budgetAmount: '', initialGrantAmount: '' },
+    defaultValues: {
+      budgetAmount: '',
+      initialGrantAmount: '',
+      recoveryReserveAmount: '0',
+      autoRecoveryEnabled: false,
+      autoRecoverySingleAmount: '0',
+      autoRecoveryThresholdAmount: '0',
+      autoRecoveryMaxCount: '0',
+      autoRecoveryMaxAmount: '0',
+    },
   })
 
   useEffect(() => {
@@ -150,6 +215,20 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       budgetAmount: quotaToDisplayAmount(query.data.cycle.budget_quota),
       initialGrantAmount: quotaToDisplayAmount(
         query.data.cycle.initial_grant_quota
+      ),
+      recoveryReserveAmount: quotaToDisplayAmount(
+        query.data.cycle.recovery_reserve_quota
+      ),
+      autoRecoveryEnabled: query.data.cycle.auto_recovery_enabled,
+      autoRecoverySingleAmount: quotaToDisplayAmount(
+        query.data.cycle.auto_recovery_single_quota
+      ),
+      autoRecoveryThresholdAmount: quotaToDisplayAmount(
+        query.data.cycle.auto_recovery_threshold_quota
+      ),
+      autoRecoveryMaxCount: String(query.data.cycle.auto_recovery_max_count),
+      autoRecoveryMaxAmount: quotaToDisplayAmount(
+        query.data.cycle.auto_recovery_max_quota
       ),
     })
   }, [editOpen, form, query.data])
@@ -160,7 +239,30 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       const initialGrantQuota = quotaFromDisplayAmount(
         values.initialGrantAmount
       )
-      if (!budgetQuota || !initialGrantQuota) {
+      const recoveryReserveQuota = quotaFromDisplayAmount(
+        values.recoveryReserveAmount,
+        true
+      )
+      const autoRecoverySingleQuota = values.autoRecoveryEnabled
+        ? quotaFromDisplayAmount(values.autoRecoverySingleAmount)
+        : '0'
+      const autoRecoveryThresholdQuota = values.autoRecoveryEnabled
+        ? quotaFromDisplayAmount(values.autoRecoveryThresholdAmount)
+        : '0'
+      const autoRecoveryMaxQuota = values.autoRecoveryEnabled
+        ? quotaFromDisplayAmount(values.autoRecoveryMaxAmount)
+        : '0'
+      const autoRecoveryMaxCount = values.autoRecoveryEnabled
+        ? Number(values.autoRecoveryMaxCount)
+        : 0
+      if (
+        !budgetQuota ||
+        !initialGrantQuota ||
+        recoveryReserveQuota === null ||
+        autoRecoverySingleQuota === null ||
+        autoRecoveryThresholdQuota === null ||
+        autoRecoveryMaxQuota === null
+      ) {
         throw new Error(amountError)
       }
       return updateCycle(props.cycleId, {
@@ -168,6 +270,30 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
         initial_grant_quota:
           query.data?.cycle.status === 'scheduled'
             ? initialGrantQuota
+            : undefined,
+        recovery_reserve_quota:
+          query.data?.cycle.status === 'scheduled'
+            ? recoveryReserveQuota
+            : undefined,
+        auto_recovery_enabled:
+          query.data?.cycle.status === 'scheduled'
+            ? values.autoRecoveryEnabled
+            : undefined,
+        auto_recovery_single_quota:
+          query.data?.cycle.status === 'scheduled'
+            ? autoRecoverySingleQuota
+            : undefined,
+        auto_recovery_threshold_quota:
+          query.data?.cycle.status === 'scheduled'
+            ? autoRecoveryThresholdQuota
+            : undefined,
+        auto_recovery_max_count:
+          query.data?.cycle.status === 'scheduled'
+            ? autoRecoveryMaxCount
+            : undefined,
+        auto_recovery_max_quota:
+          query.data?.cycle.status === 'scheduled'
+            ? autoRecoveryMaxQuota
             : undefined,
       })
     },
@@ -330,7 +456,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 t={t}
               />
             )}
-            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-5'>
+            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-6'>
               <Card>
                 <CardHeader>
                   <CardDescription>{t('Balance at cycle end')}</CardDescription>
@@ -378,6 +504,22 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               </Card>
               <Card>
                 <CardHeader>
+                  <CardDescription>{t('Recovery reserve')}</CardDescription>
+                  <CardTitle>
+                    {formatQuota(cycle.recovery_reserve_quota)}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-1'>
+                  <div>{t('Excluded from ordinary plans')}</div>
+                  <div>
+                    {cycle.auto_recovery_enabled
+                      ? t('Automatic approval enabled')
+                      : t('Automatic approval disabled')}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
                   <CardDescription>{t('Last updated')}</CardDescription>
                   <CardTitle>{formatDateTime(cycle.updated_at)}</CardTitle>
                 </CardHeader>
@@ -408,7 +550,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className='sm:max-w-md'>
+        <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
           <DialogHeader>
             <DialogTitle>{t('Edit quota cycle')}</DialogTitle>
             <DialogDescription>
@@ -450,6 +592,124 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   errors={[form.formState.errors.initialGrantAmount]}
                 />
               </Field>
+              <Field
+                data-disabled={cycle.status !== 'scheduled'}
+                data-invalid={!!form.formState.errors.recoveryReserveAmount}
+              >
+                <FieldLabel htmlFor='edit-cycle-recovery-reserve'>
+                  {t('Recovery reserve')} ({currencyLabel})
+                </FieldLabel>
+                <Input
+                  id='edit-cycle-recovery-reserve'
+                  inputMode='decimal'
+                  disabled={cycle.status !== 'scheduled'}
+                  {...form.register('recoveryReserveAmount')}
+                />
+                <FieldError
+                  errors={[form.formState.errors.recoveryReserveAmount]}
+                />
+              </Field>
+              <Controller
+                name='autoRecoveryEnabled'
+                control={form.control}
+                render={({ field }) => (
+                  <Field
+                    orientation='horizontal'
+                    data-disabled={cycle.status !== 'scheduled'}
+                  >
+                    <div className='flex-1'>
+                      <FieldLabel htmlFor='edit-cycle-auto-recovery'>
+                        {t('Automatically approve small recovery requests')}
+                      </FieldLabel>
+                      <FieldDescription>
+                        {t('The policy is frozen after the cycle starts.')}
+                      </FieldDescription>
+                    </div>
+                    <Switch
+                      id='edit-cycle-auto-recovery'
+                      checked={field.value}
+                      disabled={cycle.status !== 'scheduled'}
+                      onCheckedChange={field.onChange}
+                    />
+                  </Field>
+                )}
+              />
+              {form.watch('autoRecoveryEnabled') && (
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <Field
+                    data-invalid={
+                      !!form.formState.errors.autoRecoverySingleAmount
+                    }
+                  >
+                    <FieldLabel htmlFor='edit-cycle-auto-single'>
+                      {t('Automatic single-request limit')} ({currencyLabel})
+                    </FieldLabel>
+                    <Input
+                      id='edit-cycle-auto-single'
+                      inputMode='decimal'
+                      disabled={cycle.status !== 'scheduled'}
+                      {...form.register('autoRecoverySingleAmount')}
+                    />
+                    <FieldError
+                      errors={[form.formState.errors.autoRecoverySingleAmount]}
+                    />
+                  </Field>
+                  <Field
+                    data-invalid={
+                      !!form.formState.errors.autoRecoveryThresholdAmount
+                    }
+                  >
+                    <FieldLabel htmlFor='edit-cycle-auto-threshold'>
+                      {t('Automatic balance threshold')} ({currencyLabel})
+                    </FieldLabel>
+                    <Input
+                      id='edit-cycle-auto-threshold'
+                      inputMode='decimal'
+                      disabled={cycle.status !== 'scheduled'}
+                      {...form.register('autoRecoveryThresholdAmount')}
+                    />
+                    <FieldError
+                      errors={[
+                        form.formState.errors.autoRecoveryThresholdAmount,
+                      ]}
+                    />
+                  </Field>
+                  <Field
+                    data-invalid={!!form.formState.errors.autoRecoveryMaxCount}
+                  >
+                    <FieldLabel htmlFor='edit-cycle-auto-count'>
+                      {t('Automatic requests per user')}
+                    </FieldLabel>
+                    <Input
+                      id='edit-cycle-auto-count'
+                      type='number'
+                      min={1}
+                      step={1}
+                      disabled={cycle.status !== 'scheduled'}
+                      {...form.register('autoRecoveryMaxCount')}
+                    />
+                    <FieldError
+                      errors={[form.formState.errors.autoRecoveryMaxCount]}
+                    />
+                  </Field>
+                  <Field
+                    data-invalid={!!form.formState.errors.autoRecoveryMaxAmount}
+                  >
+                    <FieldLabel htmlFor='edit-cycle-auto-total'>
+                      {t('Automatic total per user')} ({currencyLabel})
+                    </FieldLabel>
+                    <Input
+                      id='edit-cycle-auto-total'
+                      inputMode='decimal'
+                      disabled={cycle.status !== 'scheduled'}
+                      {...form.register('autoRecoveryMaxAmount')}
+                    />
+                    <FieldError
+                      errors={[form.formState.errors.autoRecoveryMaxAmount]}
+                    />
+                  </Field>
+                </div>
+              )}
             </FieldGroup>
           </form>
           <DialogFooter>

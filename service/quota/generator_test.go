@@ -67,7 +67,7 @@ func setupQuotaTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Log{}, &model.QuotaCycle{}, &model.QuotaPlan{}, &model.QuotaItem{},
-		&model.QuotaCycleSettlement{},
+		&model.QuotaCycleSettlement{}, &model.QuotaRecoveryRequest{}, &model.QuotaShadowEvidence{},
 	))
 
 	previousDB, previousLogDB := model.DB, model.LOG_DB

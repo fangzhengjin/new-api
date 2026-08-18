@@ -16,8 +16,11 @@ import (
 )
 
 const (
-	basisModeActual = "actual"
-	basisModeWeek   = "week"
+	basisModeActual      = "actual"
+	basisModeWeek        = "week"
+	allocationCurrent    = "current"
+	allocationCandidate  = "candidate"
+	allocationProduction = "production"
 )
 
 // GenerateParams contains the reviewed rules used to create one immutable draft.
@@ -51,6 +54,14 @@ type PlanResult struct {
 	Plan    model.QuotaPlan   `json:"plan"`
 	Items   []model.QuotaItem `json:"items"`
 	Summary PlanSummary       `json:"summary"`
+}
+
+type planCalculation struct {
+	Result   *PlanResult
+	Cycle    model.QuotaCycle
+	Snapshot snapshotParams
+	Users    []userSnapshot
+	Profiles map[int]DemandProfile
 }
 
 // PlanParameters is persisted as TEXT so regeneration uses the exact reviewed settings.
@@ -151,8 +162,20 @@ func generationTransactionOptions() *sql.TxOptions {
 }
 
 func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt int64) (*PlanResult, error) {
+	calculation, err := calculatePlanInTransaction(tx, params, snapshotAt, allocationProduction, true)
+	if err != nil {
+		return nil, err
+	}
+	return calculation.Result, nil
+}
+
+func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt int64, allocationMode string, persist bool) (*planCalculation, error) {
 	var cycle model.QuotaCycle
-	if err := model.LockForUpdate(tx).First(&cycle, params.CycleID).Error; err != nil {
+	cycleQuery := tx
+	if persist {
+		cycleQuery = model.LockForUpdate(tx)
+	}
+	if err := cycleQuery.First(&cycle, params.CycleID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("周期不存在")
 		}
@@ -160,6 +183,13 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 	}
 	if snapshotAt == 0 {
 		snapshotAt = time.Now().Unix()
+	}
+	if allocationMode == allocationProduction {
+		allocationMode = cycleAllocationMode(&cycle)
+	}
+	if persist && params.ThoroughRelease &&
+		(cycleAlgorithmVersion(&cycle) != CandidateAlgorithmVersion || cycle.RecoveryReserveQuota <= 0) {
+		return nil, errors.New("彻底释放需要先启用候选算法并配置正数小额恢复池")
 	}
 	if params.ReclaimCapPercent < 0 || params.ReclaimCapPercent > 100 ||
 		params.UsageBonusPercent < 0 || params.UsageBonusPercent > 100 {
@@ -237,19 +267,28 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 	if err != nil {
 		return nil, err
 	}
-	requestedStageCap, err := bigRatio(
-		[]int64{cycle.BudgetQuota, int64(params.StagePercent)},
-		[]int64{10_000},
-		false,
-	)
-	if err != nil {
-		return nil, err
+	requestedStageCap := cycle.BudgetQuota - cycle.RecoveryReserveQuota
+	if requestedStageCap < 0 {
+		return nil, errors.New("小额恢复池超过周期预算")
+	}
+	if params.PlanType == model.QuotaPlanTypeAdjustment {
+		requestedStageCap, err = regularStageCap(cycle.BudgetQuota, cycle.RecoveryReserveQuota, params.StagePercent)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var adjustments []userAdjustment
 	if params.PlanType == model.QuotaPlanTypeInitialization {
 		adjustments = generateInitializationItems(users, cycle.InitialGrantQuota)
 	} else {
+		lastPositiveAdjustments := map[int]int64{}
+		if allocationMode == allocationCandidate {
+			lastPositiveAdjustments, err = loadLatestPositiveAdjustmentTimes(tx, cycle.Id)
+			if err != nil {
+				return nil, err
+			}
+		}
 		adjustments, err = generateAdjustmentItems(
 			users,
 			profiles,
@@ -260,6 +299,8 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 			snapshot,
 			requestedStageCap,
 			occupiedBefore,
+			allocationMode,
+			lastPositiveAdjustments,
 		)
 		if err != nil {
 			return nil, err
@@ -293,15 +334,8 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 		}
 		effectiveStagePercent = int(effectiveStagePercent64)
 	}
-	stageCap, err := bigRatio(
-		[]int64{cycle.BudgetQuota, int64(effectiveStagePercent)},
-		[]int64{10_000},
-		false,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if occupiedAfter > stageCap {
+	stageCap := requestedStageCap
+	if plannedIncrease > 0 && occupiedAfter > stageCap {
 		return nil, errors.New("计划结果超过当前阶段累计释放上限")
 	}
 
@@ -339,19 +373,24 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 		CreatedAt:           snapshotAt,
 		CreatedBy:           params.CreatedBy,
 	}
-	if err := tx.Create(&plan).Error; err != nil {
-		return nil, err
+	if allocationMode == allocationCandidate {
+		plan.AlgorithmVersion = CandidateAlgorithmVersion
+	}
+	if persist {
+		if err := tx.Create(&plan).Error; err != nil {
+			return nil, err
+		}
 	}
 	items, err := adjustmentsToItems(plan.Id, adjustments)
 	if err != nil {
 		return nil, err
 	}
-	if len(items) > 0 {
+	if persist && len(items) > 0 {
 		if err := tx.Create(&items).Error; err != nil {
 			return nil, err
 		}
 	}
-	return &PlanResult{
+	result := &PlanResult{
 		Plan:  plan,
 		Items: items,
 		Summary: PlanSummary{
@@ -364,7 +403,8 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 			StageCap:        stageCap,
 			AvailableAfter:  maxQuota(0, stageCap-occupiedAfter),
 		},
-	}, nil
+	}
+	return &planCalculation{Result: result, Cycle: cycle, Snapshot: snapshot, Users: users, Profiles: profiles}, nil
 }
 
 func validateGenerationParams(params GenerateParams, cycle model.QuotaCycle, snapshotAt int64) (snapshotParams, error) {
@@ -466,6 +506,25 @@ func loadLatestGrantTimes(tx *gorm.DB, cycleID int) (map[int]int64, error) {
 		Select("item.user_id, MAX(plan.executed_at) AS executed_at").
 		Joins("JOIN "+model.QuotaPlan{}.TableName()+" AS plan ON plan.id = item.plan_id").
 		Where("plan.cycle_id = ? AND plan.status = ? AND item.action = ?", cycleID, model.QuotaPlanStatusExecuted, model.QuotaAdjustmentActionGrant).
+		Group("item.user_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[int]int64, len(rows))
+	for _, row := range rows {
+		result[row.UserID] = row.ExecutedAt
+	}
+	return result, nil
+}
+
+func loadLatestPositiveAdjustmentTimes(tx *gorm.DB, cycleID int) (map[int]int64, error) {
+	rows := make([]struct {
+		UserID     int
+		ExecutedAt int64
+	}, 0)
+	if err := tx.Table(model.QuotaItem{}.TableName()+" AS item").
+		Select("item.user_id, MAX(plan.executed_at) AS executed_at").
+		Joins("JOIN "+model.QuotaPlan{}.TableName()+" AS plan ON plan.id = item.plan_id").
+		Where("plan.cycle_id = ? AND plan.status = ? AND item.adjustment_quota > 0", cycleID, model.QuotaPlanStatusExecuted).
 		Group("item.user_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -651,6 +710,8 @@ func generateAdjustmentItems(
 	params snapshotParams,
 	stageCap int64,
 	occupiedBefore int64,
+	allocationMode string,
+	lastPositiveAdjustments map[int]int64,
 ) ([]userAdjustment, error) {
 	minimumOrdinaryAdjustment := quotaPerUnit()
 	finalLowUsageThreshold := 10 * minimumOrdinaryAdjustment
@@ -702,6 +763,16 @@ func generateAdjustmentItems(
 			minimumTarget = supplement
 		}
 		target := maxQuota(demandTarget, minimumTarget)
+		safetyTarget, _, fairTarget, err := fairTargets(
+			profile.WeeklyDemand, initialGrant, params.TotalWorkdays,
+			params.BasisMode, params.CalculationDaysHundred,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if allocationMode == allocationCandidate {
+			target = fairTarget
+		}
 		if target <= user.Quota {
 			continue
 		}
@@ -748,6 +819,8 @@ func generateAdjustmentItems(
 		increaseNeedIDs[user.ID] = true
 		requests = append(requests, requestRow{
 			UserID: user.ID, Requested: requested, ContinuityRequested: continuity, BonusRequested: bonusTarget,
+			Balance: user.Quota, SafetyTarget: safetyTarget, Target: target,
+			LastPositiveAt: lastPositiveAdjustments[user.ID],
 		})
 	}
 
@@ -917,7 +990,12 @@ func generateAdjustmentItems(
 		return nil, err
 	}
 	increaseCap := availableIncreaseCap(stageCap, occupiedBefore, decreaseTotal)
-	baseAllocations, err := allocateBaseRequests(requests, minQuota(requestTotal, increaseCap), minimumOrdinaryAdjustment)
+	var baseAllocations map[int]int64
+	if allocationMode == allocationCandidate {
+		baseAllocations, err = allocateFairRequests(requests, minQuota(requestTotal, increaseCap), minimumOrdinaryAdjustment)
+	} else {
+		baseAllocations, err = allocateBaseRequests(requests, minQuota(requestTotal, increaseCap), minimumOrdinaryAdjustment)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -926,7 +1004,7 @@ func generateAdjustmentItems(
 		return nil, err
 	}
 	bonusCap := int64(0)
-	if !finalStage && baseTotal == requestTotal {
+	if allocationMode != allocationCandidate && !finalStage && baseTotal == requestTotal {
 		bonusCap = minQuota(bonusRequestTotal, maxQuota(0, increaseCap-baseTotal))
 	}
 	bonusAllocations, err := allocateBonusRequests(requests, bonusCap)
@@ -969,6 +1047,9 @@ func generateAdjustmentItems(
 		weightedRecipients = append(weightedRecipients, weightedRecipient{UserID: user.ID, Weight: profiles[user.ID].WeeklyDemand})
 	}
 	weightedPoolCap := maxQuota(0, increaseCap-baseTotal-bonusTotal)
+	if allocationMode == allocationCandidate && baseTotal != requestTotal {
+		weightedPoolCap = 0
+	}
 	weightedPoolAllocations, err := allocateByWeight(weightedRecipients, weightedPoolCap, minimumOrdinaryAdjustment)
 	if err != nil {
 		return nil, err

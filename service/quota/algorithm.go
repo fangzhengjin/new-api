@@ -13,19 +13,36 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 )
 
 const (
 	// AlgorithmVersion rejects stale drafts after allocation rules change.
-	AlgorithmVersion          = "1.7.0"
-	defaultQuotaPerUnit int64 = 500_000
-	daySeconds          int64 = 86_400
+	LegacyAlgorithmVersion          = "1.8.0"
+	AlgorithmVersion                = LegacyAlgorithmVersion
+	CandidateAlgorithmVersion       = "2.0.0"
+	defaultQuotaPerUnit       int64 = 500_000
+	daySeconds                int64 = 86_400
 
 	exhaustionIdleSeconds        = daySeconds
 	minimumObservationWorkdays   = 3
 	initialUsageBufferPercent    = 120
 	initialStabilityFloorPercent = 80
 )
+
+func cycleAlgorithmVersion(cycle *model.QuotaCycle) string {
+	if cycle != nil && cycle.AllocationAlgorithmVersion == CandidateAlgorithmVersion {
+		return CandidateAlgorithmVersion
+	}
+	return LegacyAlgorithmVersion
+}
+
+func cycleAllocationMode(cycle *model.QuotaCycle) string {
+	if cycleAlgorithmVersion(cycle) == CandidateAlgorithmVersion {
+		return allocationCandidate
+	}
+	return allocationCurrent
+}
 
 var (
 	errQuotaOverflow = errors.New("quota calculation exceeds int64")
@@ -129,6 +146,17 @@ func roundDownCent(quota int64) int64 {
 	return quota / step * step
 }
 
+func regularStageCap(budgetQuota int64, recoveryReserveQuota int64, stagePercent int) (int64, error) {
+	stageCap, err := bigRatio([]int64{budgetQuota, int64(stagePercent)}, []int64{10_000}, false)
+	if err != nil {
+		return 0, err
+	}
+	if recoveryReserveQuota > stageCap {
+		return 0, errors.New("小额恢复池超过当前普通调配阶段上限")
+	}
+	return stageCap - recoveryReserveQuota, nil
+}
+
 // ParsePositiveQuota validates a positive raw quota value supplied as a decimal string.
 func ParsePositiveQuota(value string, label string) (int64, error) {
 	trimmed := strings.TrimSpace(value)
@@ -140,9 +168,18 @@ func ParsePositiveQuota(value string, label string) (int64, error) {
 }
 
 func ParseNonNegativeQuota(value string, label string) (int64, error) {
-	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-	if err != nil || parsed < 0 || parsed > int64(common.MaxQuota) {
+	parsed, err := ParseNonNegativeQuotaTotal(value, label)
+	if err != nil || parsed > int64(common.MaxQuota) {
 		return 0, fmt.Errorf("%s必须是0至%d之间的整数", label, common.MaxQuota)
+	}
+	return parsed, nil
+}
+
+// ParseNonNegativeQuotaTotal validates an aggregate quota amount without a per-user ceiling.
+func ParseNonNegativeQuotaTotal(value string, label string) (int64, error) {
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s必须是非负整数额度", label)
 	}
 	return parsed, nil
 }
@@ -448,7 +485,7 @@ func retainedForRemainingWorkdays(baseRetained int64, weeklyDemand int64, remain
 	return maxQuota(baseRetained, predicted), nil
 }
 
-func continuityTopUp(balance int64, weeklyDemand int64, initialGrant int64, totalWorkdays int) (int64, error) {
+func continuityTarget(weeklyDemand int64, initialGrant int64, totalWorkdays int) (int64, error) {
 	if weeklyDemand <= 0 || totalWorkdays <= 0 {
 		return 0, nil
 	}
@@ -464,7 +501,27 @@ func continuityTopUp(balance int64, weeklyDemand int64, initialGrant int64, tota
 	if err != nil {
 		return 0, err
 	}
+	return target, nil
+}
+
+func continuityTopUp(balance int64, weeklyDemand int64, initialGrant int64, totalWorkdays int) (int64, error) {
+	target, err := continuityTarget(weeklyDemand, initialGrant, totalWorkdays)
+	if err != nil {
+		return 0, err
+	}
 	return maxQuota(0, target-balance), nil
+}
+
+func fairTargets(weeklyDemand int64, initialGrant int64, totalWorkdays int, basisMode string, calculationDaysHundred int64) (int64, int64, int64, error) {
+	safetyTarget, err := continuityTarget(weeklyDemand, initialGrant, totalWorkdays)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	demandTarget, err := targetForDays(weeklyDemand, basisMode, calculationDaysHundred)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return safetyTarget, demandTarget, maxQuota(safetyTarget, demandTarget), nil
 }
 
 func availableIncreaseCap(stageCap int64, occupiedBefore int64, reclaimed int64) int64 {
@@ -507,6 +564,243 @@ type requestRow struct {
 	Requested           int64
 	ContinuityRequested int64
 	BonusRequested      int64
+	Balance             int64
+	SafetyTarget        int64
+	Target              int64
+	LastPositiveAt      int64
+}
+
+const fairnessCoverageScale int64 = 1_000_000_000
+
+func allocateFairRequests(requests []requestRow, cap int64, minimumAdjustment int64) (map[int]int64, error) {
+	allocations := make(map[int]int64)
+	if len(requests) == 0 || cap <= 0 {
+		return allocations, nil
+	}
+	cap = roundDownCent(cap)
+	minimumAllocation, err := checkedAdd(minimumAdjustment, quotaPerCent())
+	if err != nil || cap < minimumAllocation {
+		return allocations, err
+	}
+	eligible := append([]requestRow(nil), requests...)
+	used, err := waterFillFairLayer(eligible, allocations, cap, func(request requestRow) int64 {
+		return request.SafetyTarget
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !fairLayerSatisfied(eligible, allocations, func(request requestRow) int64 { return request.SafetyTarget }) {
+		return materializeFairAllocations(eligible, allocations, cap, minimumAdjustment)
+	}
+	_, err = waterFillFairLayer(eligible, allocations, cap-used, func(request requestRow) int64 {
+		return request.Target
+	})
+	if err != nil {
+		return nil, err
+	}
+	return materializeFairAllocations(eligible, allocations, cap, minimumAdjustment)
+}
+
+func waterFillFairLayer(requests []requestRow, allocations map[int]int64, cap int64, target func(requestRow) int64) (int64, error) {
+	cap = roundDownCent(cap)
+	if cap <= 0 {
+		return 0, nil
+	}
+	requiredAt := func(level int64) (map[int]int64, int64, error) {
+		result := make(map[int]int64)
+		var total int64
+		for _, request := range requests {
+			layerTarget := target(request)
+			current, err := checkedAdd(request.Balance, allocations[request.UserID])
+			if err != nil || layerTarget <= 0 || current >= layerTarget {
+				if err != nil {
+					return nil, 0, err
+				}
+				continue
+			}
+			levelBalance, err := bigRatio([]int64{layerTarget, level}, []int64{fairnessCoverageScale}, true)
+			if err != nil {
+				return nil, 0, err
+			}
+			levelBalance = minQuota(layerTarget, levelBalance)
+			if levelBalance <= current {
+				continue
+			}
+			amount, err := roundUpCent(levelBalance - current)
+			if err != nil {
+				return nil, 0, err
+			}
+			maximum := request.Requested - allocations[request.UserID]
+			amount = minQuota(amount, maximum)
+			if amount <= 0 {
+				continue
+			}
+			result[request.UserID] = amount
+			total, err = checkedAdd(total, amount)
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+		return result, total, nil
+	}
+
+	low, high := int64(0), fairnessCoverageScale
+	for low < high {
+		middle := low + (high-low+1)/2
+		_, required, err := requiredAt(middle)
+		if err != nil {
+			return 0, err
+		}
+		if required <= cap {
+			low = middle
+		} else {
+			high = middle - 1
+		}
+	}
+	increments, used, err := requiredAt(low)
+	if err != nil {
+		return 0, err
+	}
+	for userID, amount := range increments {
+		allocations[userID], err = checkedAdd(allocations[userID], amount)
+		if err != nil {
+			return 0, err
+		}
+	}
+	remaining := cap - used
+	if remaining < quotaPerCent() {
+		return used, nil
+	}
+	ordered := append([]requestRow(nil), requests...)
+	sort.Slice(ordered, func(left int, right int) bool {
+		return fairRecipientLess(ordered[left], allocations, target(ordered[left]), ordered[right], allocations, target(ordered[right]))
+	})
+	for _, request := range ordered {
+		if remaining < quotaPerCent() {
+			break
+		}
+		if allocations[request.UserID] >= request.Requested {
+			continue
+		}
+		current, addErr := checkedAdd(request.Balance, allocations[request.UserID])
+		if addErr != nil {
+			return 0, addErr
+		}
+		if current >= target(request) {
+			continue
+		}
+		allocations[request.UserID] += quotaPerCent()
+		used += quotaPerCent()
+		remaining -= quotaPerCent()
+	}
+	return used, nil
+}
+
+func fairRecipientLess(left requestRow, leftAllocations map[int]int64, leftTarget int64, right requestRow, rightAllocations map[int]int64, rightTarget int64) bool {
+	leftBalance := new(big.Int).Add(big.NewInt(left.Balance), big.NewInt(leftAllocations[left.UserID]))
+	rightBalance := new(big.Int).Add(big.NewInt(right.Balance), big.NewInt(rightAllocations[right.UserID]))
+	comparison := new(big.Int).Mul(leftBalance, big.NewInt(maxQuota(1, rightTarget))).Cmp(
+		new(big.Int).Mul(rightBalance, big.NewInt(maxQuota(1, leftTarget))),
+	)
+	if comparison != 0 {
+		return comparison < 0
+	}
+	if left.LastPositiveAt != right.LastPositiveAt {
+		if left.LastPositiveAt == 0 {
+			return true
+		}
+		if right.LastPositiveAt == 0 {
+			return false
+		}
+		return left.LastPositiveAt < right.LastPositiveAt
+	}
+	return left.UserID < right.UserID
+}
+
+func fairLayerSatisfied(requests []requestRow, allocations map[int]int64, target func(requestRow) int64) bool {
+	for _, request := range requests {
+		if request.Balance+allocations[request.UserID] < target(request) {
+			return false
+		}
+	}
+	return true
+}
+
+func materializeFairAllocations(requests []requestRow, raw map[int]int64, cap int64, minimumAdjustment int64) (map[int]int64, error) {
+	allocations := make(map[int]int64, len(raw))
+	for userID, amount := range raw {
+		if isMaterialAdjustment(amount, minimumAdjustment) {
+			allocations[userID] = amount
+		}
+	}
+	used, err := allocationTotal(allocations)
+	if err != nil {
+		return nil, err
+	}
+	remaining := roundDownCent(cap - used)
+	minimumAllocation, err := checkedAdd(minimumAdjustment, quotaPerCent())
+	if err != nil {
+		return nil, err
+	}
+	for remaining >= minimumAllocation {
+		safetyCandidates := make([]requestRow, 0)
+		targetCandidates := make([]requestRow, 0)
+		safetyUnmet := false
+		targetUnmet := false
+		for _, request := range requests {
+			current := request.Balance + allocations[request.UserID]
+			if current < request.SafetyTarget {
+				safetyUnmet = true
+			}
+			if current < request.Target {
+				targetUnmet = true
+			}
+			if allocations[request.UserID] > 0 || request.Requested < minimumAllocation {
+				continue
+			}
+			if request.Balance < request.SafetyTarget {
+				safetyCandidates = append(safetyCandidates, request)
+			}
+			if request.Balance < request.Target {
+				targetCandidates = append(targetCandidates, request)
+			}
+		}
+		candidates := targetCandidates
+		target := func(request requestRow) int64 { return request.Target }
+		if safetyUnmet {
+			candidates = safetyCandidates
+			target = func(request requestRow) int64 { return request.SafetyTarget }
+		}
+		if !safetyUnmet && !targetUnmet || len(candidates) == 0 {
+			break
+		}
+		sort.Slice(candidates, func(left int, right int) bool {
+			return fairRecipientLess(candidates[left], allocations, target(candidates[left]), candidates[right], allocations, target(candidates[right]))
+		})
+		allocations[candidates[0].UserID] = minimumAllocation
+		remaining -= minimumAllocation
+	}
+
+	funded := make([]requestRow, 0, len(allocations))
+	for _, request := range requests {
+		if allocations[request.UserID] > 0 {
+			funded = append(funded, request)
+		}
+	}
+	added, err := waterFillFairLayer(funded, allocations, remaining, func(request requestRow) int64 {
+		return request.SafetyTarget
+	})
+	if err != nil {
+		return nil, err
+	}
+	remaining -= added
+	if !fairLayerSatisfied(requests, allocations, func(request requestRow) int64 { return request.SafetyTarget }) {
+		return allocations, nil
+	}
+	_, err = waterFillFairLayer(funded, allocations, remaining, func(request requestRow) int64 {
+		return request.Target
+	})
+	return allocations, err
 }
 
 type weightedRecipient struct {

@@ -21,12 +21,53 @@ func quotaCycleResponse(cycle model.QuotaCycle) dto.QuotaCycleResponse {
 	return dto.QuotaCycleResponse{
 		ID: cycle.Id, CycleStartAt: cycle.CycleStartAt, CycleEndAt: cycle.CycleEndAt,
 		BudgetQuota: quotaString(cycle.BudgetQuota), InitialGrantQuota: quotaString(cycle.InitialGrantQuota),
-		BalancePolicy: string(cycle.BalancePolicy), Status: string(cycle.Status),
+		RecoveryReserveQuota:       quotaString(cycle.RecoveryReserveQuota),
+		AutoRecoveryEnabled:        cycle.AutoRecoveryEnabled,
+		AutoRecoverySingleQuota:    quotaString(cycle.AutoRecoverySingleQuota),
+		AutoRecoveryThresholdQuota: quotaString(cycle.AutoRecoveryThresholdQuota),
+		AutoRecoveryMaxCount:       cycle.AutoRecoveryMaxCount,
+		AutoRecoveryMaxQuota:       quotaString(cycle.AutoRecoveryMaxQuota),
+		AllocationAlgorithmVersion: cycle.AllocationAlgorithmVersion,
+		LegacyRollbackAllowed:      cycle.LegacyRollbackAllowed,
+		BalancePolicy:              string(cycle.BalancePolicy), Status: string(cycle.Status),
 		SettlementPlanID: cycle.SettlementPlanId, SettledAt: cycle.SettledAt,
 		RestoredAt: cycle.RestoredAt, RestoredBy: cycle.RestoredBy,
 		CreatedAt: cycle.CreatedAt, CreatedBy: cycle.CreatedBy,
 		UpdatedAt: cycle.UpdatedAt, UpdatedBy: cycle.UpdatedBy,
 	}
+}
+
+func quotaGenerateParams(request dto.QuotaPlanGenerateRequest, createdBy string) quotaService.GenerateParams {
+	nextAdjustmentAt := request.NextAdjustmentAt
+	return quotaService.GenerateParams{
+		CycleID: request.CycleID, PlanType: model.QuotaPlanType(request.PlanType), StagePercent: request.StagePercent,
+		NextAdjustmentAt: &nextAdjustmentAt, BasisMode: request.BasisMode,
+		EarlyReclaim: request.EarlyReclaim, ReclaimCapPercent: request.ReclaimCapPercent,
+		UsageBonusPercent: request.UsageBonusPercent, ThoroughRelease: request.ThoroughRelease,
+		CreatedBy: createdBy,
+	}
+}
+
+func parseQuotaRecoveryPolicy(enabled bool, singleRaw, thresholdRaw string, maxCount int, maxRaw string) (quotaService.RecoveryPolicy, error) {
+	if !enabled {
+		return quotaService.RecoveryPolicy{}, nil
+	}
+	single, err := quotaService.ParsePositiveQuota(singleRaw, "自动恢复单次上限")
+	if err != nil {
+		return quotaService.RecoveryPolicy{}, err
+	}
+	threshold, err := quotaService.ParsePositiveQuota(thresholdRaw, "自动恢复余额门槛")
+	if err != nil {
+		return quotaService.RecoveryPolicy{}, err
+	}
+	maximum, err := quotaService.ParsePositiveQuota(maxRaw, "自动恢复每用户总额上限")
+	if err != nil {
+		return quotaService.RecoveryPolicy{}, err
+	}
+	return quotaService.RecoveryPolicy{
+		Enabled: true, SingleQuota: single, ThresholdQuota: threshold,
+		MaxCount: maxCount, MaxQuota: maximum,
+	}, nil
 }
 
 func quotaPlanResponse(plan model.QuotaPlan) (dto.QuotaPlanResponse, error) {
@@ -94,7 +135,39 @@ func quotaSummaryResponse(summary quotaService.DetailedPlanSummary) dto.QuotaPla
 		ReclaimedUsedToCoverOverage: quotaString(summary.ReclaimedUsedToCoverOverage),
 		ReclaimedUnused:             quotaString(summary.ReclaimedUnused), StageOriginalUnused: quotaString(summary.StageOriginalUnused),
 		StageRemaining: quotaString(summary.StageRemaining), PoolRemaining: quotaString(summary.PoolRemaining),
-		FutureReserved: quotaString(summary.FutureReserved), FinalStage: summary.FinalStage,
+		FutureReserved: quotaString(summary.FutureReserved), RecoveryReserve: quotaString(summary.RecoveryReserve),
+		FinalStage: summary.FinalStage,
+	}
+}
+
+func quotaFairnessMetricsResponse(metrics quotaService.FairnessMetrics) dto.QuotaFairnessMetricsResponse {
+	return dto.QuotaFairnessMetricsResponse{
+		Population: metrics.Population, MinimumCoverage: metrics.MinimumCoverageBasisPoints,
+		P10Coverage: metrics.P10CoverageBasisPoints, P50Coverage: metrics.P50CoverageBasisPoints,
+		P90Coverage: metrics.P90CoverageBasisPoints, MinimumSafetyCoverage: metrics.MinimumSafetyBasisPoints,
+		SafetyUnmet: metrics.SafetyUnmet, NewUserCount: metrics.NewUserCount,
+		NewUserCoverage: metrics.NewUserCoverageBasisPoints, ReclaimedQuota: quotaString(metrics.ReclaimedQuota),
+		RecoveryReserveQuota: quotaString(metrics.RecoveryReserveQuota), OccupiedAfterQuota: quotaString(metrics.OccupiedAfterQuota),
+	}
+}
+
+func quotaFairnessShadowResponse(result *quotaService.FairnessShadowComparison) dto.QuotaFairnessShadowResponse {
+	items := make([]dto.QuotaFairnessShadowItemResponse, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, dto.QuotaFairnessShadowItemResponse{
+			UserID: item.UserID, Username: item.Username, CurrentBalanceQuota: quotaString(item.CurrentBalanceQuota),
+			SafetyTargetQuota: quotaString(item.SafetyTargetQuota), DemandTargetQuota: quotaString(item.DemandTargetQuota),
+			TargetQuota: quotaString(item.TargetQuota), CurrentAdjustmentQuota: quotaString(item.CurrentAdjustmentQuota),
+			CandidateAdjustmentQuota: quotaString(item.CandidateAdjustmentQuota), CurrentAfterQuota: quotaString(item.CurrentAfterQuota),
+			CandidateAfterQuota: quotaString(item.CandidateAfterQuota), CurrentCoverage: item.CurrentCoverageBasisPoints,
+			CandidateCoverage: item.CandidateCoverageBasisPoints,
+		})
+	}
+	return dto.QuotaFairnessShadowResponse{
+		SnapshotAt: result.SnapshotAt, StageCapQuota: quotaString(result.StageCapQuota),
+		CurrentAlgorithmVersion: result.CurrentAlgorithmVersion, CandidateAlgorithmVersion: result.CandidateAlgorithmVersion,
+		CandidateQualified: result.CandidateQualified, Current: quotaFairnessMetricsResponse(result.Current),
+		Candidate: quotaFairnessMetricsResponse(result.Candidate), Items: items,
 	}
 }
 
@@ -154,10 +227,27 @@ func CreateQuotaCycle(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	recoveryReserve := int64(0)
+	if request.RecoveryReserveQuota != "" {
+		recoveryReserve, err = quotaService.ParseNonNegativeQuotaTotal(request.RecoveryReserveQuota, "小额恢复池")
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	recoveryPolicy, err := parseQuotaRecoveryPolicy(
+		request.AutoRecoveryEnabled, request.AutoRecoverySingleQuota,
+		request.AutoRecoveryThresholdQuota, request.AutoRecoveryMaxCount, request.AutoRecoveryMaxQuota,
+	)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	cycle, err := quotaService.CreateCycle(quotaService.CreateCycleParams{
 		StartAt: request.CycleStartAt, EndAt: request.CycleEndAt,
-		BudgetQuota: budget, InitialGrantQuota: initialGrant,
-		BalancePolicy: model.QuotaCycleBalancePolicy(request.BalancePolicy), CreatedBy: c.GetString("username"),
+		BudgetQuota: budget, InitialGrantQuota: initialGrant, RecoveryReserveQuota: recoveryReserve,
+		RecoveryPolicy: recoveryPolicy,
+		BalancePolicy:  model.QuotaCycleBalancePolicy(request.BalancePolicy), CreatedBy: c.GetString("username"),
 	})
 	if err != nil {
 		common.ApiError(c, err)
@@ -217,7 +307,35 @@ func UpdateQuotaCycle(c *gin.Context) {
 		}
 		initialGrant = &value
 	}
-	if err := quotaService.UpdateCycleSettings(id, budget, initialGrant, c.GetString("username")); err != nil {
+	var recoveryReserve *int64
+	if request.RecoveryReserveQuota != nil {
+		value, err := quotaService.ParseNonNegativeQuotaTotal(*request.RecoveryReserveQuota, "小额恢复池")
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recoveryReserve = &value
+	}
+	var recoveryPolicy *quotaService.RecoveryPolicy
+	hasRecoveryPolicy := request.AutoRecoveryEnabled != nil || request.AutoRecoverySingleQuota != nil ||
+		request.AutoRecoveryThresholdQuota != nil || request.AutoRecoveryMaxCount != nil || request.AutoRecoveryMaxQuota != nil
+	if hasRecoveryPolicy {
+		if request.AutoRecoveryEnabled == nil || request.AutoRecoverySingleQuota == nil ||
+			request.AutoRecoveryThresholdQuota == nil || request.AutoRecoveryMaxCount == nil || request.AutoRecoveryMaxQuota == nil {
+			common.ApiErrorMsg(c, "自动恢复策略字段必须完整提交")
+			return
+		}
+		value, err := parseQuotaRecoveryPolicy(
+			*request.AutoRecoveryEnabled, *request.AutoRecoverySingleQuota,
+			*request.AutoRecoveryThresholdQuota, *request.AutoRecoveryMaxCount, *request.AutoRecoveryMaxQuota,
+		)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recoveryPolicy = &value
+	}
+	if err := quotaService.UpdateCycleSettings(id, budget, initialGrant, recoveryReserve, recoveryPolicy, c.GetString("username")); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -336,15 +454,7 @@ func GenerateQuotaPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "参数错误")
 		return
 	}
-	planType := model.QuotaPlanType(request.PlanType)
-	nextAdjustmentAt := request.NextAdjustmentAt
-	result, err := quotaService.GeneratePlan(quotaService.GenerateParams{
-		CycleID: request.CycleID, PlanType: planType, StagePercent: request.StagePercent,
-		NextAdjustmentAt: &nextAdjustmentAt, BasisMode: request.BasisMode,
-		EarlyReclaim: request.EarlyReclaim, ReclaimCapPercent: request.ReclaimCapPercent,
-		UsageBonusPercent: request.UsageBonusPercent, ThoroughRelease: request.ThoroughRelease,
-		CreatedBy: c.GetString("username"),
-	})
+	result, err := quotaService.GeneratePlan(quotaGenerateParams(request, c.GetString("username")))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -355,6 +465,21 @@ func GenerateQuotaPlan(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"plan_id": result.Plan.Id, "plan": plan})
+}
+
+// CompareQuotaPlanFairness compares the current and candidate algorithms without saving a draft.
+func CompareQuotaPlanFairness(c *gin.Context) {
+	var request dto.QuotaPlanGenerateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	result, err := quotaService.CompareFairness(quotaGenerateParams(request, c.GetString("username")))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, quotaFairnessShadowResponse(result))
 }
 
 // GetQuotaPlan returns one plan, its cycle, fund summary, items, and confirmation phrase.

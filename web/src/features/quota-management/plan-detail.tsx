@@ -108,6 +108,7 @@ function FundFlowTable(props: { summary: PlanSummary }) {
     [t('Original stage unused'), props.summary.stage_original_unused],
     [t('Stage remaining'), props.summary.stage_remaining],
     [t('Pool remaining'), props.summary.pool_remaining],
+    [t('Recovery reserve'), props.summary.recovery_reserve],
     [t('Reserved for future stages'), props.summary.future_reserved],
   ]
   return (

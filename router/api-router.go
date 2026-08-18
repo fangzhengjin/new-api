@@ -123,6 +123,8 @@ func SetApiRouter(router *gin.Engine) {
 				// Check-in routes
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
+				selfRoute.GET("/quota-recovery", controller.GetSelfQuotaRecovery)
+				selfRoute.POST("/quota-recovery", middleware.CriticalRateLimit(), controller.SubmitSelfQuotaRecovery)
 
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
@@ -244,6 +246,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaManagementRoute.GET("/plans", controller.GetQuotaPlans)
 			quotaManagementRoute.GET("/plans/options", controller.GetQuotaPlanOptions)
 			quotaManagementRoute.POST("/plans", controller.GenerateQuotaPlan)
+			quotaManagementRoute.POST("/plans/shadow", controller.CompareQuotaPlanFairness)
 			quotaManagementRoute.GET("/plans/:id", controller.GetQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/execute", controller.ExecuteQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/cancel", controller.CancelQuotaPlan)
@@ -251,6 +254,12 @@ func SetApiRouter(router *gin.Engine) {
 			quotaManagementRoute.POST("/plans/:id/regenerate", controller.RegenerateQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/notifications/retry", controller.RetryQuotaPlanNotifications)
 			quotaManagementRoute.POST("/manual-adjust", controller.ManualQuotaAdjust)
+			quotaManagementRoute.GET("/recovery-requests", controller.GetQuotaRecoveryRequests)
+			quotaManagementRoute.POST("/recovery-requests/:id/approve", controller.ApproveQuotaRecoveryRequest)
+			quotaManagementRoute.POST("/recovery-requests/:id/reject", controller.RejectQuotaRecoveryRequest)
+			quotaManagementRoute.GET("/algorithm", controller.GetQuotaAlgorithmStatus)
+			quotaManagementRoute.POST("/algorithm/evidence", controller.RecordQuotaShadowEvidence)
+			quotaManagementRoute.POST("/algorithm/switch", controller.SwitchQuotaAlgorithm)
 		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)

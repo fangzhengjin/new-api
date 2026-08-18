@@ -6,6 +6,7 @@ type QuotaCycleCreateRequest struct {
 	CycleEndAt        int64  `json:"cycle_end_at" binding:"required"`
 	BudgetQuota       string `json:"budget_quota" binding:"required"`
 	InitialGrantQuota string `json:"initial_grant_quota" binding:"required"`
+	BalancePolicy     string `json:"balance_policy" binding:"required"`
 }
 
 // QuotaCycleUpdateRequest updates budget and optionally the scheduled initial grant.
@@ -37,6 +38,11 @@ type QuotaPlanCancelRequest struct {
 	Reason string `json:"reason" binding:"required"`
 }
 
+// QuotaCycleRestoreRequest carries the exact destructive-recovery confirmation phrase.
+type QuotaCycleRestoreRequest struct {
+	Confirmation string `json:"confirmation" binding:"required"`
+}
+
 // QuotaCycleResponse keeps quota values as decimal strings for JavaScript safety.
 type QuotaCycleResponse struct {
 	ID                int    `json:"id"`
@@ -44,7 +50,12 @@ type QuotaCycleResponse struct {
 	CycleEndAt        int64  `json:"cycle_end_at"`
 	BudgetQuota       string `json:"budget_quota"`
 	InitialGrantQuota string `json:"initial_grant_quota"`
+	BalancePolicy     string `json:"balance_policy"`
 	Status            string `json:"status"`
+	SettlementPlanID  *int   `json:"settlement_plan_id"`
+	SettledAt         *int64 `json:"settled_at"`
+	RestoredAt        *int64 `json:"restored_at"`
+	RestoredBy        string `json:"restored_by"`
 	CreatedAt         int64  `json:"created_at"`
 	CreatedBy         string `json:"created_by"`
 	UpdatedAt         int64  `json:"updated_at"`

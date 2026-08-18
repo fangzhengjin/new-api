@@ -169,8 +169,20 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		return true
 	}
 
+	businessKey := task.PrivateData.BillingRequestId
+	if businessKey == "" {
+		businessKey = "task:" + task.TaskID
+	}
+	if err := model.RecordQuotaSettlement(businessKey, task.UserId, 0, task.SubmitTime); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("退款前更新周期消费失败 task %s: %s", task.TaskID, err.Error()))
+		return false
+	}
+
 	// 1. 退还资金来源（钱包或订阅）
 	if err := taskAdjustFunding(task, -quota); err != nil {
+		if rollbackErr := model.RecordQuotaSettlement(businessKey, task.UserId, int64(quota), task.SubmitTime); rollbackErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("退款失败且恢复周期消费失败 task %s: %s", task.TaskID, rollbackErr.Error()))
+		}
 		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
 		return false
 	}
@@ -219,6 +231,13 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	quotaDelta := actualQuota - preConsumedQuota
 
 	if quotaDelta == 0 {
+		businessKey := task.PrivateData.BillingRequestId
+		if businessKey == "" {
+			businessKey = "task:" + task.TaskID
+		}
+		if err := model.RecordQuotaSettlement(businessKey, task.UserId, int64(actualQuota), task.SubmitTime); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("更新周期消费失败 task %s: %s", task.TaskID, err.Error()))
+		}
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
 			task.TaskID, logger.LogQuota(actualQuota), reason))
 		return
@@ -232,8 +251,20 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		reason,
 	))
 
+	businessKey := task.PrivateData.BillingRequestId
+	if businessKey == "" {
+		businessKey = "task:" + task.TaskID
+	}
+	if err := model.RecordQuotaSettlement(businessKey, task.UserId, int64(actualQuota), task.SubmitTime); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("差额结算前更新周期消费失败 task %s: %s", task.TaskID, err.Error()))
+		return
+	}
+
 	// 调整资金来源
 	if err := taskAdjustFunding(task, quotaDelta); err != nil {
+		if rollbackErr := model.RecordQuotaSettlement(businessKey, task.UserId, int64(preConsumedQuota), task.SubmitTime); rollbackErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("差额结算失败且恢复周期消费失败 task %s: %s", task.TaskID, rollbackErr.Error()))
+		}
 		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
 		return
 	}

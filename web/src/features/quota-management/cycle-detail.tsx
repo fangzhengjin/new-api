@@ -69,7 +69,13 @@ import { Spinner } from '@/components/ui/spinner'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 
-import { closeCycle, getCycle, getPlanOptions, updateCycle } from './api'
+import {
+  closeCycle,
+  getCycle,
+  getPlanOptions,
+  restoreCycle,
+  updateCycle,
+} from './api'
 import { GeneratePlanDialog } from './components/generate-plan-dialog'
 import { PlanTable } from './components/plan-table'
 import {
@@ -103,6 +109,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
     : t('Enter quota in {{currency}}', { currency: currencyLabel })
   const [editOpen, setEditOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
+  const [restoreOpen, setRestoreOpen] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
   const query = useQuery({
     queryKey: queryKeys.cycle(props.cycleId),
@@ -190,6 +197,22 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
     },
     onError: handleServerError,
   })
+  const restoreMutation = useMutation({
+    mutationFn: () => restoreCycle(props.cycleId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.cycle(props.cycleId),
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.cycles }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.plans }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.options }),
+      ])
+      toast.success(t('Cycle reset snapshot restored'))
+      setRestoreOpen(false)
+    },
+    onError: handleServerError,
+  })
 
   if (query.isPending) {
     return (
@@ -215,6 +238,18 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
     )
   }
   const { cycle, plans, recommendation } = query.data
+  let closeCycleDescription = t(
+    'This closes the cycle and cancels every remaining draft. Managed balances carry forward unchanged.'
+  )
+  if (cycle.status === 'scheduled') {
+    closeCycleDescription = t(
+      'This cancels the scheduled cycle and every draft without changing balances.'
+    )
+  } else if (cycle.balance_policy === 'reset') {
+    closeCycleDescription = t(
+      'This closes the cycle, cancels every remaining draft, and resets all managed balances to zero. Whitelist balances are unchanged.'
+    )
+  }
 
   return (
     <>
@@ -268,6 +303,18 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
           >
             {t('Close cycle')}
           </Button>
+          {cycle.status === 'closed' &&
+            cycle.balance_policy === 'reset' &&
+            cycle.settlement_plan_id !== null &&
+            cycle.restored_at === null && (
+              <Button
+                variant='outline'
+                onClick={() => setRestoreOpen(true)}
+                disabled={restoreMutation.isPending}
+              >
+                {t('Restore reset snapshot')}
+              </Button>
+            )}
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='grid gap-4'>
@@ -283,7 +330,22 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 t={t}
               />
             )}
-            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-5'>
+              <Card>
+                <CardHeader>
+                  <CardDescription>{t('Balance at cycle end')}</CardDescription>
+                  <CardTitle>
+                    {cycle.balance_policy === 'reset'
+                      ? t('Reset to zero')
+                      : t('Carry forward')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {cycle.restored_at
+                    ? t('Reset snapshot restored')
+                    : t('Policy fixed at creation')}
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader>
                   <CardDescription>{t('Status')}</CardDescription>
@@ -416,9 +478,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Close this quota cycle?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                'This closes the cycle and cancels every remaining draft. This action cannot be undone.'
-              )}
+              {closeCycleDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -432,6 +492,35 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
             >
               {closeMutation.isPending && <Spinner data-icon='inline-start' />}
               {t('Close cycle')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={restoreOpen} onOpenChange={setRestoreOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('Restore this cycle reset snapshot?')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'Recovery succeeds only if every affected balance is still unchanged and the active cycle budget can cover the full snapshot. It is rejected otherwise.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreMutation.isPending}>
+              {t('Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={restoreMutation.isPending}
+              onClick={() => restoreMutation.mutate()}
+            >
+              {restoreMutation.isPending && (
+                <Spinner data-icon='inline-start' />
+              )}
+              {t('Restore snapshot')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

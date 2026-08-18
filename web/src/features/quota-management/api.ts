@@ -94,6 +94,15 @@ export async function closeCycle(id: number) {
   return unwrap(data)
 }
 
+export async function restoreCycle(id: number) {
+  const { data } = await api.post<Envelope<unknown>>(
+    `/api/quota-management/cycles/${id}/restore`,
+    { confirmation: `确认恢复周期 #${id} 清零余额` },
+    requestConfig
+  )
+  return unwrap(data)
+}
+
 export async function listPlans(cycleId?: number) {
   const { data } = await api.get<Envelope<QuotaPlan[]>>(
     '/api/quota-management/plans',
@@ -167,6 +176,19 @@ export async function retryNotifications(id: number) {
   const { data } = await api.post<Envelope<NotificationRetryResult>>(
     `/api/quota-management/plans/${id}/notifications/retry`,
     undefined,
+    requestConfig
+  )
+  return unwrap(data)
+}
+
+export async function manualQuotaAdjust(input: {
+  user_id: number
+  target_quota: string
+  reason: string
+}) {
+  const { data } = await api.post<Envelope<unknown>>(
+    '/api/quota-management/manual-adjust',
+    input,
     requestConfig
   )
   return unwrap(data)

@@ -56,7 +56,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { generatePlan } from '../api'
-import type { PlanOptions, PlanType } from '../types'
+import type { GeneratablePlanType, PlanOptions } from '../types'
 import {
   formatDateTime,
   formatQuota,
@@ -66,7 +66,7 @@ import {
 } from '../utils'
 
 type FormValues = {
-  planType: PlanType
+  planType: GeneratablePlanType
   stagePercent: '0' | '7500' | '8500' | '9500' | '10000'
   nextAdjustmentAt: string
   basisMode: 'actual' | 'week'

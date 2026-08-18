@@ -277,6 +277,8 @@ export type BillingSettings = {
   TopUpLink: string
   'general_setting.docs_link': string
   'quota_setting.enable_free_model_pre_consume': boolean
+  'quota_setting.auto_execute_quota_initialization': boolean
+  'quota_setting.quota_initialization_time': string
   QuotaPerUnit: number
   USDExchangeRate: number
   'general_setting.quota_display_type': string
@@ -359,6 +361,7 @@ export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
+  CompanyQuotaModeEnabled: boolean
   QuotaRemindThreshold: string
   SMTPServer: string
   SMTPPort: string

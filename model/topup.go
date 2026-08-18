@@ -85,6 +85,9 @@ func ValidateTopUpQuotaCapacity(userId int, creditedQuota int) error {
 // quota. Keeping the predicate and increment in one UPDATE prevents two
 // concurrent callbacks from both passing a separate read/check.
 func creditTopUpQuota(tx *gorm.DB, userId int, creditedQuota int, updates map[string]interface{}) error {
+	if err := RejectPersonalQuotaSource(); err != nil {
+		return err
+	}
 	maxCurrentQuota, err := topUpQuotaMaxCurrent(creditedQuota)
 	if err != nil {
 		return err

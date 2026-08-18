@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -354,9 +355,18 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var quotaWhitelist *bool
+	if quotaWhitelistStr := c.Query("quota_whitelist"); quotaWhitelistStr != "" {
+		parsed, err := strconv.ParseBool(quotaWhitelistStr)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		quotaWhitelist = &parsed
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, quotaWhitelist, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -430,6 +440,9 @@ type TransferAffQuotaRequest struct {
 }
 
 func TransferAffQuota(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	if !requirePaymentCompliance(c) {
 		return
 	}
@@ -1161,6 +1174,36 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		if model.CompanyQuotaModeEnabled() {
+			var target int64
+			switch req.Mode {
+			case "add":
+				if req.Value <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				target = int64(user.Quota) + int64(req.Value)
+			case "subtract":
+				if req.Value <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				target = int64(user.Quota) - int64(req.Value)
+			case "override":
+				target = int64(req.Value)
+			default:
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			result, err := quotaService.ManualAdjustUserQuota(user.Id, target, "管理员手工调整", c.GetString("username"))
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			recordManageAuditFor(c, user.Id, "user.quota_adjustment_plan", map[string]interface{}{"affected_users": result.AffectedUsers})
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+			return
+		}
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
@@ -1204,6 +1247,19 @@ func ManageUser(c *gin.Context) {
 			"success": true,
 			"message": "",
 		})
+		return
+	case "quota_whitelist":
+		if req.Mode != "enable" && req.Mode != "disable" {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		enabled := req.Mode == "enable"
+		if err := quotaService.SetQuotaWhitelist(user.Id, enabled, c.GetString("username")); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.quota_whitelist", map[string]interface{}{"enabled": enabled, "username": user.Username})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return
 	default:
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)

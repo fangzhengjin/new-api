@@ -27,3 +27,24 @@ func TestQuotaCycleActiveKeyAllowsManyScheduledButOnlyOneActive(t *testing.T) {
 	err = db.Create(&secondActive).Error
 	require.Error(t, err)
 }
+
+func TestMigrateQuotaCyclePoliciesBackfillsCarryWithoutChangingExplicitPolicy(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&QuotaCycle{}))
+	cycles := []QuotaCycle{
+		{CycleStartAt: 1, CycleEndAt: 2, BudgetQuota: 1, Status: QuotaCycleStatusScheduled},
+		{CycleStartAt: 3, CycleEndAt: 4, BudgetQuota: 1, BalancePolicy: QuotaCycleBalancePolicyReset, Status: QuotaCycleStatusScheduled},
+	}
+	require.NoError(t, db.Create(&cycles).Error)
+	previousDB := DB
+	DB = db
+	t.Cleanup(func() { DB = previousDB })
+
+	require.NoError(t, migrateQuotaCyclePolicies())
+	var stored []QuotaCycle
+	require.NoError(t, db.Order("id").Find(&stored).Error)
+	require.Len(t, stored, 2)
+	assert.Equal(t, QuotaCycleBalancePolicyCarry, stored[0].BalancePolicy)
+	assert.Equal(t, QuotaCycleBalancePolicyReset, stored[1].BalancePolicy)
+}

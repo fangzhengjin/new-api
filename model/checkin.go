@@ -53,6 +53,9 @@ func HasCheckedInToday(userId int) (bool, error) {
 // MySQL 和 PostgreSQL 使用事务保证原子性
 // SQLite 不支持嵌套事务，使用顺序操作 + 手动回滚
 func UserCheckin(userId int) (*Checkin, error) {
+	if err := RejectPersonalQuotaSource(); err != nil {
+		return nil, err
+	}
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
 		return nil, errors.New("签到功能未启用")

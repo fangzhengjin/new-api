@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -12,7 +13,9 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -50,6 +53,8 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.QuotaCycle{},
+		&model.QuotaCycleSettlement{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -74,7 +79,47 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
+		model.DB.Exec("DELETE FROM tool_quota_cycle_settlements")
+		model.DB.Exec("DELETE FROM tool_quota_cycles")
 	})
+}
+
+func TestSettleBillingKeepsFinalSettlementWhenTokenAdjustmentFails(t *testing.T) {
+	truncate(t)
+	const userID, tokenID = 61, 61
+	seedUser(t, userID, 1000)
+	seedToken(t, tokenID, userID, "sk-settlement-token-failure", 1000)
+	now := time.Now()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now.Add(-time.Hour).Unix(), CycleEndAt: now.Add(time.Hour).Unix(),
+		BudgetQuota: 10_000, InitialGrantQuota: 1_000, Status: model.QuotaCycleStatusActive,
+	}
+	require.NoError(t, model.DB.Create(&cycle).Error)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		RequestId: "settlement-token-failure", UserId: userID, TokenId: tokenID,
+		TokenKey: "sk-settlement-token-failure", StartTime: now, OriginModelName: "test-model",
+	}
+	require.Nil(t, PreConsumeBilling(ctx, 100, info))
+	require.NoError(t, model.DB.Exec(`
+		CREATE TRIGGER fail_settlement_token_update
+		BEFORE UPDATE ON tokens
+		WHEN OLD.id = 61
+		BEGIN
+			SELECT RAISE(ABORT, 'forced token quota failure');
+		END;
+	`).Error)
+	t.Cleanup(func() { model.DB.Exec("DROP TRIGGER IF EXISTS fail_settlement_token_update") })
+
+	require.Error(t, SettleBilling(ctx, info, 200))
+	assert.Equal(t, 800, getUserQuota(t, userID))
+	var settlement model.QuotaCycleSettlement
+	require.NoError(t, model.DB.Where("business_key = ?", info.RequestId).First(&settlement).Error)
+	assert.Equal(t, int64(200), settlement.Quota)
 }
 
 func seedUser(t *testing.T, id int, quota int) {

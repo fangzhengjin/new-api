@@ -21,6 +21,9 @@ type SubscriptionWaffoPancakePayRequest struct {
 }
 
 func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	if !requirePaymentCompliance(c) {
 		return
 	}

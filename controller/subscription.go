@@ -98,6 +98,9 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 }
 
 func SubscriptionRequestBalancePay(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	if !requirePaymentCompliance(c) {
 		return
 	}

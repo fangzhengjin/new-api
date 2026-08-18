@@ -150,6 +150,12 @@ func (s *BillingSession) GetPreConsumedQuota() int {
 	return s.preConsumedQuota
 }
 
+func (s *BillingSession) isFundingSettled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fundingSettled
+}
+
 func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -360,6 +366,10 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 	}
 
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
+	if model.CompanyQuotaModeEnabled() {
+		// 公司模式的余额统一归公司采购，不允许继续消费存量个人订阅。
+		pref = "wallet_only"
+	}
 
 	// 钱包路径需要先检查用户额度
 	tryWallet := func() (*BillingSession, *types.NewAPIError) {

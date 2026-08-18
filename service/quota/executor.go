@@ -82,19 +82,30 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	if executedAt < plan.SnapshotAt {
 		return nil, errors.New("执行时间不能早于快照时间")
 	}
+	var planParameters PlanParameters
+	if strings.TrimSpace(plan.Parameters) != "" {
+		if err := common.Unmarshal([]byte(plan.Parameters), &planParameters); err != nil {
+			return nil, fmt.Errorf("方案参数无效: %w", err)
+		}
+	}
+	if planParameters.ThoroughRelease && executedAt < finalAdjustmentTime(cycle.CycleStartAt, cycle.CycleEndAt) {
+		return nil, errors.New("彻底释放只能在最终调配窗口执行")
+	}
 
 	var items []model.QuotaItem
 	if err := model.LockForUpdate(tx).Where("plan_id = ?", plan.Id).Order("id").Find(&items).Error; err != nil {
 		return nil, err
 	}
-	if len(items) == 0 {
+	if len(items) == 0 && plan.PlanType != model.QuotaPlanTypeInitialization {
 		return nil, errors.New("方案没有调整明细")
 	}
 	hasDecrease := false
+	hasIncrease := false
 	for _, item := range items {
 		if item.AdjustmentQuota < 0 {
 			hasDecrease = true
-			break
+		} else if item.AdjustmentQuota > 0 {
+			hasIncrease = true
 		}
 	}
 	if hasDecrease && executedAt-plan.SnapshotAt > decreaseDraftLifetimeSeconds {
@@ -118,8 +129,10 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	}
 	sort.Ints(userIDs)
 	var users []model.User
-	if err := model.LockForUpdate(tx.Unscoped()).Where("id IN ?", userIDs).Order("id").Find(&users).Error; err != nil {
-		return nil, err
+	if len(userIDs) > 0 {
+		if err := model.LockForUpdate(tx.Unscoped()).Where("id IN ?", userIDs).Order("id").Find(&users).Error; err != nil {
+			return nil, err
+		}
 	}
 	if len(users) != len(userIDs) {
 		return nil, errors.New("方案中的用户已不存在")
@@ -127,6 +140,28 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	usersByID := make(map[int]model.User, len(users))
 	for _, user := range users {
 		usersByID[user.Id] = user
+	}
+	stageCap, err := bigRatio([]int64{cycle.BudgetQuota, int64(plan.StagePercent)}, []int64{10_000}, false)
+	if err != nil {
+		return nil, err
+	}
+	if hasIncrease {
+		totalSpendBefore, err := totalSpendAt(tx, logDatabaseForTransaction(tx), cycle.Id, cycle.CycleStartAt, executedAt)
+		if err != nil {
+			return nil, err
+		}
+		managedBalanceBefore, err := currentManagedBalance(tx)
+		if err != nil {
+			return nil, err
+		}
+		occupiedBefore, err := checkedAdd(totalSpendBefore, managedBalanceBefore)
+		if err != nil {
+			return nil, err
+		}
+		if occupiedBefore > stageCap || occupiedBefore > cycle.BudgetQuota {
+			common.SysError(fmt.Sprintf("quota allocation frozen: cycle %d occupied position exceeds current cap", cycle.Id))
+			return nil, errors.New("当前受管头寸已超过可用上限，所有正向调配已冻结")
+		}
 	}
 
 	quotaDeltas := make(map[int]int64, len(items))
@@ -142,21 +177,27 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 		if err != nil {
 			return nil, err
 		}
+		if after < 0 && item.AdjustmentQuota < 0 {
+			return nil, fmt.Errorf("用户 %d 当前余额不足以扣除方案额度", user.Id)
+		}
 		if after < 0 || after > int64(common.MaxQuota) {
 			return nil, fmt.Errorf("用户 %d 调整后余额超出可支持范围", user.Id)
 		}
-		if item.Action == model.QuotaAdjustmentActionReclaim && after != 0 {
-			return nil, fmt.Errorf("停用用户 %d 的回收结果必须为0", user.Id)
+		updateQuery := tx.Unscoped().Model(&model.User{}).Where("id = ?", user.Id)
+		if item.AdjustmentQuota < 0 {
+			updateQuery = updateQuery.Where("quota >= ?", -item.AdjustmentQuota)
+		} else {
+			updateQuery = updateQuery.Where("quota <= ?", int64(common.MaxQuota)-item.AdjustmentQuota)
 		}
-		if item.Action == model.QuotaAdjustmentActionDecrease && after < item.RetainedQuota {
-			return nil, fmt.Errorf("用户 %d 当前余额不足以保留方案核定额度，请重新生成方案", user.Id)
-		}
-		update := tx.Unscoped().Model(&model.User{}).Where("id = ? AND quota = ?", user.Id, user.Quota).Update("quota", int(after))
+		update := updateQuery.Update("quota", gorm.Expr("quota + ?", item.AdjustmentQuota))
 		if update.Error != nil {
 			return nil, update.Error
 		}
 		if update.RowsAffected != 1 {
-			return nil, fmt.Errorf("用户 %d 余额已变化，请重新生成方案", user.Id)
+			if item.AdjustmentQuota < 0 {
+				return nil, fmt.Errorf("用户 %d 当前余额不足以扣除方案额度", user.Id)
+			}
+			return nil, fmt.Errorf("用户 %d 调整后余额超出可支持范围", user.Id)
 		}
 		quotaDeltas[user.Id] = item.AdjustmentQuota
 
@@ -189,7 +230,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 		}
 	}
 
-	totalSpend, err := totalSpendAt(logDatabaseForTransaction(tx), cycle.CycleStartAt, executedAt)
+	totalSpend, err := totalSpendAt(tx, logDatabaseForTransaction(tx), cycle.Id, cycle.CycleStartAt, executedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -201,17 +242,13 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	if err != nil {
 		return nil, err
 	}
-	stageCap, err := bigRatio([]int64{cycle.BudgetQuota, int64(plan.StagePercent)}, []int64{10_000}, false)
-	if err != nil {
-		return nil, err
-	}
-	if occupied > stageCap {
+	if occupied > stageCap && hasIncrease {
 		return nil, fmt.Errorf(
 			"阶段额度检查失败：本期已消费 %s + 账户余额 %s = %s 超过当前阶段上限 %s",
 			FormatQuota(totalSpend), FormatQuota(managedBalance), FormatQuota(occupied), FormatQuota(stageCap),
 		)
 	}
-	if occupied > cycle.BudgetQuota {
+	if occupied > cycle.BudgetQuota && hasIncrease {
 		return nil, errors.New("计划执行结果超过公司采购总额")
 	}
 
@@ -238,7 +275,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 }
 
 func validateExecutionItem(item model.QuotaItem, user model.User) error {
-	if user.Username != item.Username || user.Username == "demo" || user.Username == "admin" {
+	if user.Username != item.Username || user.QuotaWhitelist {
 		return fmt.Errorf("用户 %d 的身份信息不匹配或不允许参与调配", item.UserId)
 	}
 	enabled := user.Status == common.UserStatusEnabled && !user.DeletedAt.Valid
@@ -259,6 +296,10 @@ func validateExecutionItem(item model.QuotaItem, user model.User) error {
 		if !enabled || item.AdjustmentQuota == 0 {
 			return fmt.Errorf("用户 %d 的初始化条件已变化", item.UserId)
 		}
+	case model.QuotaAdjustmentActionRestore:
+		if item.AdjustmentQuota <= 0 {
+			return fmt.Errorf("用户 %d 的恢复额度不正确", item.UserId)
+		}
 	default:
 		return fmt.Errorf("用户 %d 的调整动作不正确", item.UserId)
 	}
@@ -272,7 +313,11 @@ func logDatabaseForTransaction(tx *gorm.DB) *gorm.DB {
 	return model.LOG_DB
 }
 
-func totalSpendAt(db *gorm.DB, cycleStart int64, end int64) (int64, error) {
+func totalSpendAt(tx *gorm.DB, logDB *gorm.DB, cycleID int, cycleStart int64, end int64) (int64, error) {
+	if model.CompanyQuotaModeEnabled() {
+		return model.SumQuotaCycleSettlement(tx, cycleID, end)
+	}
+	db := logDB
 	if db == nil {
 		return 0, errors.New("日志数据库未初始化")
 	}
@@ -293,7 +338,7 @@ func currentManagedBalance(tx *gorm.DB) (int64, error) {
 	var total int64
 	if err := tx.Unscoped().Model(&model.User{}).
 		Select("COALESCE(SUM(quota), 0)").
-		Where("username NOT IN ?", []string{"demo", "admin"}).
+		Where("quota_whitelist = ? OR quota_whitelist IS NULL", false).
 		Scan(&total).Error; err != nil {
 		return 0, err
 	}
@@ -315,6 +360,7 @@ func GenerateLogContent(item model.QuotaItem, actualBefore int64, actualAfter in
 		model.QuotaAdjustmentActionDecrease:   "额度调减",
 		model.QuotaAdjustmentActionGrant:      "额度补发",
 		model.QuotaAdjustmentActionReclaim:    "停用回收",
+		model.QuotaAdjustmentActionRestore:    "清零恢复",
 	}
 	formatLogDate := func(timestamp int64) string {
 		date := time.Unix(timestamp, 0).In(shanghaiLocation)
@@ -362,6 +408,8 @@ func GenerateLogContent(item model.QuotaItem, actualBefore int64, actualAfter in
 		operation := "调增"
 		if item.Action == model.QuotaAdjustmentActionGrant {
 			operation = "补发"
+		} else if item.Action == model.QuotaAdjustmentActionRestore {
+			operation = "恢复"
 		}
 		lines = append(lines,
 			fmt.Sprintf("调整前余额：%s", FormatQuota(actualBefore)),

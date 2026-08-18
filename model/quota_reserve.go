@@ -110,7 +110,11 @@ func persistUserQuotaDelta(id int, delta int) error {
 		addNewRecord(BatchUpdateTypeUserQuota, id, delta)
 		return nil
 	}
-	result := DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", delta))
+	query := DB.Model(&User{}).Where("id = ?", id)
+	if delta < 0 {
+		query = query.Where("quota >= ?", -delta)
+	}
+	result := query.Update("quota", gorm.Expr("quota + ?", delta))
 	if result.Error != nil {
 		return result.Error
 	}

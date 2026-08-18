@@ -251,6 +251,7 @@ func InitLogDB() (err error) {
 }
 
 func migrateDB() error {
+	needsQuotaWhitelistMigration := !DB.Migrator().HasColumn(&User{}, "quota_whitelist")
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -293,6 +294,7 @@ func migrateDB() error {
 		&QuotaCycle{},
 		&QuotaPlan{},
 		&QuotaItem{},
+		&QuotaCycleSettlement{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)
@@ -314,10 +316,17 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := migrateQuotaWhitelistUsers(needsQuotaWhitelistMigration); err != nil {
+		return err
+	}
+	if err := migrateQuotaCyclePolicies(); err != nil {
+		return err
+	}
 	return nil
 }
 
 func migrateDBFast() error {
+	needsQuotaWhitelistMigration := !DB.Migrator().HasColumn(&User{}, "quota_whitelist")
 
 	var wg sync.WaitGroup
 
@@ -359,6 +368,7 @@ func migrateDBFast() error {
 		{&QuotaCycle{}, "QuotaCycle"},
 		{&QuotaPlan{}, "QuotaPlan"},
 		{&QuotaItem{}, "QuotaItem"},
+		{&QuotaCycleSettlement{}, "QuotaCycleSettlement"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -398,8 +408,32 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := migrateQuotaWhitelistUsers(needsQuotaWhitelistMigration); err != nil {
+		return err
+	}
+	if err := migrateQuotaCyclePolicies(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
 	return nil
+}
+
+func migrateQuotaCyclePolicies() error {
+	return DB.Model(&QuotaCycle{}).
+		Where("balance_policy IS NULL OR balance_policy = ?", "").
+		Update("balance_policy", QuotaCycleBalancePolicyCarry).Error
+}
+
+func migrateQuotaWhitelistUsers(markLegacyAliases bool) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&User{}).Where("quota_whitelist IS NULL").Update("quota_whitelist", false).Error; err != nil {
+			return err
+		}
+		if !markLegacyAliases {
+			return nil
+		}
+		return tx.Model(&User{}).Where("username IN ?", []string{"demo", "admin"}).Update("quota_whitelist", true).Error
+	})
 }
 
 func migrateLOGDB() error {

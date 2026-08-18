@@ -74,13 +74,14 @@ type snapshotParams struct {
 }
 
 type userSnapshot struct {
-	ID          int
-	Username    string
-	DisplayName string
-	Email       string
-	Status      int
-	CreatedAt   int64
-	Quota       int64
+	ID                 int
+	Username           string
+	DisplayName        string
+	Email              string
+	Status             int
+	CreatedAt          int64
+	ObservationStartAt int64
+	Quota              int64
 }
 
 type spendStats struct {
@@ -188,18 +189,24 @@ func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt in
 	if err != nil {
 		return nil, err
 	}
+	observationStarts, err := loadLatestGrantTimes(tx, cycle.Id)
+	if err != nil {
+		return nil, err
+	}
+	for index := range users {
+		if observationStarts[users[index].ID] > users[index].ObservationStartAt {
+			users[index].ObservationStartAt = observationStarts[users[index].ID]
+		}
+	}
 	managedBalance, err := managedBalanceTotal(users)
 	if err != nil {
 		return nil, err
 	}
 	logDB := model.LOG_DB
-	if logDB == nil {
-		return nil, errors.New("日志数据库未初始化")
-	}
-	if model.LOG_DB == model.DB {
+	if logDB == model.DB {
 		logDB = tx
 	}
-	totalSpend, stats, err := loadSpendSnapshot(logDB, users, cycle.CycleStartAt, snapshotAt)
+	totalSpend, stats, err := loadSpendSnapshot(tx, logDB, users, cycle.Id, cycle.CycleStartAt, snapshotAt)
 	if err != nil {
 		return nil, err
 	}
@@ -385,6 +392,9 @@ func validateGenerationParams(params GenerateParams, cycle model.QuotaCycle, sna
 	if params.ThoroughRelease && (params.PlanType != model.QuotaPlanTypeAdjustment || params.StagePercent != 10_000) {
 		return snapshotParams{}, errors.New("彻底释放只能使用100%动态调配阶段")
 	}
+	if params.ThoroughRelease && snapshotAt < finalAdjustmentTime(cycle.CycleStartAt, cycle.CycleEndAt) {
+		return snapshotParams{}, errors.New("彻底释放只能在最终调配窗口生成")
+	}
 	if snapshotAt < cycle.CycleStartAt || snapshotAt >= cycle.CycleEndAt {
 		return snapshotParams{}, errors.New("数据快照时间必须位于当前周期内")
 	}
@@ -421,7 +431,7 @@ func validateGenerationParams(params GenerateParams, cycle model.QuotaCycle, sna
 
 func loadManagedUsers(tx *gorm.DB) ([]userSnapshot, error) {
 	var users []model.User
-	if err := tx.Unscoped().Where("username NOT IN ?", []string{"demo", "admin"}).Order("id").Find(&users).Error; err != nil {
+	if err := tx.Unscoped().Where("quota_whitelist = ? OR quota_whitelist IS NULL", false).Order("id").Find(&users).Error; err != nil {
 		return nil, err
 	}
 	snapshots := make([]userSnapshot, 0, len(users))
@@ -434,16 +444,36 @@ func loadManagedUsers(tx *gorm.DB) ([]userSnapshot, error) {
 			status = common.UserStatusDisabled
 		}
 		snapshots = append(snapshots, userSnapshot{
-			ID:          user.Id,
-			Username:    user.Username,
-			DisplayName: user.DisplayName,
-			Email:       user.Email,
-			Status:      status,
-			CreatedAt:   user.CreatedAt,
-			Quota:       int64(user.Quota),
+			ID:                 user.Id,
+			Username:           user.Username,
+			DisplayName:        user.DisplayName,
+			Email:              user.Email,
+			Status:             status,
+			CreatedAt:          user.CreatedAt,
+			ObservationStartAt: user.CreatedAt,
+			Quota:              int64(user.Quota),
 		})
 	}
 	return snapshots, nil
+}
+
+func loadLatestGrantTimes(tx *gorm.DB, cycleID int) (map[int]int64, error) {
+	rows := make([]struct {
+		UserID     int
+		ExecutedAt int64
+	}, 0)
+	if err := tx.Table(model.QuotaItem{}.TableName()+" AS item").
+		Select("item.user_id, MAX(plan.executed_at) AS executed_at").
+		Joins("JOIN "+model.QuotaPlan{}.TableName()+" AS plan ON plan.id = item.plan_id").
+		Where("plan.cycle_id = ? AND plan.status = ? AND item.action = ?", cycleID, model.QuotaPlanStatusExecuted, model.QuotaAdjustmentActionGrant).
+		Group("item.user_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[int]int64, len(rows))
+	for _, row := range rows {
+		result[row.UserID] = row.ExecutedAt
+	}
+	return result, nil
 }
 
 func managedBalanceTotal(users []userSnapshot) (int64, error) {
@@ -454,9 +484,15 @@ func managedBalanceTotal(users []userSnapshot) (int64, error) {
 	return checkedSum(values...)
 }
 
-func loadSpendSnapshot(db *gorm.DB, users []userSnapshot, cycleStart int64, snapshotAt int64) (int64, map[int]spendStats, error) {
+func loadSpendSnapshot(tx *gorm.DB, logDB *gorm.DB, users []userSnapshot, cycleID int, cycleStart int64, snapshotAt int64) (int64, map[int]spendStats, error) {
+	if model.CompanyQuotaModeEnabled() {
+		return loadSettlementSnapshot(tx, users, cycleID, snapshotAt)
+	}
+	if logDB == nil {
+		return 0, nil, errors.New("日志数据库未初始化")
+	}
 	var totalSpend int64
-	if err := db.Model(&model.Log{}).
+	if err := logDB.Model(&model.Log{}).
 		Select("COALESCE(SUM(quota), 0)").
 		Where("type = ? AND created_at >= ? AND created_at <= ?", model.LogTypeConsume, cycleStart, snapshotAt).
 		Scan(&totalSpend).Error; err != nil {
@@ -481,7 +517,7 @@ func loadSpendSnapshot(db *gorm.DB, users []userSnapshot, cycleStart int64, snap
 	}
 	var rows []statsRow
 	recentStart := maxQuota(cycleStart, snapshotAt-7*daySeconds)
-	if err := db.Model(&model.Log{}).
+	if err := logDB.Model(&model.Log{}).
 		Select("user_id, COALESCE(SUM(quota), 0) AS period_spend, COALESCE(SUM(CASE WHEN created_at > ? THEN quota ELSE 0 END), 0) AS recent_spend, MAX(created_at) AS last_use", recentStart).
 		Where("type = ? AND created_at >= ? AND created_at <= ? AND user_id IN ?", model.LogTypeConsume, cycleStart, snapshotAt, userIDs).
 		Group("user_id").
@@ -497,6 +533,42 @@ func loadSpendSnapshot(db *gorm.DB, users []userSnapshot, cycleStart int64, snap
 			RecentSpend: row.RecentSpend,
 			LastUse:     row.LastUse,
 		}
+	}
+	return totalSpend, stats, nil
+}
+
+func loadSettlementSnapshot(tx *gorm.DB, users []userSnapshot, cycleID int, snapshotAt int64) (int64, map[int]spendStats, error) {
+	totalSpend, err := model.SumQuotaCycleSettlement(tx, cycleID, snapshotAt)
+	if err != nil {
+		return 0, nil, err
+	}
+	stats := make(map[int]spendStats, len(users))
+	if len(users) == 0 {
+		return totalSpend, stats, nil
+	}
+	userIDs := make([]int, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+	recentStart := maxQuota(0, snapshotAt-7*daySeconds)
+	type statsRow struct {
+		UserID      int
+		PeriodSpend int64
+		RecentSpend int64
+		LastUse     int64
+	}
+	var rows []statsRow
+	if err := tx.Model(&model.QuotaCycleSettlement{}).
+		Select("user_id, COALESCE(SUM(quota), 0) AS period_spend, COALESCE(SUM(CASE WHEN billing_at > ? THEN quota ELSE 0 END), 0) AS recent_spend, MAX(billing_at) AS last_use", recentStart).
+		Where("cycle_id = ? AND billing_at <= ? AND user_id IN ?", cycleID, snapshotAt, userIDs).
+		Group("user_id").Scan(&rows).Error; err != nil {
+		return 0, nil, err
+	}
+	for _, row := range rows {
+		if row.PeriodSpend < 0 || row.RecentSpend < 0 {
+			return 0, nil, fmt.Errorf("用户 %d 的消费统计不能为负数", row.UserID)
+		}
+		stats[row.UserID] = spendStats{PeriodSpend: row.PeriodSpend, RecentSpend: row.RecentSpend, LastUse: row.LastUse}
 	}
 	return totalSpend, stats, nil
 }
@@ -556,7 +628,7 @@ func generateInitializationItems(users []userSnapshot, initialGrant int64) []use
 				"initial_grant_quota": strconv.FormatInt(initialGrant, 10),
 				"previous_balance":    strconv.FormatInt(user.Quota, 10),
 			},
-			BasisText: fmt.Sprintf("上期余额 %s 作废，本期首次发放 %s", FormatQuota(user.Quota), FormatQuota(initialGrant)),
+			BasisText: fmt.Sprintf("按当前余额 %s 与本期首次额度 %s 核定差额", FormatQuota(user.Quota), FormatQuota(initialGrant)),
 		})
 	}
 	return items
@@ -710,7 +782,7 @@ func generateAdjustmentItems(
 	ordinaryCandidateIDs := make(map[int]bool)
 	for _, user := range activeUsers {
 		if increaseNeedIDs[user.ID] || finalLowUsageIDs[user.ID] ||
-			!hasObservationWindow(user.CreatedAt, params.SnapshotAt) || !lowUsageIDs[user.ID] {
+			!hasObservationWindow(user.ObservationStartAt, params.SnapshotAt) || !lowUsageIDs[user.ID] {
 			continue
 		}
 		profile := profiles[user.ID]

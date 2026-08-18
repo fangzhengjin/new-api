@@ -135,6 +135,9 @@ func GetRedemptionById(id int) (*Redemption, error) {
 }
 
 func Redeem(key string, userId int) (quota int, err error) {
+	if err = RejectPersonalQuotaSource(); err != nil {
+		return 0, err
+	}
 	if key == "" {
 		return 0, errors.New("未提供兑换码")
 	}

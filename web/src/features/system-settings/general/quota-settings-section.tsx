@@ -61,6 +61,8 @@ const quotaSchema = z.object({
   }),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
+    auto_execute_quota_initialization: z.boolean(),
+    quota_initialization_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   }),
 })
 
@@ -262,6 +264,55 @@ export function QuotaSettingsSection({
                 )}
               />
             </SettingsFormGridItem>
+
+            <SettingsFormGridItem span='full'>
+              <FormField
+                control={form.control}
+                name='quota_setting.auto_execute_quota_initialization'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>
+                        {t('Automatically confirm initialization plans')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'When enabled, only system-generated initialization plans are executed automatically. Keep this off until the allocation results are proven stable.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={updateOption.isPending}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsFormGridItem>
+
+            <FormField
+              control={form.control}
+              name='quota_setting.quota_initialization_time'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>
+                    {t('Initialization plan generation time')}
+                  </FormLabel>
+                  <FormControl>
+                    <Input type='time' step={60} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Generate the initialization draft at this Shanghai time after a cycle becomes active.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

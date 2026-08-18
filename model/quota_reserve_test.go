@@ -102,6 +102,16 @@ func TestTryReserveQuotaWithoutRedis(t *testing.T) {
 	assert.Equal(t, 55, getTokenFromDB(t, token.Id).RemainQuota)
 }
 
+func TestPersistUserQuotaDeltaRejectsConcurrentNegativeBalance(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	user := createReserveTestUser(t, 10)
+
+	err := persistUserQuotaDelta(user.Id, -11)
+	require.Error(t, err)
+	assert.Equal(t, 10, getUserQuotaFromDB(t, user.Id))
+}
+
 func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	truncateTables(t)
 	resetBatchUpdateTestState(t)

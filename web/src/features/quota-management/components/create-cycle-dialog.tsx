@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -35,17 +35,30 @@ import {
 } from '@/components/ui/dialog'
 import {
   Field,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { createCycle } from '../api'
-import type { CycleDefaults, InitialGrantRecommendation } from '../types'
+import type {
+  BalancePolicy,
+  CycleDefaults,
+  InitialGrantRecommendation,
+} from '../types'
 import {
   fromShanghaiInput,
   queryKeys,
@@ -60,6 +73,7 @@ type FormValues = {
   endAt: string
   budgetAmount: string
   initialGrantAmount: string
+  balancePolicy: BalancePolicy
 }
 
 const currencyAmountPattern = /^\d+(?:\.\d{1,6})?$/
@@ -99,6 +113,7 @@ export function CreateCycleDialog(props: {
             (value) => quotaFromDisplayAmount(value) !== null,
             amountError
           ),
+        balancePolicy: z.enum(['reset', 'carry']),
       }),
     [amountError, amountPattern, t]
   )
@@ -109,6 +124,7 @@ export function CreateCycleDialog(props: {
       endAt: '',
       budgetAmount: '',
       initialGrantAmount: '',
+      balancePolicy: 'reset',
     },
   })
 
@@ -121,6 +137,7 @@ export function CreateCycleDialog(props: {
       initialGrantAmount: props.recommendation
         ? quotaToDisplayAmount(props.recommendation.quota)
         : '',
+      balancePolicy: 'reset',
     })
   }, [form, props.defaults, props.open, props.recommendation])
 
@@ -152,6 +169,7 @@ export function CreateCycleDialog(props: {
       cycle_end_at: endAt,
       budget_quota: budgetQuota,
       initial_grant_quota: initialGrantQuota,
+      balance_policy: values.balancePolicy,
     })
   })
 
@@ -208,6 +226,44 @@ export function CreateCycleDialog(props: {
                 <FieldError errors={[form.formState.errors.endAt]} />
               </Field>
             </div>
+            <Field>
+              <FieldLabel>{t('Balance at cycle end')}</FieldLabel>
+              <Controller
+                name='balancePolicy'
+                control={form.control}
+                render={({ field }) => {
+                  const items = [
+                    { label: t('Reset to zero'), value: 'reset' },
+                    { label: t('Carry forward'), value: 'carry' },
+                  ]
+                  return (
+                    <Select
+                      items={items}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                    >
+                      <SelectTrigger className='w-full'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {items.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )
+                }}
+              />
+              <FieldDescription>
+                {t(
+                  'Reset clears managed balances at cycle close; carry keeps them and counts them against the next cycle budget.'
+                )}
+              </FieldDescription>
+            </Field>
             <div className='grid gap-4 sm:grid-cols-2'>
               <Field data-invalid={!!form.formState.errors.budgetAmount}>
                 <FieldLabel htmlFor='quota-cycle-budget'>

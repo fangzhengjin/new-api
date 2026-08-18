@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -168,6 +169,11 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
 			return false
 		}
+	case "CompanyQuotaModeEnabled":
+		if value != "true" && value != "false" {
+			common.ApiErrorMsg(c, "公司额度管理模式开关值不正确")
+			return false
+		}
 	default:
 		if isPaymentComplianceOptionKey(key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
@@ -319,6 +325,16 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 				"success": false,
 				"message": err.Error(),
 			})
+			return false
+		}
+	case "quota_setting.auto_execute_quota_initialization":
+		if _, err = strconv.ParseBool(value); err != nil {
+			common.ApiErrorMsg(c, "自动确认初始化方案开关值不正确")
+			return false
+		}
+	case "quota_setting.quota_initialization_time":
+		if err = quotaService.ValidateQuotaInitializationTime(value); err != nil {
+			common.ApiError(c, err)
 			return false
 		}
 	case "ImageRatio":

@@ -142,6 +142,9 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 }
 
 func RequestStripeAmount(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	var req StripePayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
@@ -152,6 +155,9 @@ func RequestStripeAmount(c *gin.Context) {
 }
 
 func RequestStripePay(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	var req StripePayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {

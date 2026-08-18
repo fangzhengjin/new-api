@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,7 +21,10 @@ func quotaCycleResponse(cycle model.QuotaCycle) dto.QuotaCycleResponse {
 	return dto.QuotaCycleResponse{
 		ID: cycle.Id, CycleStartAt: cycle.CycleStartAt, CycleEndAt: cycle.CycleEndAt,
 		BudgetQuota: quotaString(cycle.BudgetQuota), InitialGrantQuota: quotaString(cycle.InitialGrantQuota),
-		Status: string(cycle.Status), CreatedAt: cycle.CreatedAt, CreatedBy: cycle.CreatedBy,
+		BalancePolicy: string(cycle.BalancePolicy), Status: string(cycle.Status),
+		SettlementPlanID: cycle.SettlementPlanId, SettledAt: cycle.SettledAt,
+		RestoredAt: cycle.RestoredAt, RestoredBy: cycle.RestoredBy,
+		CreatedAt: cycle.CreatedAt, CreatedBy: cycle.CreatedBy,
 		UpdatedAt: cycle.UpdatedAt, UpdatedBy: cycle.UpdatedBy,
 	}
 }
@@ -152,7 +156,8 @@ func CreateQuotaCycle(c *gin.Context) {
 	}
 	cycle, err := quotaService.CreateCycle(quotaService.CreateCycleParams{
 		StartAt: request.CycleStartAt, EndAt: request.CycleEndAt,
-		BudgetQuota: budget, InitialGrantQuota: initialGrant, CreatedBy: c.GetString("username"),
+		BudgetQuota: budget, InitialGrantQuota: initialGrant,
+		BalancePolicy: model.QuotaCycleBalancePolicy(request.BalancePolicy), CreatedBy: c.GetString("username"),
 	})
 	if err != nil {
 		common.ApiError(c, err)
@@ -232,6 +237,31 @@ func CloseQuotaCycle(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+// RestoreQuotaCycleSettlement restores one unchanged reset snapshot into the active cycle.
+func RestoreQuotaCycleSettlement(c *gin.Context) {
+	id, ok := quotaPathID(c)
+	if !ok {
+		return
+	}
+	var request dto.QuotaCycleRestoreRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	confirmation := fmt.Sprintf("确认恢复周期 #%d 清零余额", id)
+	if request.Confirmation != confirmation {
+		common.ApiErrorMsg(c, "确认短语不正确")
+		return
+	}
+	result, err := quotaService.RestoreCycleSettlement(id, c.GetString("username"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "quota.cycle.restore", map[string]interface{}{"cycle_id": id})
+	common.ApiSuccess(c, result)
+}
+
 // GetQuotaPlans returns recent plans with an optional cycle filter.
 func GetQuotaPlans(c *gin.Context) {
 	var cycleID *int
@@ -297,6 +327,10 @@ func GetQuotaPlanOptions(c *gin.Context) {
 
 // GenerateQuotaPlan creates an immutable initialization or adjustment draft.
 func GenerateQuotaPlan(c *gin.Context) {
+	if !model.CompanyQuotaModeEnabled() {
+		common.ApiErrorMsg(c, "公司额度模式未启用")
+		return
+	}
 	var request dto.QuotaPlanGenerateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		common.ApiErrorMsg(c, "参数错误")
@@ -356,6 +390,10 @@ func GetQuotaPlan(c *gin.Context) {
 
 // ExecuteQuotaPlan applies a draft only when the exact server-generated phrase is supplied.
 func ExecuteQuotaPlan(c *gin.Context) {
+	if !model.CompanyQuotaModeEnabled() {
+		common.ApiErrorMsg(c, "公司额度模式未启用")
+		return
+	}
 	id, ok := quotaPathID(c)
 	if !ok {
 		return
@@ -415,6 +453,10 @@ func DeleteQuotaPlan(c *gin.Context) {
 
 // RegenerateQuotaPlan creates a fresh draft from a non-executed plan's saved settings.
 func RegenerateQuotaPlan(c *gin.Context) {
+	if !model.CompanyQuotaModeEnabled() {
+		common.ApiErrorMsg(c, "公司额度模式未启用")
+		return
+	}
 	id, ok := quotaPathID(c)
 	if !ok {
 		return
@@ -438,5 +480,31 @@ func RetryQuotaPlanNotifications(c *gin.Context) {
 		common.ApiError(c, errors.New(result.Error))
 		return
 	}
+	common.ApiSuccess(c, result)
+}
+
+func ManualQuotaAdjust(c *gin.Context) {
+	var request struct {
+		UserID int    `json:"user_id"`
+		Target string `json:"target_quota"`
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	target, err := quotaService.ParseNonNegativeQuota(request.Target, "目标额度")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := quotaService.ManualAdjustUserQuota(request.UserID, target, request.Reason, c.GetString("username"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAuditFor(c, request.UserID, "user.quota_adjustment_plan", map[string]interface{}{
+		"affected_users": result.AffectedUsers,
+	})
 	common.ApiSuccess(c, result)
 }

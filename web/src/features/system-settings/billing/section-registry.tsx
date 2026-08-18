@@ -70,6 +70,10 @@ const BILLING_SECTIONS = [
           quota_setting: {
             enable_free_model_pre_consume:
               settings['quota_setting.enable_free_model_pre_consume'],
+            auto_execute_quota_initialization:
+              settings['quota_setting.auto_execute_quota_initialization'],
+            quota_initialization_time:
+              settings['quota_setting.quota_initialization_time'],
           },
         }}
         complianceConfirmed={

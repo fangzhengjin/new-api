@@ -32,6 +32,8 @@ const defaultBillingSettings: BillingSettings = {
   TopUpLink: '',
   'general_setting.docs_link': '',
   'quota_setting.enable_free_model_pre_consume': true,
+  'quota_setting.auto_execute_quota_initialization': false,
+  'quota_setting.quota_initialization_time': '09:00',
   QuotaPerUnit: 500000,
   USDExchangeRate: 7,
   'general_setting.quota_display_type': 'USD',

@@ -18,14 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 export type CycleStatus = 'scheduled' | 'active' | 'closed'
+export type BalancePolicy = 'reset' | 'carry'
 export type PlanStatus = 'draft' | 'executed' | 'cancelled'
-export type PlanType = 'initialization' | 'adjustment'
+export type GeneratablePlanType = 'initialization' | 'adjustment'
+export type PlanType = GeneratablePlanType | 'settlement'
 export type AdjustmentAction =
   | 'initialize'
   | 'increase'
   | 'decrease'
   | 'grant'
   | 'reclaim'
+  | 'restore'
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped'
 
 export type QuotaCycle = {
@@ -34,7 +37,12 @@ export type QuotaCycle = {
   cycle_end_at: number
   budget_quota: string
   initial_grant_quota: string
+  balance_policy: BalancePolicy
   status: CycleStatus
+  settlement_plan_id: number | null
+  settled_at: number | null
+  restored_at: number | null
+  restored_by: string
   created_at: number
   created_by: string
   updated_at: number
@@ -147,7 +155,7 @@ export type QuotaSchedule = {
 }
 
 export type PlanDefaults = {
-  plan_type: PlanType
+  plan_type: GeneratablePlanType
   stage_percent: number
   next_adjustment_at: number
   basis_mode: 'actual' | 'week'
@@ -181,6 +189,7 @@ export type CycleWrite = {
   cycle_end_at: number
   budget_quota: string
   initial_grant_quota: string
+  balance_policy: BalancePolicy
 }
 
 export type CycleUpdate = {
@@ -190,7 +199,7 @@ export type CycleUpdate = {
 
 export type PlanWrite = {
   cycle_id: number
-  plan_type: PlanType
+  plan_type: GeneratablePlanType
   stage_percent: number
   next_adjustment_at: number
   basis_mode: 'actual' | 'week'

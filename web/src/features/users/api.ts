@@ -64,6 +64,7 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
+    quota_whitelist,
     p = 1,
     page_size = 10,
     sort_by,
@@ -74,6 +75,9 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
+  if (quota_whitelist !== undefined) {
+    queryParams.set('quota_whitelist', String(quota_whitelist))
+  }
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -126,6 +130,18 @@ export async function manageUser(
   action: ManageUserAction
 ): Promise<ApiResponse<Partial<User>>> {
   const res = await api.post('/api/user/manage', { id, action })
+  return res.data
+}
+
+export async function setQuotaWhitelist(
+  id: number,
+  enabled: boolean
+): Promise<ApiResponse> {
+  const res = await api.post('/api/user/manage', {
+    id,
+    action: 'quota_whitelist',
+    mode: enabled ? 'enable' : 'disable',
+  })
   return res.data
 }
 

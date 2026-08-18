@@ -45,6 +45,9 @@ func GetCheckinStatus(c *gin.Context) {
 
 // DoCheckin 执行用户签到
 func DoCheckin(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
 		common.ApiErrorMsg(c, "签到功能未启用")

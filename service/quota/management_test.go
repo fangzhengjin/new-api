@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,20 +25,74 @@ func TestCreateCycleRejectsOverlappingWindow(t *testing.T) {
 	_, err := CreateCycle(CreateCycleParams{
 		StartAt: now, EndAt: now + 10*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
-		CreatedBy: "root",
+		BalancePolicy: model.QuotaCycleBalancePolicyReset,
+		CreatedBy:     "root",
 	})
 	require.NoError(t, err)
 
 	_, err = CreateCycle(CreateCycleParams{
 		StartAt: now + daySeconds, EndAt: now + 11*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
-		CreatedBy: "root",
+		BalancePolicy: model.QuotaCycleBalancePolicyReset,
+		CreatedBy:     "root",
 	})
 	require.EqualError(t, err, "周期时间与现有周期冲突")
 
 	var count int64
 	require.NoError(t, db.Model(&model.QuotaCycle{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
+}
+
+func TestUpdateActiveCycleRejectsBudgetBelowManagedPosition(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed", AffCode: "managed-budget", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "100"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	err := UpdateCycleSettings(cycle.Id, mustQuota(t, "50"), nil, "root")
+	require.EqualError(t, err, "新周期预算不能低于当前受管头寸")
+
+	var stored model.QuotaCycle
+	require.NoError(t, db.First(&stored, cycle.Id).Error)
+	assert.Equal(t, cycle.BudgetQuota, stored.BudgetQuota)
+}
+
+func TestManualAdjustmentCannotExceedCurrentStage(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-stage", AffCode: "managed-stage", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "50"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	executedAt := now - 30
+	require.NoError(t, db.Create(&model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeInitialization, StagePercent: 1_000,
+		SnapshotAt: now - 60, AlgorithmVersion: AlgorithmVersion, Status: model.QuotaPlanStatusExecuted,
+		ExecutedAt: &executedAt,
+	}).Error)
+
+	_, err := ManualAdjustUserQuota(user.Id, mustQuota(t, "200"), "mid-cycle grant", "root")
+	require.EqualError(t, err, "调整后受管余额将超过当前阶段上限")
+
+	var plans int64
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("status = ?", model.QuotaPlanStatusDraft).Count(&plans).Error)
+	assert.Zero(t, plans)
 }
 
 func TestGetScheduledCycleDetailIncludesInitialGrantRecommendation(t *testing.T) {
@@ -160,17 +215,20 @@ func TestRegenerateLegacyPlanUsesSourceDefaults(t *testing.T) {
 	assert.Equal(t, 30, parameters.UsageBonusPercent)
 }
 
-func TestActivateDueCycleClosesExpiredSchedules(t *testing.T) {
+func TestRunQuotaLifecycleClosesExpiredSchedulesAndActivatesSuccessor(t *testing.T) {
 	db := setupQuotaTestDB(t)
+	configureLifecycleTest(t, false, "23:59")
 	now := time.Now().Unix()
 	cycles := []model.QuotaCycle{
 		{
 			CycleStartAt: now - 20*daySeconds, CycleEndAt: now - 10*daySeconds,
 			BudgetQuota: 1, InitialGrantQuota: 1, Status: model.QuotaCycleStatusScheduled,
+			BalancePolicy: model.QuotaCycleBalancePolicyCarry,
 		},
 		{
 			CycleStartAt: now - daySeconds, CycleEndAt: now + daySeconds,
 			BudgetQuota: 1, InitialGrantQuota: 1, Status: model.QuotaCycleStatusScheduled,
+			BalancePolicy: model.QuotaCycleBalancePolicyCarry,
 		},
 	}
 	require.NoError(t, db.Create(&cycles).Error)
@@ -180,7 +238,8 @@ func TestActivateDueCycleClosesExpiredSchedules(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&expiredPlan).Error)
 
-	require.NoError(t, activateDueCycle(now))
+	_, err := RunQuotaLifecycle(now)
+	require.NoError(t, err)
 	var stored []model.QuotaCycle
 	require.NoError(t, db.Order("id").Find(&stored).Error)
 	require.Len(t, stored, 2)
@@ -190,5 +249,5 @@ func TestActivateDueCycleClosesExpiredSchedules(t *testing.T) {
 	require.NotNil(t, stored[1].ActiveKey)
 	require.NoError(t, db.First(&expiredPlan, expiredPlan.Id).Error)
 	assert.Equal(t, model.QuotaPlanStatusCancelled, expiredPlan.Status)
-	assert.Equal(t, "采购周期已结束", expiredPlan.CancelReason)
+	assert.Equal(t, "采购周期已收口", expiredPlan.CancelReason)
 }

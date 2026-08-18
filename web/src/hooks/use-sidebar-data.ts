@@ -39,6 +39,7 @@ import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -48,6 +49,9 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
+  const companyQuotaModeEnabled = useSystemConfigStore(
+    (state) => state.config.companyQuotaModeEnabled === true
+  )
 
   return {
     navGroups: [
@@ -135,29 +139,37 @@ export function useSidebarData(): SidebarData {
             url: '/users',
             icon: Users,
           },
-          {
-            title: t('Redemption Codes'),
-            url: '/redemption-codes',
-            icon: Ticket,
-          },
-          {
-            title: t('Subscriptions'),
-            url: '/subscriptions',
-            icon: CreditCard,
-          },
+          ...(!companyQuotaModeEnabled
+            ? [
+                {
+                  title: t('Redemption Codes'),
+                  url: '/redemption-codes',
+                  icon: Ticket,
+                },
+                {
+                  title: t('Subscriptions'),
+                  url: '/subscriptions',
+                  icon: CreditCard,
+                },
+              ]
+            : []),
           {
             title: t('System Info'),
             url: '/system-info',
             icon: ServerCog,
             requiredRole: ROLE.SUPER_ADMIN,
           },
-          {
-            title: t('Quota Management'),
-            url: '/quota-management',
-            activeUrls: ['/quota-management'],
-            icon: Coins,
-            requiredRole: ROLE.ADMIN,
-          },
+          ...(companyQuotaModeEnabled
+            ? [
+                {
+                  title: t('Quota Management'),
+                  url: '/quota-management',
+                  activeUrls: ['/quota-management'],
+                  icon: Coins,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           {
             title: t('System Settings'),
             url: '/system-settings/site',

@@ -240,6 +240,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaManagementRoute.GET("/cycles/:id", controller.GetQuotaCycle)
 			quotaManagementRoute.PATCH("/cycles/:id", controller.UpdateQuotaCycle)
 			quotaManagementRoute.POST("/cycles/:id/close", controller.CloseQuotaCycle)
+			quotaManagementRoute.POST("/cycles/:id/restore", controller.RestoreQuotaCycleSettlement)
 			quotaManagementRoute.GET("/plans", controller.GetQuotaPlans)
 			quotaManagementRoute.GET("/plans/options", controller.GetQuotaPlanOptions)
 			quotaManagementRoute.POST("/plans", controller.GenerateQuotaPlan)
@@ -249,6 +250,7 @@ func SetApiRouter(router *gin.Engine) {
 			quotaManagementRoute.DELETE("/plans/:id", controller.DeleteQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/regenerate", controller.RegenerateQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/notifications/retry", controller.RetryQuotaPlanNotifications)
+			quotaManagementRoute.POST("/manual-adjust", controller.ManualQuotaAdjust)
 		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)

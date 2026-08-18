@@ -53,18 +53,16 @@ func TestExecutePlanCommitsBalanceLogAndStateTogether(t *testing.T) {
 	assert.Contains(t, logs[0].Content, "本次调减：＄20.000000")
 }
 
-func TestExecutePlanRejectsOrdinaryDecreaseBelowRetainedQuota(t *testing.T) {
+func TestExecutePlanAppliesDecreaseAfterConsumptionWhenBalanceCoversDelta(t *testing.T) {
 	db := setupQuotaTestDB(t)
 	now := time.Now().Unix()
 	_, user, plan, item := seedExecutableDecrease(t, db, now)
 	require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", int(mustQuota(t, "90"))).Error)
 
-	err := db.Transaction(func(tx *gorm.DB) error {
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
 		_, executeErr := executePlanInTransaction(tx, plan.Id, plan.CycleId, "root", now+60)
 		return executeErr
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "保留方案核定额度")
+	}))
 
 	var storedUser model.User
 	var storedPlan model.QuotaPlan
@@ -72,9 +70,91 @@ func TestExecutePlanRejectsOrdinaryDecreaseBelowRetainedQuota(t *testing.T) {
 	require.NoError(t, db.First(&storedUser, user.Id).Error)
 	require.NoError(t, db.First(&storedPlan, plan.Id).Error)
 	require.NoError(t, db.First(&storedItem, item.Id).Error)
-	assert.Equal(t, int(mustQuota(t, "90")), storedUser.Quota)
+	assert.Equal(t, int(mustQuota(t, "70")), storedUser.Quota)
+	assert.Equal(t, model.QuotaPlanStatusExecuted, storedPlan.Status)
+	require.NotNil(t, storedItem.ActualAfterQuota)
+	assert.Equal(t, mustQuota(t, "70"), *storedItem.ActualAfterQuota)
+}
+
+func TestExecutePlanRejectsDecreaseWhenLiveBalanceCannotCoverDelta(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	_, user, plan, _ := seedExecutableDecrease(t, db, now)
+	require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", int(mustQuota(t, "10"))).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, plan.CycleId, "root", now+60)
+		return executeErr
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "余额不足以扣除方案额度")
+
+	var storedUser model.User
+	var storedPlan model.QuotaPlan
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.NoError(t, db.First(&storedPlan, plan.Id).Error)
+	assert.Equal(t, int(mustQuota(t, "10")), storedUser.Quota)
 	assert.Equal(t, model.QuotaPlanStatusDraft, storedPlan.Status)
-	assert.Nil(t, storedItem.ActualAfterQuota)
+}
+
+func TestExecutePlanRejectsThoroughReleaseBeforeFinalWindow(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	_, user, plan, _ := seedExecutableDecrease(t, db, now)
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("id = ?", plan.Id).Updates(map[string]interface{}{
+		"stage_percent": 10_000,
+		"parameters":    `{"thorough_release":true}`,
+	}).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, plan.CycleId, "root", now+60)
+		return executeErr
+	})
+	require.EqualError(t, err, "彻底释放只能在最终调配窗口执行")
+
+	var storedUser model.User
+	var storedPlan model.QuotaPlan
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.NoError(t, db.First(&storedPlan, plan.Id).Error)
+	assert.Equal(t, user.Quota, storedUser.Quota)
+	assert.Equal(t, model.QuotaPlanStatusDraft, storedPlan.Status)
+}
+
+func TestExecutePlanFreezesPositiveItemsWhenPositionAlreadyExceedsStage(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	users := []model.User{
+		{Username: "source", AffCode: "freeze-source", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "800"))},
+		{Username: "recipient", AffCode: "freeze-recipient", Status: common.UserStatusEnabled},
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&users).Error)
+	plan := model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 7_500,
+		SnapshotAt: now, AlgorithmVersion: AlgorithmVersion, Status: model.QuotaPlanStatusDraft,
+	}
+	require.NoError(t, db.Create(&plan).Error)
+	items := []model.QuotaItem{
+		{PlanId: plan.Id, UserId: users[0].Id, Action: model.QuotaAdjustmentActionDecrease, SnapshotBalanceQuota: int64(users[0].Quota), AdjustmentQuota: -mustQuota(t, "100"), RetainedQuota: mustQuota(t, "700")},
+		{PlanId: plan.Id, UserId: users[1].Id, Action: model.QuotaAdjustmentActionGrant, SnapshotBalanceQuota: 0, AdjustmentQuota: mustQuota(t, "10"), RetainedQuota: mustQuota(t, "10")},
+	}
+	require.NoError(t, db.Create(&items).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, cycle.Id, "root", now+60)
+		return executeErr
+	})
+	require.EqualError(t, err, "当前受管头寸已超过可用上限，所有正向调配已冻结")
+
+	var stored []model.User
+	require.NoError(t, db.Order("id").Find(&stored).Error)
+	assert.Equal(t, users[0].Quota, stored[0].Quota)
+	assert.Zero(t, stored[1].Quota)
 }
 
 func TestSplitLogOutboxConvergesByDeterministicRequestID(t *testing.T) {

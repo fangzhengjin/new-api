@@ -52,6 +52,7 @@ type CreateCycleParams struct {
 	EndAt             int64
 	BudgetQuota       int64
 	InitialGrantQuota int64
+	BalancePolicy     model.QuotaCycleBalancePolicy
 	CreatedBy         string
 }
 
@@ -68,9 +69,6 @@ func validateInitialGrantQuota(quota int64) error {
 // ListCycles activates due schedules and returns the latest 50 cycles.
 func ListCycles() (*CycleListResult, error) {
 	now := time.Now().Unix()
-	if err := activateDueCycle(now); err != nil {
-		return nil, err
-	}
 	var cycles []model.QuotaCycle
 	if err := model.DB.Order("cycle_start_at DESC").Limit(50).Find(&cycles).Error; err != nil {
 		return nil, err
@@ -128,10 +126,14 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 	if err := validateInitialGrantQuota(params.InitialGrantQuota); err != nil {
 		return nil, err
 	}
+	if !params.BalancePolicy.Valid() {
+		return nil, errors.New("周期余额策略必须是 reset 或 carry")
+	}
 	cycle := model.QuotaCycle{
 		CycleStartAt: params.StartAt, CycleEndAt: params.EndAt,
 		BudgetQuota: params.BudgetQuota, InitialGrantQuota: params.InitialGrantQuota,
-		Status: model.QuotaCycleStatusScheduled, CreatedBy: params.CreatedBy,
+		BalancePolicy: params.BalancePolicy,
+		Status:        model.QuotaCycleStatusScheduled, CreatedBy: params.CreatedBy,
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		var overlap int64
@@ -167,6 +169,24 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 		if cycle.Status == model.QuotaCycleStatusClosed {
 			return errors.New("周期已关闭")
 		}
+		settingsChanged := budgetQuota != cycle.BudgetQuota || (initialGrantQuota != nil && *initialGrantQuota != cycle.InitialGrantQuota)
+		if model.CompanyQuotaModeEnabled() && cycle.Status == model.QuotaCycleStatusActive && budgetQuota != cycle.BudgetQuota {
+			spend, err := model.SumQuotaCycleSettlement(tx, cycle.Id, time.Now().Unix())
+			if err != nil {
+				return err
+			}
+			managed, err := currentManagedBalance(tx)
+			if err != nil {
+				return err
+			}
+			occupied, err := checkedAdd(spend, managed)
+			if err != nil {
+				return err
+			}
+			if occupied > budgetQuota {
+				return errors.New("新周期预算不能低于当前受管头寸")
+			}
+		}
 		updates := map[string]interface{}{
 			"budget_quota": budgetQuota, "updated_at": time.Now().Unix(), "updated_by": updatedBy,
 		}
@@ -179,79 +199,28 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 			}
 			updates["initial_grant_quota"] = *initialGrantQuota
 		}
-		return tx.Model(&model.QuotaCycle{}).Where("id = ?", cycleID).Updates(updates).Error
-	})
-}
-
-// CloseCycle closes a scheduled or active cycle and cancels all remaining drafts.
-func CloseCycle(cycleID int, updatedBy string) error {
-	now := time.Now().Unix()
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		var cycle model.QuotaCycle
-		if err := model.LockForUpdate(tx).First(&cycle, cycleID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errors.New("周期不存在")
-			}
+		if err := tx.Model(&model.QuotaCycle{}).Where("id = ?", cycleID).Updates(updates).Error; err != nil {
 			return err
 		}
-		if cycle.Status == model.QuotaCycleStatusClosed {
-			return errors.New("周期已关闭")
-		}
-		if err := tx.Model(&model.QuotaCycle{}).Where("id = ?", cycleID).Updates(map[string]interface{}{
-			"status": model.QuotaCycleStatusClosed, "active_key": nil, "updated_at": now, "updated_by": updatedBy,
-		}).Error; err != nil {
-			return err
+		if !settingsChanged {
+			return nil
 		}
 		return tx.Model(&model.QuotaPlan{}).
 			Where("cycle_id = ? AND status = ?", cycleID, model.QuotaPlanStatusDraft).
 			Updates(map[string]interface{}{
-				"status": model.QuotaPlanStatusCancelled, "cancelled_at": now,
-				"cancelled_by": updatedBy, "cancel_reason": "采购周期已关闭",
+				"status": model.QuotaPlanStatusCancelled, "cancelled_at": time.Now().Unix(),
+				"cancelled_by": updatedBy, "cancel_reason": "周期预算或首次额度变更",
 			}).Error
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 }
 
-func activateDueCycle(now int64) error {
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&model.QuotaCycle{}).
-			Where("status IN ? AND cycle_end_at <= ?", []model.QuotaCycleStatus{
-				model.QuotaCycleStatusScheduled, model.QuotaCycleStatusActive,
-			}, now).
-			Updates(map[string]interface{}{
-				"status": model.QuotaCycleStatusClosed, "active_key": nil, "updated_at": now,
-			}).Error; err != nil {
-			return err
-		}
-		expiredCycles := tx.Model(&model.QuotaCycle{}).Select("id").
-			Where("status = ? AND cycle_end_at <= ?", model.QuotaCycleStatusClosed, now)
-		if err := tx.Model(&model.QuotaPlan{}).
-			Where("status = ? AND cycle_id IN (?)", model.QuotaPlanStatusDraft, expiredCycles).
-			Updates(map[string]interface{}{
-				"status": model.QuotaPlanStatusCancelled, "cancelled_at": now,
-				"cancelled_by": "system", "cancel_reason": "采购周期已结束",
-			}).Error; err != nil {
-			return err
-		}
-		var next model.QuotaCycle
-		err := model.LockForUpdate(tx).
-			Where("status = ? AND cycle_start_at <= ? AND cycle_end_at > ?", model.QuotaCycleStatusScheduled, now, now).
-			Order("cycle_start_at DESC").First(&next).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		return tx.Model(&model.QuotaCycle{}).Where("id = ?", next.Id).Updates(map[string]interface{}{
-			"status": model.QuotaCycleStatusActive, "active_key": 1, "updated_at": now,
-		}).Error
-	})
+// CloseCycle closes a scheduled or active cycle through the lifecycle settlement path.
+func CloseCycle(cycleID int, updatedBy string) error {
+	_, err := settleCycle(cycleID, time.Now().Unix(), updatedBy)
+	return err
 }
 
 func activeCycle() (*model.QuotaCycle, error) {
-	if err := activateDueCycle(time.Now().Unix()); err != nil {
-		return nil, err
-	}
 	var cycle model.QuotaCycle
 	err := model.DB.Where("status = ?", model.QuotaCycleStatusActive).Order("cycle_start_at DESC").First(&cycle).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -287,16 +256,21 @@ func initialGrantRecommendation(beforeTime int64, now int64) (*InitialGrantRecom
 	}
 	referenceEnd := minQuota(now, cycle.CycleEndAt)
 	var spend int64
-	if model.LOG_DB == nil {
-		return nil, errors.New("日志数据库未初始化")
+	if model.CompanyQuotaModeEnabled() {
+		spend, err = model.SumQuotaCycleSettlement(model.DB, cycle.Id, referenceEnd)
+	} else {
+		if model.LOG_DB == nil {
+			return nil, errors.New("日志数据库未初始化")
+		}
+		query := model.LOG_DB.Model(&model.Log{}).
+			Select("COALESCE(SUM(quota), 0)").
+			Where("type = ? AND created_at >= ? AND created_at <= ?", model.LogTypeConsume, cycle.CycleStartAt, referenceEnd)
+		if len(userIDs) > 0 {
+			query = query.Where("user_id IN ?", userIDs)
+		}
+		err = query.Scan(&spend).Error
 	}
-	query := model.LOG_DB.Model(&model.Log{}).
-		Select("COALESCE(SUM(quota), 0)").
-		Where("type = ? AND created_at >= ? AND created_at <= ?", model.LogTypeConsume, cycle.CycleStartAt, referenceEnd)
-	if len(userIDs) > 0 {
-		query = query.Where("user_id IN ?", userIDs)
-	}
-	if err := query.Scan(&spend).Error; err != nil {
+	if err != nil {
 		return nil, err
 	}
 	if spend <= 0 {

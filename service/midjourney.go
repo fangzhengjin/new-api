@@ -72,8 +72,16 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
 
+	billingAt := midjourneyBillingAt(task.SubmitTime)
+	businessKey := "midjourney:" + task.MjId
+	if err := model.RecordQuotaSettlement(businessKey, task.UserId, int64(task.Quota), billingAt); err != nil {
+		return false, fmt.Errorf("record Midjourney settlement: %w", err)
+	}
 	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
 	if !result.FundingApplied {
+		if settlementErr := model.RecordQuotaSettlement(businessKey, task.UserId, 0, billingAt); settlementErr != nil {
+			billingErr = errors.Join(billingErr, fmt.Errorf("restore Midjourney settlement: %w", settlementErr))
+		}
 		task.Quota = 0
 		task.TokenId = 0
 		task.BillingChannelId = 0
@@ -82,7 +90,6 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 		}
 		return false, billingErr
 	}
-
 	task.TokenId = 0
 	if result.TokenApplied {
 		task.TokenId = relayInfo.TokenId
@@ -100,7 +107,16 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		return true
 	}
 
+	billingAt := midjourneyBillingAt(task.SubmitTime)
+	businessKey := "midjourney:" + task.MjId
+	if err := model.RecordQuotaSettlement(businessKey, task.UserId, 0, billingAt); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("Midjourney 退款前更新周期消费失败 task %s: %s", task.MjId, err.Error()))
+		return false
+	}
 	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
+		if rollbackErr := model.RecordQuotaSettlement(businessKey, task.UserId, int64(quota), billingAt); rollbackErr != nil {
+			logger.LogError(ctx, fmt.Sprintf("Midjourney 退款失败且恢复周期消费失败 task %s: %s", task.MjId, rollbackErr.Error()))
+		}
 		logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
 		return false
 	}
@@ -136,6 +152,13 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		logger.LogError(ctx, fmt.Sprintf("Midjourney 退款成功但清除 quota 失败 task %s: %s", task.MjId, err.Error()))
 	}
 	return true
+}
+
+func midjourneyBillingAt(submitTime int64) int64 {
+	if submitTime > 100_000_000_000 {
+		return submitTime / int64(time.Second/time.Millisecond)
+	}
+	return submitTime
 }
 
 func GetMjRequestModel(relayMode int, midjRequest *dto.MidjourneyRequest) (string, *dto.MidjourneyResponse, bool) {

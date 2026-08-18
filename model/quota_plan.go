@@ -6,6 +6,7 @@ type QuotaPlanType string
 const (
 	QuotaPlanTypeInitialization QuotaPlanType = "initialization"
 	QuotaPlanTypeAdjustment     QuotaPlanType = "adjustment"
+	QuotaPlanTypeSettlement     QuotaPlanType = "settlement"
 )
 
 // QuotaPlanStatus is the persisted plan state machine.
@@ -26,6 +27,7 @@ const (
 	QuotaAdjustmentActionDecrease   QuotaAdjustmentAction = "decrease"
 	QuotaAdjustmentActionGrant      QuotaAdjustmentAction = "grant"
 	QuotaAdjustmentActionReclaim    QuotaAdjustmentAction = "reclaim"
+	QuotaAdjustmentActionRestore    QuotaAdjustmentAction = "restore"
 )
 
 // QuotaNotificationStatus tracks delivery without repeating balance changes.

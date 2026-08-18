@@ -15,19 +15,37 @@ const (
 	QuotaCycleStatusClosed    QuotaCycleStatus = "closed"
 )
 
+// QuotaCycleBalancePolicy defines what happens to managed balances at cycle close.
+type QuotaCycleBalancePolicy string
+
+const (
+	QuotaCycleBalancePolicyReset QuotaCycleBalancePolicy = "reset"
+	QuotaCycleBalancePolicyCarry QuotaCycleBalancePolicy = "carry"
+)
+
+// Valid reports whether the persisted cycle balance policy is supported.
+func (policy QuotaCycleBalancePolicy) Valid() bool {
+	return policy == QuotaCycleBalancePolicyReset || policy == QuotaCycleBalancePolicyCarry
+}
+
 // QuotaCycle stores one quota purchasing window and its fixed initial grant.
 type QuotaCycle struct {
-	Id                int              `json:"id" gorm:"primaryKey"`
-	CycleStartAt      int64            `json:"cycle_start_at" gorm:"bigint;uniqueIndex;index:idx_tool_quota_cycles_time,priority:1"`
-	CycleEndAt        int64            `json:"cycle_end_at" gorm:"bigint;index:idx_tool_quota_cycles_time,priority:2"`
-	BudgetQuota       int64            `json:"-" gorm:"bigint"`
-	InitialGrantQuota int64            `json:"-" gorm:"bigint"`
-	Status            QuotaCycleStatus `json:"status" gorm:"type:varchar(20);index"`
-	ActiveKey         *int             `json:"-" gorm:"uniqueIndex:idx_tool_quota_cycles_active_key"`
-	CreatedAt         int64            `json:"created_at" gorm:"bigint;index"`
-	CreatedBy         string           `json:"created_by" gorm:"type:varchar(255)"`
-	UpdatedAt         int64            `json:"updated_at" gorm:"bigint"`
-	UpdatedBy         string           `json:"updated_by" gorm:"type:varchar(255)"`
+	Id                int                     `json:"id" gorm:"primaryKey"`
+	CycleStartAt      int64                   `json:"cycle_start_at" gorm:"bigint;uniqueIndex;index:idx_tool_quota_cycles_time,priority:1"`
+	CycleEndAt        int64                   `json:"cycle_end_at" gorm:"bigint;index:idx_tool_quota_cycles_time,priority:2"`
+	BudgetQuota       int64                   `json:"-" gorm:"bigint"`
+	InitialGrantQuota int64                   `json:"-" gorm:"bigint"`
+	BalancePolicy     QuotaCycleBalancePolicy `json:"balance_policy" gorm:"type:varchar(20);index"`
+	Status            QuotaCycleStatus        `json:"status" gorm:"type:varchar(20);index"`
+	ActiveKey         *int                    `json:"-" gorm:"uniqueIndex:idx_tool_quota_cycles_active_key"`
+	SettlementPlanId  *int                    `json:"settlement_plan_id,omitempty" gorm:"index"`
+	SettledAt         *int64                  `json:"settled_at,omitempty" gorm:"bigint;index"`
+	RestoredAt        *int64                  `json:"restored_at,omitempty" gorm:"bigint"`
+	RestoredBy        string                  `json:"restored_by" gorm:"type:varchar(255)"`
+	CreatedAt         int64                   `json:"created_at" gorm:"bigint;index"`
+	CreatedBy         string                  `json:"created_by" gorm:"type:varchar(255)"`
+	UpdatedAt         int64                   `json:"updated_at" gorm:"bigint"`
+	UpdatedBy         string                  `json:"updated_by" gorm:"type:varchar(255)"`
 }
 
 // TableName returns the stable table used by the imported quota tool.

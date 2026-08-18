@@ -17,7 +17,7 @@ import (
 
 const (
 	// AlgorithmVersion rejects stale drafts after allocation rules change.
-	AlgorithmVersion          = "1.6.1"
+	AlgorithmVersion          = "1.7.0"
 	defaultQuotaPerUnit int64 = 500_000
 	daySeconds          int64 = 86_400
 
@@ -137,6 +137,14 @@ func ParsePositiveQuota(value string, label string) (int64, error) {
 		return 0, fmt.Errorf("%s必须是正整数额度", label)
 	}
 	return quota, nil
+}
+
+func ParseNonNegativeQuota(value string, label string) (int64, error) {
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || parsed < 0 || parsed > int64(common.MaxQuota) {
+		return 0, fmt.Errorf("%s必须是0至%d之间的整数", label, common.MaxQuota)
+	}
+	return parsed, nil
 }
 
 // FormatQuota renders raw quota with the site's configured new-api quota display.

@@ -22,6 +22,9 @@ type SubscriptionEpayPayRequest struct {
 }
 
 func SubscriptionRequestEpay(c *gin.Context) {
+	if rejectCompanyQuotaMode(c) {
+		return
+	}
 	if !requirePaymentCompliance(c) {
 		return
 	}

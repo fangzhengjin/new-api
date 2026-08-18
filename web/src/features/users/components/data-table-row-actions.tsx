@@ -47,8 +47,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import {
+  manageUser,
+  resetUserPasskey,
+  resetUserTwoFA,
+  setQuotaWhitelist,
+} from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -67,11 +73,15 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
+  const companyQuotaModeEnabled = useSystemConfigStore(
+    (state) => state.config.companyQuotaModeEnabled === true
+  )
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [whitelistDialogOpen, setWhitelistDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -128,6 +138,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
+    }
+  }
+
+  const handleWhitelist = async () => {
+    try {
+      const result = await setQuotaWhitelist(user.id, !user.quota_whitelist)
+      if (result.success) {
+        toast.success(t('Quota whitelist updated successfully'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Failed to update quota whitelist'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setWhitelistDialogOpen(false)
     }
   }
 
@@ -198,6 +224,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
+        {companyQuotaModeEnabled && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setWhitelistDialogOpen(true)
+            }}
+          >
+            {user.quota_whitelist
+              ? t('Remove quota whitelist')
+              : t('Add to quota whitelist')}
+            <DropdownMenuShortcut>
+              <ShieldAlert size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuItem
           onSelect={(event) => {
             event.preventDefault()
@@ -210,17 +252,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            setSubscriptionsDialogOpen(true)
-          }}
-        >
-          {t('Manage Subscriptions')}
-          <DropdownMenuShortcut>
-            <CreditCard size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {!companyQuotaModeEnabled && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setSubscriptionsDialogOpen(true)
+            }}
+          >
+            {t('Manage Subscriptions')}
+            <DropdownMenuShortcut>
+              <CreditCard size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 
@@ -265,6 +309,31 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       </DataTableRowActionMenu>
 
       <ConfirmDialog
+        open={whitelistDialogOpen}
+        onOpenChange={setWhitelistDialogOpen}
+        title={
+          user.quota_whitelist
+            ? t('Remove quota whitelist')
+            : t('Add to quota whitelist')
+        }
+        desc={
+          user.quota_whitelist
+            ? t(
+                'Removing this user from the quota whitelist brings the current balance back under allocation control and may invalidate draft plans.'
+              )
+            : t(
+                'Whitelist users do not receive, reclaim, clear, carry, recover, return, or receive priority allocation. Their existing balance remains unchanged, but actual consumption still counts toward the company cycle purchase total.'
+              )
+        }
+        confirmText={
+          user.quota_whitelist
+            ? t('Remove quota whitelist')
+            : t('Add to quota whitelist')
+        }
+        handleConfirm={handleWhitelist}
+      />
+
+      <ConfirmDialog
         open={resetPasskeyOpen}
         onOpenChange={setResetPasskeyOpen}
         title={t('Reset Passkey')}
@@ -295,12 +364,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onUnbindSuccess={triggerRefresh}
       />
 
-      <UserSubscriptionsDialog
-        open={subscriptionsDialogOpen}
-        onOpenChange={setSubscriptionsDialogOpen}
-        user={{ id: user.id, username: user.username }}
-        onSuccess={triggerRefresh}
-      />
+      {!companyQuotaModeEnabled && (
+        <UserSubscriptionsDialog
+          open={subscriptionsDialogOpen}
+          onOpenChange={setSubscriptionsDialogOpen}
+          user={{ id: user.id, username: user.username }}
+          onSuccess={triggerRefresh}
+        />
+      )}
     </div>
   )
 }

@@ -567,6 +567,9 @@ func refreshSubscriptionUserGroupCache(userId int, operation string) {
 // expectedPaymentProvider guards against cross-gateway callback attacks (empty skips the check).
 // actualPaymentMethod updates the order's PaymentMethod to reflect the real payment type used (empty skips update).
 func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string) error {
+	if err := RejectPersonalQuotaSource(); err != nil {
+		return err
+	}
 	if tradeNo == "" {
 		return errors.New("tradeNo is empty")
 	}
@@ -754,6 +757,9 @@ func calcSubscriptionBalanceQuota(priceAmount float64) (int, error) {
 
 // PurchaseSubscriptionWithBalance creates a subscription by deducting the user's wallet quota.
 func PurchaseSubscriptionWithBalance(userId int, planId int) error {
+	if err := RejectPersonalQuotaSource(); err != nil {
+		return err
+	}
 	if userId <= 0 || planId <= 0 {
 		return errors.New("invalid userId or planId")
 	}

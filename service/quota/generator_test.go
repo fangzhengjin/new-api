@@ -26,8 +26,8 @@ func TestGenerateInitializationPlanUsesManagedBalancesAndAllSpend(t *testing.T) 
 	users := []model.User{
 		{Username: "alice", DisplayName: "Alice", Email: "alice@example.com", AffCode: "alice-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "50")), CreatedAt: now - daySeconds},
 		{Username: "bob", DisplayName: "Bob", Email: "bob@example.com", AffCode: "bob-code", Status: common.UserStatusDisabled, Quota: int(mustQuota(t, "10")), CreatedAt: now - daySeconds},
-		{Username: "demo", AffCode: "demo-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "300")), CreatedAt: now - daySeconds},
-		{Username: "admin", AffCode: "admin-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "400")), CreatedAt: now - daySeconds},
+		{Username: "demo", AffCode: "demo-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "300")), QuotaWhitelist: true, CreatedAt: now - daySeconds},
+		{Username: "admin", AffCode: "admin-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "400")), QuotaWhitelist: true, CreatedAt: now - daySeconds},
 	}
 	require.NoError(t, db.Create(&users).Error)
 	require.NoError(t, db.Create(&[]model.Log{
@@ -67,17 +67,21 @@ func setupQuotaTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.User{}, &model.Log{}, &model.QuotaCycle{}, &model.QuotaPlan{}, &model.QuotaItem{},
+		&model.QuotaCycleSettlement{},
 	))
 
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousBatch := common.BatchUpdateEnabled
+	previousRedis := common.RedisEnabled
 	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	model.DB, model.LOG_DB = db, db
 	common.BatchUpdateEnabled = false
+	common.RedisEnabled = false
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.BatchUpdateEnabled = previousBatch
+		common.RedisEnabled = previousRedis
 		common.SetDatabaseTypes(previousMainType, previousLogType)
 	})
 	return db
@@ -111,6 +115,42 @@ func TestGeneratePlanRejectsMissingLogDatabase(t *testing.T) {
 	})
 
 	require.EqualError(t, err, "日志数据库未初始化")
+}
+
+func TestGenerateAdjustmentUsesManualGrantExecutionAsObservationStart(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 10*daySeconds, CycleEndAt: now + 20*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{
+		Username: "recent-manual-grant", AffCode: "recent-manual-grant",
+		Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "100")), CreatedAt: now - 60*daySeconds,
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	grantPlan := model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 1_000,
+		SnapshotAt: now - 60, AlgorithmVersion: AlgorithmVersion,
+		Status: model.QuotaPlanStatusExecuted, ExecutedAt: &now,
+	}
+	require.NoError(t, db.Create(&grantPlan).Error)
+	require.NoError(t, db.Create(&model.QuotaItem{
+		PlanId: grantPlan.Id, UserId: user.Id, Action: model.QuotaAdjustmentActionGrant,
+	}).Error)
+
+	nextAdjustment := now + 7*daySeconds
+	result, err := GeneratePlan(GenerateParams{
+		CycleID: cycle.Id, PlanType: model.QuotaPlanTypeAdjustment, StagePercent: 7_500,
+		NextAdjustmentAt: &nextAdjustment, BasisMode: basisModeActual,
+		EarlyReclaim: true, ReclaimCapPercent: 30, UsageBonusPercent: 30, CreatedBy: "root",
+	})
+	require.NoError(t, err)
+	for _, item := range result.Items {
+		assert.False(t, item.UserId == user.Id && item.AdjustmentQuota < 0)
+	}
 }
 
 func TestAdjustmentsToItemsRejectsUnsupportedUserBalance(t *testing.T) {

@@ -25,16 +25,22 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { listCycles } from './api'
 import { CreateCycleDialog } from './components/create-cycle-dialog'
 import { CycleTable } from './components/cycle-table'
+import { ManualQuotaDialog } from './components/manual-quota-dialog'
 import { PageError, PageLoading } from './components/shared'
 import { queryKeys } from './utils'
 
 export function QuotaManagement() {
   const { t } = useTranslation()
+  const companyQuotaModeEnabled = useSystemConfigStore(
+    (state) => state.config.companyQuotaModeEnabled === true
+  )
   const [cycleDialogOpen, setCycleDialogOpen] = useState(false)
+  const [manualDialogOpen, setManualDialogOpen] = useState(false)
   const cyclesQuery = useQuery({
     queryKey: queryKeys.cycles,
     queryFn: listCycles,
@@ -66,6 +72,13 @@ export function QuotaManagement() {
         <SectionPageLayout.Actions>
           <Button
             variant='outline'
+            onClick={() => setManualDialogOpen(true)}
+            disabled={!cyclesQuery.data || !companyQuotaModeEnabled}
+          >
+            {t('Manual adjustment')}
+          </Button>
+          <Button
+            variant='outline'
             onClick={() => setCycleDialogOpen(true)}
             disabled={!cyclesQuery.data}
           >
@@ -87,6 +100,10 @@ export function QuotaManagement() {
           recommendation={cyclesQuery.data.recommendation}
         />
       )}
+      <ManualQuotaDialog
+        open={manualDialogOpen}
+        onOpenChange={setManualDialogOpen}
+      />
     </>
   )
 }

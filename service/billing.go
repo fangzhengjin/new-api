@@ -1,10 +1,12 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -34,6 +36,18 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	if model.CompanyQuotaModeEnabled() {
+		if relayInfo == nil || relayInfo.RequestId == "" {
+			return types.NewErrorWithStatusCode(errors.New("公司模式计费请求缺少业务键"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		billingAt := relayInfo.StartTime.Unix()
+		if err := model.EnsureQuotaSettlementCycle(billingAt); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeUpdateDataError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
+		if err := model.RecordQuotaSettlement(relayInfo.RequestId, relayInfo.UserId, 0, billingAt); err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeUpdateDataError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
+	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {
 		return apiErr
@@ -49,6 +63,13 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 // SettleBilling 执行计费结算。如果 RelayInfo 上有 BillingSession 则通过 session 结算，
 // 否则回退到旧的 PostConsumeQuota 路径（兼容按次计费等场景）。
 func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
+	if relayInfo == nil || actualQuota < 0 {
+		return fmt.Errorf("invalid billing settlement")
+	}
+	billingAt := relayInfo.StartTime.Unix()
+	if err := model.EnsureQuotaSettlementCycle(billingAt); err != nil {
+		return err
+	}
 	if relayInfo.Billing != nil {
 		preConsumed := relayInfo.Billing.GetPreConsumedQuota()
 		delta := actualQuota - preConsumed
@@ -71,7 +92,18 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 			))
 		}
 
+		if model.CompanyQuotaModeEnabled() {
+			if err := model.RecordQuotaSettlement(relayInfo.RequestId, relayInfo.UserId, int64(actualQuota), billingAt); err != nil {
+				return err
+			}
+		}
 		if err := relayInfo.Billing.Settle(actualQuota); err != nil {
+			session, _ := relayInfo.Billing.(*BillingSession)
+			if model.CompanyQuotaModeEnabled() && (session == nil || !session.isFundingSettled()) {
+				if rollbackErr := model.RecordQuotaSettlement(relayInfo.RequestId, relayInfo.UserId, int64(preConsumed), billingAt); rollbackErr != nil {
+					return errors.Join(err, fmt.Errorf("结算失败且回滚周期账务失败: %w", rollbackErr))
+				}
+			}
 			return err
 		}
 
@@ -83,13 +115,18 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 				checkAndSendQuotaNotify(relayInfo, actualQuota-preConsumed, preConsumed)
 			}
 		}
+		if !model.CompanyQuotaModeEnabled() {
+			return model.RecordQuotaSettlement(relayInfo.RequestId, relayInfo.UserId, int64(actualQuota), billingAt)
+		}
 		return nil
 	}
 
 	// 回退：无 BillingSession 时使用旧路径
 	quotaDelta := actualQuota - relayInfo.FinalPreConsumedQuota
 	if quotaDelta != 0 {
-		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
+		if err := PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true); err != nil {
+			return err
+		}
 	}
-	return nil
+	return model.RecordQuotaSettlement(relayInfo.RequestId, relayInfo.UserId, int64(actualQuota), billingAt)
 }

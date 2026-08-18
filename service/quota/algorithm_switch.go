@@ -149,6 +149,9 @@ func GetAlgorithmStatus() (*AlgorithmStatus, error) {
 	if !model.CompanyQuotaModeEnabled() {
 		status.Blockers = append(status.Blockers, "公司额度模式未启用")
 	}
+	if status.CurrentVersion == ConcentrationAlgorithmVersion {
+		status.Blockers = append(status.Blockers, "当前周期使用周期内固定的自动分配上限，不参与旧算法切换")
+	}
 	if status.ActiveCycleID == nil {
 		status.Blockers = append(status.Blockers, "当前没有活跃周期")
 	}
@@ -192,6 +195,9 @@ func SwitchProductionAlgorithm(targetVersion, confirmation, operator string) (*A
 			return err
 		}
 		current := cycleAlgorithmVersion(&active)
+		if current == ConcentrationAlgorithmVersion {
+			return errors.New("当前周期已使用周期自动分配上限，不能切换旧版算法")
+		}
 		if current == targetVersion {
 			return nil
 		}
@@ -219,10 +225,12 @@ func SwitchProductionAlgorithm(targetVersion, confirmation, operator string) (*A
 			}).Error; err != nil {
 				return err
 			}
-			return tx.Model(&model.QuotaCycle{}).Where("status = ?", model.QuotaCycleStatusScheduled).Updates(map[string]interface{}{
-				"allocation_algorithm_version": CandidateAlgorithmVersion, "legacy_rollback_allowed": false,
-				"updated_at": now, "updated_by": operator,
-			}).Error
+			return tx.Model(&model.QuotaCycle{}).
+				Where("status = ? AND (concentration_multiplier = 0 OR concentration_multiplier IS NULL)", model.QuotaCycleStatusScheduled).
+				Updates(map[string]interface{}{
+					"allocation_algorithm_version": CandidateAlgorithmVersion, "legacy_rollback_allowed": false,
+					"updated_at": now, "updated_by": operator,
+				}).Error
 		}
 		if !active.LegacyRollbackAllowed {
 			return errors.New("现行算法回退窗口已结束")
@@ -241,10 +249,12 @@ func SwitchProductionAlgorithm(targetVersion, confirmation, operator string) (*A
 		}).Error; err != nil {
 			return err
 		}
-		return tx.Model(&model.QuotaCycle{}).Where("status = ?", model.QuotaCycleStatusScheduled).Updates(map[string]interface{}{
-			"allocation_algorithm_version": LegacyAlgorithmVersion, "legacy_rollback_allowed": false,
-			"updated_at": now, "updated_by": operator,
-		}).Error
+		return tx.Model(&model.QuotaCycle{}).
+			Where("status = ? AND (concentration_multiplier = 0 OR concentration_multiplier IS NULL)", model.QuotaCycleStatusScheduled).
+			Updates(map[string]interface{}{
+				"allocation_algorithm_version": LegacyAlgorithmVersion, "legacy_rollback_allowed": false,
+				"updated_at": now, "updated_by": operator,
+			}).Error
 	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return nil, err

@@ -20,11 +20,12 @@ func TestGenerateInitializationPlanUsesManagedBalancesAndAllSpend(t *testing.T) 
 	cycle := model.QuotaCycle{
 		CycleStartAt: now - 7*daySeconds, CycleEndAt: now + 30*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "200"),
-		Status: model.QuotaCycleStatusActive, CreatedBy: "root",
+		ConcentrationMultiplier: 15_000,
+		Status:                  model.QuotaCycleStatusActive, CreatedBy: "root",
 	}
 	require.NoError(t, db.Create(&cycle).Error)
 	users := []model.User{
-		{Username: "alice", DisplayName: "Alice", Email: "alice@example.com", AffCode: "alice-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "50")), CreatedAt: now - daySeconds},
+		{Username: "alice", DisplayName: "Alice", Email: "alice@example.com", AffCode: "alice-code", Status: common.UserStatusEnabled, Quota: -int(mustQuota(t, "10")), CreatedAt: now - daySeconds},
 		{Username: "bob", DisplayName: "Bob", Email: "bob@example.com", AffCode: "bob-code", Status: common.UserStatusDisabled, Quota: int(mustQuota(t, "10")), CreatedAt: now - daySeconds},
 		{Username: "demo", AffCode: "demo-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "300")), QuotaWhitelist: true, CreatedAt: now - daySeconds},
 		{Username: "admin", AffCode: "admin-code", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "400")), QuotaWhitelist: true, CreatedAt: now - daySeconds},
@@ -44,12 +45,16 @@ func TestGenerateInitializationPlanUsesManagedBalancesAndAllSpend(t *testing.T) 
 	require.NotNil(t, result)
 
 	assert.Equal(t, mustQuota(t, "120"), result.Summary.TotalSpend, "demo/admin usage still consumes the purchased pool")
-	assert.Equal(t, mustQuota(t, "60"), result.Summary.ManagedBalance, "demo/admin balances are excluded")
+	assert.Zero(t, result.Summary.ManagedBalance, "negative managed balances participate with their signed value")
 	assert.Equal(t, mustQuota(t, "320"), result.Summary.OccupiedAfter)
 	assert.Equal(t, 3_200, result.Plan.StagePercent)
+	assert.Equal(t, ConcentrationAlgorithmVersion, result.Plan.AlgorithmVersion)
+	var parameters PlanParameters
+	require.NoError(t, common.Unmarshal([]byte(result.Plan.Parameters), &parameters))
+	assert.Equal(t, int64(15_000), parameters.ConcentrationMultiplier)
 	require.Len(t, result.Items, 2)
 	assert.Equal(t, model.QuotaAdjustmentActionInitialize, result.Items[0].Action)
-	assert.Equal(t, mustQuota(t, "150"), result.Items[0].AdjustmentQuota)
+	assert.Equal(t, mustQuota(t, "210"), result.Items[0].AdjustmentQuota)
 	assert.Equal(t, model.QuotaAdjustmentActionReclaim, result.Items[1].Action)
 	assert.Equal(t, -mustQuota(t, "10"), result.Items[1].AdjustmentQuota)
 
@@ -159,6 +164,22 @@ func TestAdjustmentsToItemsRejectsUnsupportedUserBalance(t *testing.T) {
 	}})
 
 	require.EqualError(t, err, "用户 1 调整后余额超出可支持范围")
+
+	_, err = adjustmentsToItems(1, []userAdjustment{{
+		UserID: 2, SnapshotBalance: int64(common.MinQuota), Adjustment: -1,
+	}})
+	require.EqualError(t, err, "用户 2 调整后余额超出可支持范围")
+}
+
+func TestAdjustmentsToItemsAllowsSupportedNegativeUserBalance(t *testing.T) {
+	items, err := adjustmentsToItems(1, []userAdjustment{{
+		UserID: 1, SnapshotBalance: -100, Adjustment: 30,
+	}})
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, int64(-100), items[0].SnapshotBalanceQuota)
+	assert.Equal(t, int64(30), items[0].AdjustmentQuota)
 }
 
 func TestNormalizeGenerateParamsForcesThoroughReleaseRules(t *testing.T) {

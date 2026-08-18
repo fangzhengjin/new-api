@@ -31,7 +31,6 @@ import { listCycles } from './api'
 import { AlgorithmSwitchCard } from './components/algorithm-switch-card'
 import { CreateCycleDialog } from './components/create-cycle-dialog'
 import { CycleTable } from './components/cycle-table'
-import { ManualQuotaDialog } from './components/manual-quota-dialog'
 import { RecoveryRequestsCard } from './components/recovery-requests-card'
 import { PageError, PageLoading } from './components/shared'
 import { queryKeys } from './utils'
@@ -42,7 +41,6 @@ export function QuotaManagement() {
     (state) => state.config.companyQuotaModeEnabled === true
   )
   const [cycleDialogOpen, setCycleDialogOpen] = useState(false)
-  const [manualDialogOpen, setManualDialogOpen] = useState(false)
   const cyclesQuery = useQuery({
     queryKey: queryKeys.cycles,
     queryFn: listCycles,
@@ -74,13 +72,6 @@ export function QuotaManagement() {
         <SectionPageLayout.Actions>
           <Button
             variant='outline'
-            onClick={() => setManualDialogOpen(true)}
-            disabled={!cyclesQuery.data || !companyQuotaModeEnabled}
-          >
-            {t('Manual adjustment')}
-          </Button>
-          <Button
-            variant='outline'
             onClick={() => setCycleDialogOpen(true)}
             disabled={!cyclesQuery.data}
           >
@@ -108,10 +99,6 @@ export function QuotaManagement() {
           recommendation={cyclesQuery.data.recommendation}
         />
       )}
-      <ManualQuotaDialog
-        open={manualDialogOpen}
-        onOpenChange={setManualDialogOpen}
-      />
     </>
   )
 }

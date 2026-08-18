@@ -193,19 +193,6 @@ export async function retryNotifications(id: number) {
   return unwrap(data)
 }
 
-export async function manualQuotaAdjust(input: {
-  user_id: number
-  target_quota: string
-  reason: string
-}) {
-  const { data } = await api.post<Envelope<unknown>>(
-    '/api/quota-management/manual-adjust',
-    input,
-    requestConfig
-  )
-  return unwrap(data)
-}
-
 export async function listRecoveryRequests() {
   const { data } = await api.get<Envelope<QuotaRecoveryRequest[]>>(
     '/api/quota-management/recovery-requests',

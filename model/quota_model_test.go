@@ -28,7 +28,7 @@ func TestQuotaCycleActiveKeyAllowsManyScheduledButOnlyOneActive(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestMigrateQuotaCyclePoliciesBackfillsCarryWithoutChangingExplicitPolicy(t *testing.T) {
+func TestMigrateQuotaCyclePoliciesBackfillsLegacyValuesWithoutChangingExplicitPolicy(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&QuotaCycle{}))
@@ -37,6 +37,8 @@ func TestMigrateQuotaCyclePoliciesBackfillsCarryWithoutChangingExplicitPolicy(t 
 		{CycleStartAt: 3, CycleEndAt: 4, BudgetQuota: 1, BalancePolicy: QuotaCycleBalancePolicyReset, Status: QuotaCycleStatusScheduled},
 	}
 	require.NoError(t, db.Create(&cycles).Error)
+	require.NoError(t, db.Model(&QuotaCycle{}).Where("id = ?", cycles[0].Id).
+		Update("concentration_multiplier", nil).Error)
 	previousDB := DB
 	DB = db
 	t.Cleanup(func() { DB = previousDB })
@@ -46,5 +48,6 @@ func TestMigrateQuotaCyclePoliciesBackfillsCarryWithoutChangingExplicitPolicy(t 
 	require.NoError(t, db.Order("id").Find(&stored).Error)
 	require.Len(t, stored, 2)
 	assert.Equal(t, QuotaCycleBalancePolicyCarry, stored[0].BalancePolicy)
+	assert.Zero(t, stored[0].ConcentrationMultiplier)
 	assert.Equal(t, QuotaCycleBalancePolicyReset, stored[1].BalancePolicy)
 }

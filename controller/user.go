@@ -1088,10 +1088,12 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id        int    `json:"id"`
+	Action    string `json:"action"`
+	Value     int    `json:"value"`
+	Mode      string `json:"mode"`
+	Reason    string `json:"reason"`
+	Confirmed bool   `json:"confirmed"`
 }
 
 // ManageUser Only admin user can do this
@@ -1175,28 +1177,39 @@ func ManageUser(c *gin.Context) {
 		user.Role = common.RoleCommonUser
 	case "add_quota":
 		if model.CompanyQuotaModeEnabled() {
-			var target int64
+			var adjustment int64
 			switch req.Mode {
 			case "add":
 				if req.Value <= 0 {
 					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 					return
 				}
-				target = int64(user.Quota) + int64(req.Value)
+				adjustment = int64(req.Value)
 			case "subtract":
 				if req.Value <= 0 {
 					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
 					return
 				}
-				target = int64(user.Quota) - int64(req.Value)
-			case "override":
-				target = int64(req.Value)
+				adjustment = -int64(req.Value)
 			default:
 				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 				return
 			}
-			result, err := quotaService.ManualAdjustUserQuota(user.Id, target, "管理员手工调整", c.GetString("username"))
+			result, err := quotaService.ManualAdjustUserQuota(user.Id, adjustment, req.Reason, c.GetString("username"), req.Confirmed)
 			if err != nil {
+				var confirmation *quotaService.ManualAdjustmentConfirmationError
+				if errors.As(err, &confirmation) {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"message": err.Error(),
+						"data": gin.H{
+							"stage_cap_quota":      strconv.FormatInt(confirmation.StageCapQuota, 10),
+							"occupied_after_quota": strconv.FormatInt(confirmation.OccupiedAfterQuota, 10),
+							"stage_overage_quota":  strconv.FormatInt(confirmation.StageOverageQuota, 10),
+						},
+					})
+					return
+				}
 				common.ApiError(c, err)
 				return
 			}

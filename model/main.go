@@ -423,9 +423,16 @@ func migrateDBFast() error {
 }
 
 func migrateQuotaCyclePolicies() error {
-	return DB.Model(&QuotaCycle{}).
-		Where("balance_policy IS NULL OR balance_policy = ?", "").
-		Update("balance_policy", QuotaCycleBalancePolicyCarry).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&QuotaCycle{}).
+			Where("balance_policy IS NULL OR balance_policy = ?", "").
+			Update("balance_policy", QuotaCycleBalancePolicyCarry).Error; err != nil {
+			return err
+		}
+		return tx.Model(&QuotaCycle{}).
+			Where("concentration_multiplier IS NULL").
+			Update("concentration_multiplier", 0).Error
+	})
 }
 
 func migrateQuotaWhitelistUsers(markLegacyAliases bool) error {

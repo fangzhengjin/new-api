@@ -18,11 +18,12 @@ import (
 
 const (
 	// AlgorithmVersion rejects stale drafts after allocation rules change.
-	LegacyAlgorithmVersion          = "1.8.0"
-	AlgorithmVersion                = LegacyAlgorithmVersion
-	CandidateAlgorithmVersion       = "2.0.0"
-	defaultQuotaPerUnit       int64 = 500_000
-	daySeconds                int64 = 86_400
+	LegacyAlgorithmVersion              = "1.8.0"
+	AlgorithmVersion                    = LegacyAlgorithmVersion
+	CandidateAlgorithmVersion           = "2.0.0"
+	ConcentrationAlgorithmVersion       = "3.0.0"
+	defaultQuotaPerUnit           int64 = 500_000
+	daySeconds                    int64 = 86_400
 
 	exhaustionIdleSeconds        = daySeconds
 	minimumObservationWorkdays   = 3
@@ -30,7 +31,12 @@ const (
 	initialStabilityFloorPercent = 80
 )
 
+var concentrationMultipliers = [...]int64{15_000, 20_000, 30_000}
+
 func cycleAlgorithmVersion(cycle *model.QuotaCycle) string {
+	if cycle != nil && validConcentrationMultiplier(cycle.ConcentrationMultiplier) {
+		return ConcentrationAlgorithmVersion
+	}
 	if cycle != nil && cycle.AllocationAlgorithmVersion == CandidateAlgorithmVersion {
 		return CandidateAlgorithmVersion
 	}
@@ -38,10 +44,37 @@ func cycleAlgorithmVersion(cycle *model.QuotaCycle) string {
 }
 
 func cycleAllocationMode(cycle *model.QuotaCycle) string {
-	if cycleAlgorithmVersion(cycle) == CandidateAlgorithmVersion {
+	switch cycleAlgorithmVersion(cycle) {
+	case CandidateAlgorithmVersion:
 		return allocationCandidate
+	case ConcentrationAlgorithmVersion:
+		return allocationConcentration
 	}
 	return allocationCurrent
+}
+
+func validConcentrationMultiplier(multiplier int64) bool {
+	for _, allowed := range concentrationMultipliers {
+		if multiplier == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func validateConcentrationMultiplier(multiplier int64) error {
+	if !validConcentrationMultiplier(multiplier) {
+		return errors.New("自动分配上限倍率必须是1.5、2或3")
+	}
+	return nil
+}
+
+func supportsThoroughRelease(cycle *model.QuotaCycle) bool {
+	if cycle == nil || cycle.RecoveryReserveQuota <= 0 {
+		return false
+	}
+	version := cycleAlgorithmVersion(cycle)
+	return version == CandidateAlgorithmVersion || version == ConcentrationAlgorithmVersion
 }
 
 var (
@@ -157,6 +190,35 @@ func regularStageCap(budgetQuota int64, recoveryReserveQuota int64, stagePercent
 	return stageCap - recoveryReserveQuota, nil
 }
 
+func equalSafetyTarget(initialGrant int64, totalWorkdays int) (int64, error) {
+	if totalWorkdays <= 0 {
+		return 0, errors.New("总工作日必须大于0")
+	}
+	target, err := ceilDiv(initialGrant, int64(totalWorkdays))
+	if err != nil {
+		return 0, err
+	}
+	return roundUpCent(target)
+}
+
+func concentrationPositionCeiling(stageCap int64, population int, multiplierBasisPoints int64) (int64, error) {
+	if population <= 0 {
+		return 0, nil
+	}
+	if multiplierBasisPoints <= 0 {
+		return 0, errors.New("集中度倍数必须是正整数基点")
+	}
+	ceiling, err := bigRatio(
+		[]int64{stageCap / int64(population), multiplierBasisPoints},
+		[]int64{10_000},
+		false,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return roundDownCent(ceiling), nil
+}
+
 // ParsePositiveQuota validates a positive raw quota value supplied as a decimal string.
 func ParsePositiveQuota(value string, label string) (int64, error) {
 	trimmed := strings.TrimSpace(value)
@@ -165,14 +227,6 @@ func ParsePositiveQuota(value string, label string) (int64, error) {
 		return 0, fmt.Errorf("%s必须是正整数额度", label)
 	}
 	return quota, nil
-}
-
-func ParseNonNegativeQuota(value string, label string) (int64, error) {
-	parsed, err := ParseNonNegativeQuotaTotal(value, label)
-	if err != nil || parsed > int64(common.MaxQuota) {
-		return 0, fmt.Errorf("%s必须是0至%d之间的整数", label, common.MaxQuota)
-	}
-	return parsed, nil
 }
 
 // ParseNonNegativeQuotaTotal validates an aggregate quota amount without a per-user ceiling.

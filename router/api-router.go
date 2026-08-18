@@ -253,7 +253,6 @@ func SetApiRouter(router *gin.Engine) {
 			quotaManagementRoute.DELETE("/plans/:id", controller.DeleteQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/regenerate", controller.RegenerateQuotaPlan)
 			quotaManagementRoute.POST("/plans/:id/notifications/retry", controller.RetryQuotaPlanNotifications)
-			quotaManagementRoute.POST("/manual-adjust", controller.ManualQuotaAdjust)
 			quotaManagementRoute.GET("/recovery-requests", controller.GetQuotaRecoveryRequests)
 			quotaManagementRoute.POST("/recovery-requests/:id/approve", controller.ApproveQuotaRecoveryRequest)
 			quotaManagementRoute.POST("/recovery-requests/:id/reject", controller.RejectQuotaRecoveryRequest)

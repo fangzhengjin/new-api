@@ -12,6 +12,7 @@ type QuotaCycleCreateRequest struct {
 	AutoRecoveryThresholdQuota string `json:"auto_recovery_threshold_quota"`
 	AutoRecoveryMaxCount       int    `json:"auto_recovery_max_count"`
 	AutoRecoveryMaxQuota       string `json:"auto_recovery_max_quota"`
+	ConcentrationMultiplier    int64  `json:"concentration_multiplier_basis_points" binding:"required"`
 	BalancePolicy              string `json:"balance_policy" binding:"required"`
 }
 
@@ -25,6 +26,7 @@ type QuotaCycleUpdateRequest struct {
 	AutoRecoveryThresholdQuota *string `json:"auto_recovery_threshold_quota"`
 	AutoRecoveryMaxCount       *int    `json:"auto_recovery_max_count"`
 	AutoRecoveryMaxQuota       *string `json:"auto_recovery_max_quota"`
+	ConcentrationMultiplier    *int64  `json:"concentration_multiplier_basis_points"`
 }
 
 // QuotaPlanGenerateRequest contains the administrator-reviewed allocation controls.
@@ -68,6 +70,7 @@ type QuotaCycleResponse struct {
 	AutoRecoveryThresholdQuota string `json:"auto_recovery_threshold_quota"`
 	AutoRecoveryMaxCount       int    `json:"auto_recovery_max_count"`
 	AutoRecoveryMaxQuota       string `json:"auto_recovery_max_quota"`
+	ConcentrationMultiplier    int64  `json:"concentration_multiplier_basis_points"`
 	AllocationAlgorithmVersion string `json:"allocation_algorithm_version"`
 	LegacyRollbackAllowed      bool   `json:"legacy_rollback_allowed"`
 	BalancePolicy              string `json:"balance_policy"`
@@ -201,16 +204,60 @@ type QuotaFairnessShadowItemResponse struct {
 	CandidateCoverage        int64  `json:"candidate_coverage_basis_points"`
 }
 
+// QuotaConcentrationShadowItemResponse exposes one managed user's capped shadow result.
+type QuotaConcentrationShadowItemResponse struct {
+	UserID               int    `json:"user_id"`
+	Username             string `json:"username"`
+	PeriodSpendQuota     string `json:"period_spend_quota"`
+	CurrentBalanceQuota  string `json:"current_balance_quota"`
+	CurrentPositionQuota string `json:"current_position_quota"`
+	SpendShare           int64  `json:"spend_share_basis_points"`
+	SafetyTargetQuota    string `json:"safety_target_quota"`
+	RawTargetQuota       string `json:"raw_target_quota"`
+	EffectiveTargetQuota string `json:"effective_target_quota"`
+	PositionCeilingQuota string `json:"position_ceiling_quota"`
+	AdjustmentQuota      string `json:"adjustment_quota"`
+	AfterBalanceQuota    string `json:"after_balance_quota"`
+	AfterPositionQuota   string `json:"after_position_quota"`
+	CappedQuota          string `json:"capped_quota"`
+	RawCoverage          int64  `json:"raw_coverage_basis_points"`
+	EffectiveCoverage    int64  `json:"effective_coverage_basis_points"`
+}
+
+// QuotaConcentrationShadowVariantResponse contains one fixed multiplier projection.
+type QuotaConcentrationShadowVariantResponse struct {
+	Multiplier               int64                                  `json:"multiplier_basis_points"`
+	Population               int                                    `json:"population"`
+	PositionCeilingQuota     string                                 `json:"position_ceiling_quota"`
+	MaximumPositionShare     int64                                  `json:"maximum_position_share_basis_points"`
+	CappedUsers              int                                    `json:"capped_users"`
+	CappedQuota              string                                 `json:"capped_quota"`
+	MinimumRawCoverage       int64                                  `json:"minimum_raw_coverage_basis_points"`
+	P10RawCoverage           int64                                  `json:"p10_raw_coverage_basis_points"`
+	P50RawCoverage           int64                                  `json:"p50_raw_coverage_basis_points"`
+	MinimumEffectiveCoverage int64                                  `json:"minimum_effective_coverage_basis_points"`
+	P10EffectiveCoverage     int64                                  `json:"p10_effective_coverage_basis_points"`
+	P50EffectiveCoverage     int64                                  `json:"p50_effective_coverage_basis_points"`
+	MinimumSafetyCoverage    int64                                  `json:"minimum_safety_coverage_basis_points"`
+	SafetyUnmet              int                                    `json:"safety_unmet"`
+	PlannedIncreaseQuota     string                                 `json:"planned_increase_quota"`
+	ReclaimedQuota           string                                 `json:"reclaimed_quota"`
+	OccupiedAfterQuota       string                                 `json:"occupied_after_quota"`
+	UnallocatedStageQuota    string                                 `json:"unallocated_stage_quota"`
+	Items                    []QuotaConcentrationShadowItemResponse `json:"items"`
+}
+
 // QuotaFairnessShadowResponse is the read-only current/candidate comparison.
 type QuotaFairnessShadowResponse struct {
-	SnapshotAt                int64                             `json:"snapshot_at"`
-	StageCapQuota             string                            `json:"stage_cap_quota"`
-	CurrentAlgorithmVersion   string                            `json:"current_algorithm_version"`
-	CandidateAlgorithmVersion string                            `json:"candidate_algorithm_version"`
-	CandidateQualified        bool                              `json:"candidate_qualified"`
-	Current                   QuotaFairnessMetricsResponse      `json:"current"`
-	Candidate                 QuotaFairnessMetricsResponse      `json:"candidate"`
-	Items                     []QuotaFairnessShadowItemResponse `json:"items"`
+	SnapshotAt                int64                                     `json:"snapshot_at"`
+	StageCapQuota             string                                    `json:"stage_cap_quota"`
+	CurrentAlgorithmVersion   string                                    `json:"current_algorithm_version"`
+	CandidateAlgorithmVersion string                                    `json:"candidate_algorithm_version"`
+	CandidateQualified        bool                                      `json:"candidate_qualified"`
+	Current                   QuotaFairnessMetricsResponse              `json:"current"`
+	Candidate                 QuotaFairnessMetricsResponse              `json:"candidate"`
+	Items                     []QuotaFairnessShadowItemResponse         `json:"items"`
+	ConcentrationVariants     []QuotaConcentrationShadowVariantResponse `json:"concentration_variants"`
 }
 
 // QuotaRecoveryCreateRequest submits one idempotent temporary-quota request.

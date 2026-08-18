@@ -50,7 +50,7 @@ const labels = {
   executed: 'Executed',
   cancelled: 'Cancelled',
   initialization: 'Initialization',
-  adjustment: 'Adjustment',
+  adjustment: 'Regular adjustment',
   settlement: 'Cycle settlement',
   initialize: 'Initialize',
   increase: 'Increase',

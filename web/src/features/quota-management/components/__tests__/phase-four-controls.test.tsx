@@ -124,6 +124,42 @@ test('keeps the candidate switch disabled until every persisted gate passes', as
   assert.match(document.body.textContent ?? '', /all 1 pending drafts/)
 })
 
+test('hides the legacy algorithm switch for cycle-level allocation limits', async () => {
+  const status: QuotaAlgorithmStatus = {
+    legacy_version: '1.8.0',
+    current_version: '3.0.0',
+    candidate_version: '2.0.0',
+    enable_confirmation_phrase: '确认启用候选额度算法',
+    rollback_confirmation_phrase: '确认回退现行额度算法',
+    required_qualified_cycles: 2,
+    qualified_cycle_ids: [],
+    active_cycle_id: 9,
+    recovery_ready: true,
+    draft_count: 0,
+    can_switch: false,
+    rollback_allowed: false,
+    can_record_evidence: false,
+    blockers: [],
+  }
+  const { root, queryClient } = await renderWithData(
+    queryKeys.algorithm,
+    status
+  )
+
+  await act(async () => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <I18nextProvider i18n={i18n}>
+          <AlgorithmSwitchCard />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+  })
+
+  assert.doesNotMatch(document.body.textContent ?? '', /Allocation algorithm/)
+  assert.doesNotMatch(document.body.textContent ?? '', /Enable candidate/)
+})
+
 test('requires a review reason before a pending recovery can be granted', async () => {
   const request: QuotaRecoveryRequest = {
     id: 3,

@@ -28,6 +28,7 @@ import type { User } from '../../types'
 const mocks = vi.hoisted(() => ({
   getUsers: vi.fn(),
   searchUsers: vi.fn(),
+  setQuotaWhitelist: vi.fn(),
   navigate: vi.fn(),
   search: {},
 }))
@@ -40,9 +41,11 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
   }),
 }))
 
-vi.mock('../../api', () => ({
+vi.mock('../../api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api')>()),
   getUsers: mocks.getUsers,
   searchUsers: mocks.searchUsers,
+  setQuotaWhitelist: mocks.setQuotaWhitelist,
 }))
 
 const { UsersProvider } = await import('../users-provider')
@@ -83,6 +86,7 @@ beforeEach(() => {
     success: true,
     data: { items: [], total: 0, page: 1, page_size: 20 },
   })
+  mocks.setQuotaWhitelist.mockResolvedValue({ success: true })
   useSystemConfigStore.getState().setConfig({ companyQuotaModeEnabled: true })
 })
 
@@ -114,4 +118,41 @@ test('normal mode hides company quota whitelist controls', async () => {
   expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
   expect(screen.queryByText('Whitelist')).toBeNull()
   expect(screen.queryByRole('button', { name: /Quota Management/ })).toBeNull()
+})
+
+test('removing a user from the whitelist states that all current drafts are cancelled', async () => {
+  const user = userEvent.setup()
+  renderUsersTable()
+
+  expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Open menu' }))
+  await user.click(screen.getByText('Remove quota whitelist'))
+
+  expect(await screen.findByRole('alertdialog')).toHaveTextContent(
+    'All unexecuted drafts in the current cycle will be cancelled.'
+  )
+})
+
+test('adding a user to the whitelist states its exclusions and draft cancellation', async () => {
+  mocks.getUsers.mockResolvedValue({
+    success: true,
+    data: {
+      items: [{ ...whitelistUser, quota_whitelist: false }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    },
+  })
+  const user = userEvent.setup()
+  renderUsersTable()
+
+  expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Open menu' }))
+  await user.click(screen.getByText('Add to quota whitelist'))
+
+  const confirmation = await screen.findByRole('alertdialog')
+  expect(confirmation).toHaveTextContent('manual adjustment')
+  expect(confirmation).toHaveTextContent(
+    'All unexecuted drafts in the current cycle will be cancelled.'
+  )
 })

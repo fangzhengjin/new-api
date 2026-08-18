@@ -319,10 +319,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         desc={
           user.quota_whitelist
             ? t(
-                'Removing this user from the quota whitelist brings the current balance back under allocation control and may invalidate draft plans.'
+                'Removing this user from the quota whitelist returns the current balance to allocation control. All unexecuted drafts in the current cycle will be cancelled.'
               )
             : t(
-                'Whitelist users do not receive, reclaim, clear, carry, recover, return, or receive priority allocation. Their existing balance remains unchanged, but actual consumption still counts toward the company cycle purchase total.'
+                'Whitelist users are excluded from all quota allocation controls: no allocation, reclaim, clearing, carryover, recovery, return, priority allocation, or manual adjustment. Their existing balance remains unchanged, while actual consumption still counts toward the company cycle purchase total. All unexecuted drafts in the current cycle will be cancelled.'
               )
         }
         confirmText={

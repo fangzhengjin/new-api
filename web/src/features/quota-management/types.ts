@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 export type CycleStatus = 'scheduled' | 'active' | 'closed'
 export type BalancePolicy = 'reset' | 'carry'
+export type ConcentrationMultiplier = 15_000 | 20_000 | 30_000
 export type PlanStatus = 'draft' | 'executed' | 'cancelled'
 export type GeneratablePlanType = 'initialization' | 'adjustment'
 export type PlanType = GeneratablePlanType | 'settlement'
@@ -42,6 +43,7 @@ export type QuotaCycle = {
   auto_recovery_threshold_quota: string
   auto_recovery_max_count: number
   auto_recovery_max_quota: string
+  concentration_multiplier_basis_points: ConcentrationMultiplier | 0
   allocation_algorithm_version: string
   legacy_rollback_allowed: boolean
   balance_policy: BalancePolicy
@@ -203,6 +205,7 @@ export type CycleWrite = {
   auto_recovery_threshold_quota: string
   auto_recovery_max_count: number
   auto_recovery_max_quota: string
+  concentration_multiplier_basis_points: ConcentrationMultiplier
   balance_policy: BalancePolicy
 }
 
@@ -215,6 +218,7 @@ export type CycleUpdate = {
   auto_recovery_threshold_quota?: string
   auto_recovery_max_count?: number
   auto_recovery_max_quota?: string
+  concentration_multiplier_basis_points?: ConcentrationMultiplier
 }
 
 export type PlanWrite = {
@@ -259,6 +263,47 @@ export type FairnessShadowItem = {
   candidate_coverage_basis_points: number
 }
 
+export type ConcentrationShadowItem = {
+  user_id: number
+  username: string
+  period_spend_quota: string
+  current_balance_quota: string
+  current_position_quota: string
+  spend_share_basis_points: number
+  safety_target_quota: string
+  raw_target_quota: string
+  effective_target_quota: string
+  position_ceiling_quota: string
+  adjustment_quota: string
+  after_balance_quota: string
+  after_position_quota: string
+  capped_quota: string
+  raw_coverage_basis_points: number
+  effective_coverage_basis_points: number
+}
+
+export type ConcentrationShadowVariant = {
+  multiplier_basis_points: number
+  population: number
+  position_ceiling_quota: string
+  maximum_position_share_basis_points: number
+  capped_users: number
+  capped_quota: string
+  minimum_raw_coverage_basis_points: number
+  p10_raw_coverage_basis_points: number
+  p50_raw_coverage_basis_points: number
+  minimum_effective_coverage_basis_points: number
+  p10_effective_coverage_basis_points: number
+  p50_effective_coverage_basis_points: number
+  minimum_safety_coverage_basis_points: number
+  safety_unmet: number
+  planned_increase_quota: string
+  reclaimed_quota: string
+  occupied_after_quota: string
+  unallocated_stage_quota: string
+  items: ConcentrationShadowItem[]
+}
+
 export type FairnessShadowComparison = {
   snapshot_at: number
   stage_cap_quota: string
@@ -268,6 +313,7 @@ export type FairnessShadowComparison = {
   current: FairnessMetrics
   candidate: FairnessMetrics
   items: FairnessShadowItem[]
+  concentration_variants: ConcentrationShadowVariant[]
 }
 
 export type NotificationRetryResult = {

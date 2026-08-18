@@ -230,6 +230,26 @@ func TestExecutePlanRejectsOldAlgorithmVersion(t *testing.T) {
 	require.EqualError(t, err, "该草稿由旧版调配规则生成，请重新生成后再执行")
 }
 
+func TestExecutePlanRejectsChangedConcentrationMultiplier(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle, _, plan, _ := seedExecutableDecrease(t, db, now)
+	require.NoError(t, db.Model(&model.QuotaCycle{}).Where("id = ?", cycle.Id).Updates(map[string]interface{}{
+		"concentration_multiplier":     15_000,
+		"allocation_algorithm_version": ConcentrationAlgorithmVersion,
+	}).Error)
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("id = ?", plan.Id).Updates(map[string]interface{}{
+		"algorithm_version": ConcentrationAlgorithmVersion,
+		"parameters":        `{"concentration_multiplier_basis_points":20000}`,
+	}).Error)
+
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, executeErr := executePlanInTransaction(tx, plan.Id, cycle.Id, "root", now+60)
+		return executeErr
+	})
+	require.EqualError(t, err, "方案记录的自动分配上限与周期设置不一致，请重新生成")
+}
+
 func TestSplitLogOutboxConvergesByDeterministicRequestID(t *testing.T) {
 	mainDB := setupQuotaTestDB(t)
 	logDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "logs.db")), &gorm.Config{})

@@ -1,6 +1,8 @@
 package quota
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestValidateRecoveryPolicyRequiresCompleteBoundedConfiguration(t *testing.T) {
@@ -52,7 +55,7 @@ func TestActiveCycleCannotChangeRecoveryReserve(t *testing.T) {
 	require.NoError(t, db.Create(&cycle).Error)
 	updatedReserve := mustQuota(t, "60")
 
-	err := UpdateCycleSettings(cycle.Id, cycle.BudgetQuota, nil, &updatedReserve, nil, "root")
+	err := UpdateCycleSettings(cycle.Id, cycle.BudgetQuota, nil, &updatedReserve, nil, nil, "root")
 	require.EqualError(t, err, "只有已规划周期可以修改小额恢复池")
 
 	var stored model.QuotaCycle
@@ -66,16 +69,18 @@ func TestCreateCycleRejectsOverlappingWindow(t *testing.T) {
 	_, err := CreateCycle(CreateCycleParams{
 		StartAt: now, EndAt: now + 10*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
-		BalancePolicy: model.QuotaCycleBalancePolicyReset,
-		CreatedBy:     "root",
+		ConcentrationMultiplier: 15_000,
+		BalancePolicy:           model.QuotaCycleBalancePolicyReset,
+		CreatedBy:               "root",
 	})
 	require.NoError(t, err)
 
 	_, err = CreateCycle(CreateCycleParams{
 		StartAt: now + daySeconds, EndAt: now + 11*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
-		BalancePolicy: model.QuotaCycleBalancePolicyReset,
-		CreatedBy:     "root",
+		ConcentrationMultiplier: 15_000,
+		BalancePolicy:           model.QuotaCycleBalancePolicyReset,
+		CreatedBy:               "root",
 	})
 	require.EqualError(t, err, "周期时间与现有周期冲突")
 
@@ -99,7 +104,7 @@ func TestUpdateActiveCycleRejectsBudgetBelowManagedPosition(t *testing.T) {
 	require.NoError(t, db.Create(&cycle).Error)
 	require.NoError(t, db.Create(&user).Error)
 
-	err := UpdateCycleSettings(cycle.Id, mustQuota(t, "50"), nil, nil, nil, "root")
+	err := UpdateCycleSettings(cycle.Id, mustQuota(t, "50"), nil, nil, nil, nil, "root")
 	require.EqualError(t, err, "新周期预算不能低于当前受管头寸")
 
 	var stored model.QuotaCycle
@@ -107,7 +112,60 @@ func TestUpdateActiveCycleRejectsBudgetBelowManagedPosition(t *testing.T) {
 	assert.Equal(t, cycle.BudgetQuota, stored.BudgetQuota)
 }
 
-func TestManualAdjustmentCannotExceedCurrentStage(t *testing.T) {
+func TestCreateCycleRequiresSupportedConcentrationMultiplier(t *testing.T) {
+	setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	params := CreateCycleParams{
+		StartAt: now, EndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		BalancePolicy: model.QuotaCycleBalancePolicyReset, CreatedBy: "root",
+	}
+
+	_, err := CreateCycle(params)
+	require.EqualError(t, err, "自动分配上限倍率必须是1.5、2或3")
+	params.ConcentrationMultiplier = 20_000
+	cycle, err := CreateCycle(params)
+	require.NoError(t, err)
+	assert.Equal(t, int64(20_000), cycle.ConcentrationMultiplier)
+	assert.Equal(t, ConcentrationAlgorithmVersion, cycle.AllocationAlgorithmVersion)
+}
+
+func TestScheduledCycleCanChangeConcentrationMultiplierButActiveCycleCannot(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	scheduled := model.QuotaCycle{
+		CycleStartAt: now + daySeconds, CycleEndAt: now + 31*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		ConcentrationMultiplier: 15_000, Status: model.QuotaCycleStatusScheduled,
+	}
+	require.NoError(t, db.Create(&scheduled).Error)
+	draft := model.QuotaPlan{
+		CycleId: scheduled.Id, PlanType: model.QuotaPlanTypeAdjustment,
+		AlgorithmVersion: ConcentrationAlgorithmVersion, Status: model.QuotaPlanStatusDraft,
+	}
+	require.NoError(t, db.Create(&draft).Error)
+	updatedMultiplier := int64(30_000)
+
+	require.NoError(t, UpdateCycleSettings(
+		scheduled.Id, scheduled.BudgetQuota, nil, nil, nil, &updatedMultiplier, "root",
+	))
+	require.NoError(t, db.First(&scheduled, scheduled.Id).Error)
+	require.NoError(t, db.First(&draft, draft.Id).Error)
+	assert.Equal(t, updatedMultiplier, scheduled.ConcentrationMultiplier)
+	assert.Equal(t, ConcentrationAlgorithmVersion, scheduled.AllocationAlgorithmVersion)
+	assert.Equal(t, model.QuotaPlanStatusCancelled, draft.Status)
+
+	active := model.QuotaCycle{
+		CycleStartAt: now - daySeconds, CycleEndAt: now + daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		ConcentrationMultiplier: 15_000, Status: model.QuotaCycleStatusActive,
+	}
+	require.NoError(t, db.Create(&active).Error)
+	err := UpdateCycleSettings(active.Id, active.BudgetQuota, nil, nil, nil, &updatedMultiplier, "root")
+	require.EqualError(t, err, "只有已规划周期可以修改自动分配上限")
+}
+
+func TestManualIncreaseRequiresConfirmationOnlyAfterExceedingCurrentStage(t *testing.T) {
 	db := setupQuotaTestDB(t)
 	previousMode := operation_setting.CompanyQuotaModeEnabled
 	operation_setting.CompanyQuotaModeEnabled = true
@@ -128,12 +186,265 @@ func TestManualAdjustmentCannotExceedCurrentStage(t *testing.T) {
 		ExecutedAt: &executedAt,
 	}).Error)
 
-	_, err := ManualAdjustUserQuota(user.Id, mustQuota(t, "200"), "mid-cycle grant", "root")
-	require.EqualError(t, err, "调整后受管余额将超过当前阶段上限")
+	result, err := ManualAdjustUserQuota(user.Id, mustQuota(t, "150"), "mid-cycle grant", "root", false)
+	require.Nil(t, result)
+	var confirmation *ManualAdjustmentConfirmationError
+	require.ErrorAs(t, err, &confirmation)
+	assert.Equal(t, mustQuota(t, "100"), confirmation.StageCapQuota)
+	assert.Equal(t, mustQuota(t, "200"), confirmation.OccupiedAfterQuota)
+	assert.Equal(t, mustQuota(t, "100"), confirmation.StageOverageQuota)
+
+	var unchangedUser model.User
+	var draftPlans, items int64
+	require.NoError(t, db.First(&unchangedUser, user.Id).Error)
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("status = ?", model.QuotaPlanStatusDraft).Count(&draftPlans).Error)
+	require.NoError(t, db.Model(&model.QuotaItem{}).Count(&items).Error)
+	assert.Equal(t, int(mustQuota(t, "50")), unchangedUser.Quota)
+	assert.Zero(t, draftPlans)
+	assert.Zero(t, items)
+
+	result, err = ManualAdjustUserQuota(user.Id, mustQuota(t, "150"), "mid-cycle grant", "root", true)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AffectedUsers)
+
+	var storedUser model.User
+	var item model.QuotaItem
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.NoError(t, db.Order("id DESC").First(&item).Error)
+	assert.Equal(t, int(mustQuota(t, "200")), storedUser.Quota)
+	assert.Equal(t, model.QuotaAdjustmentActionIncrease, item.Action)
+	assert.Equal(t, mustQuota(t, "150"), item.AdjustmentQuota)
+}
+
+func TestManualIncreaseAtCurrentStageCapDoesNotRequireConfirmation(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-stage-boundary", AffCode: "managed-stage-boundary", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "50"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	executedAt := now - 30
+	require.NoError(t, db.Create(&model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeInitialization, StagePercent: 1_000,
+		SnapshotAt: now - 60, AlgorithmVersion: AlgorithmVersion, Status: model.QuotaPlanStatusExecuted,
+		ExecutedAt: &executedAt,
+	}).Error)
+
+	result, err := ManualAdjustUserQuota(user.Id, mustQuota(t, "50"), "stage boundary", "root", false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AffectedUsers)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(mustQuota(t, "100")), user.Quota)
+}
+
+func TestManualIncreaseCannotExceedCycleBudget(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "100"), InitialGrantQuota: mustQuota(t, "10"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-budget", AffCode: "managed-budget-limit", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "90"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	_, err := ManualAdjustUserQuota(user.Id, mustQuota(t, "20"), "manual increase", "root", false)
+	require.EqualError(t, err, "本次调增无法执行：调增后，本期消费与全体受管账户余额合计将超过公司本周期采购总额，超出金额为 ＄10.000000")
 
 	var plans int64
-	require.NoError(t, db.Model(&model.QuotaPlan{}).Where("status = ?", model.QuotaPlanStatusDraft).Count(&plans).Error)
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Count(&plans).Error)
 	assert.Zero(t, plans)
+}
+
+func TestManualIncreaseMayLeaveBalanceNegative(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-negative", AffCode: "managed-negative", Status: common.UserStatusEnabled, Quota: -100}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	result, err := ManualAdjustUserQuota(user.Id, 30, "signed balance", "root", false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AffectedUsers)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, -70, user.Quota)
+
+	var item model.QuotaItem
+	require.NoError(t, db.Order("id DESC").First(&item).Error)
+	assert.Equal(t, model.QuotaAdjustmentActionIncrease, item.Action)
+	assert.Equal(t, int64(-70), *item.ActualAfterQuota)
+
+	_, err = ManualAdjustUserQuota(user.Id, -1, "signed balance", "root", false)
+	require.EqualError(t, err, "调减额度不能超过用户当前余额")
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, -70, user.Quota)
+}
+
+func TestManualIncreaseUsesFinalBalanceRange(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-minimum", AffCode: "managed-minimum", Status: common.UserStatusEnabled, Quota: common.MinQuota}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	result, err := ManualAdjustUserQuota(user.Id, int64(common.MaxQuota)+1, "return to zero", "root", false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AffectedUsers)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+}
+
+func TestManualDecreaseUsesAdjustmentAmount(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-decrease", AffCode: "managed-decrease", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "100"))}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	result, err := ManualAdjustUserQuota(user.Id, -mustQuota(t, "30"), "manual decrease", "root", false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AffectedUsers)
+
+	var storedUser model.User
+	var item model.QuotaItem
+	require.NoError(t, db.First(&storedUser, user.Id).Error)
+	require.NoError(t, db.Order("id DESC").First(&item).Error)
+	assert.Equal(t, int(mustQuota(t, "70")), storedUser.Quota)
+	assert.Equal(t, model.QuotaAdjustmentActionDecrease, item.Action)
+	assert.Equal(t, -mustQuota(t, "30"), item.AdjustmentQuota)
+}
+
+func TestManualAdjustmentRejectsIneligibleDecreaseTargets(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	users := []model.User{
+		{Username: "managed-low-balance", AffCode: "managed-low-balance", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "10"))},
+		{Username: "managed-whitelist", AffCode: "managed-whitelist", Status: common.UserStatusEnabled, QuotaWhitelist: true, Quota: int(mustQuota(t, "100"))},
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&users).Error)
+
+	_, err := ManualAdjustUserQuota(users[0].Id, -mustQuota(t, "20"), "too much", "root", false)
+	require.EqualError(t, err, "调减额度不能超过用户当前余额")
+	_, err = ManualAdjustUserQuota(users[1].Id, -mustQuota(t, "20"), "whitelist", "root", false)
+	require.EqualError(t, err, "该用户在额度白名单中，不能手工调额；请先移出白名单")
+
+	var plans int64
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Count(&plans).Error)
+	assert.Zero(t, plans)
+}
+
+func TestManualAdjustmentAllowsEmptyReasonAndCountsCharacters(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "100"), InitialGrantQuota: mustQuota(t, "10"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-reason", AffCode: "managed-reason", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	_, err := ManualAdjustUserQuota(user.Id, 1, "", "root", true)
+	require.NoError(t, err)
+	_, err = ManualAdjustUserQuota(user.Id, 1, strings.Repeat("调", 255), "root", true)
+	require.NoError(t, err)
+	_, err = ManualAdjustUserQuota(user.Id, 1, strings.Repeat("调", 256), "root", true)
+	require.EqualError(t, err, "调整原因不得超过255个字符")
+}
+
+func TestManualAdjustmentRollsBackDraftWhenExecutionFails(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*daySeconds,
+		BudgetQuota: mustQuota(t, "100"), InitialGrantQuota: mustQuota(t, "10"),
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{Username: "managed-rollback", AffCode: "managed-rollback", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:fail_manual_quota_update", func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" {
+			tx.AddError(errors.New("forced quota write failure"))
+		}
+	}))
+
+	_, err := ManualAdjustUserQuota(user.Id, 1, "rollback execution", "root", true)
+	require.ErrorContains(t, err, "forced quota write failure")
+
+	var plans, items int64
+	require.NoError(t, db.Model(&model.QuotaPlan{}).Count(&plans).Error)
+	require.NoError(t, db.Model(&model.QuotaItem{}).Count(&items).Error)
+	assert.Zero(t, plans)
+	assert.Zero(t, items)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+}
+
+func TestSetQuotaWhitelistKeepsIdempotentRequestWithoutActiveCycle(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	user := model.User{
+		Username: "managed-idempotent-whitelist", AffCode: "managed-idempotent-whitelist",
+		Status: common.UserStatusEnabled, QuotaWhitelist: true,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	require.NoError(t, SetQuotaWhitelist(user.Id, true, "root"))
+	require.EqualError(t, SetQuotaWhitelist(user.Id, false, "root"), "当前没有进行中的额度周期，不能修改额度白名单")
 }
 
 func TestGetScheduledCycleDetailIncludesInitialGrantRecommendation(t *testing.T) {
@@ -165,6 +476,27 @@ func TestGetScheduledCycleDetailIncludesInitialGrantRecommendation(t *testing.T)
 	require.NotNil(t, detail.Recommendation)
 	assert.Equal(t, mustQuota(t, "96"), detail.Recommendation.Quota)
 	assert.Equal(t, 1, detail.Recommendation.UserCount)
+}
+
+func TestListCyclesAllowsNegativeManagedBalance(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 30*daySeconds, CycleEndAt: now - daySeconds,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		Status: model.QuotaCycleStatusClosed,
+	}
+	user := model.User{
+		Username: "negative-recommendation", AffCode: "negative-recommendation",
+		Status: common.UserStatusEnabled, Quota: -12070, CreatedAt: now - 60*daySeconds,
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+
+	result, err := ListCycles()
+	require.NoError(t, err)
+	require.NotNil(t, result.Recommendation)
+	assert.Equal(t, 1, result.Recommendation.UserCount)
 }
 
 func TestSummarizePlanPreservesAdjustmentAndFundFlowTotals(t *testing.T) {

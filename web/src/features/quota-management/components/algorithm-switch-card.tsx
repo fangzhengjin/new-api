@@ -85,6 +85,14 @@ export function AlgorithmSwitchCard() {
     onError: handleServerError,
   })
 
+  if (
+    status &&
+    status.current_version !== status.legacy_version &&
+    status.current_version !== status.candidate_version
+  ) {
+    return null
+  }
+
   let content
   if (query.isPending) {
     content = <PageLoading />

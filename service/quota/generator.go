@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	basisModeActual      = "actual"
-	basisModeWeek        = "week"
-	allocationCurrent    = "current"
-	allocationCandidate  = "candidate"
-	allocationProduction = "production"
+	basisModeActual         = "actual"
+	basisModeWeek           = "week"
+	allocationCurrent       = "current"
+	allocationCandidate     = "candidate"
+	allocationConcentration = "concentration"
+	allocationProduction    = "production"
 )
 
 // GenerateParams contains the reviewed rules used to create one immutable draft.
@@ -62,18 +63,22 @@ type planCalculation struct {
 	Snapshot snapshotParams
 	Users    []userSnapshot
 	Profiles map[int]DemandProfile
+	Stats    map[int]spendStats
 }
 
 // PlanParameters is persisted as TEXT so regeneration uses the exact reviewed settings.
 type PlanParameters struct {
-	BasisMode              string `json:"basis_mode"`
-	CalculationDaysHundred int64  `json:"calculation_days_hundred"`
-	TotalWorkdays          int    `json:"total_workdays"`
-	RemainingWorkdays      int    `json:"remaining_workdays"`
-	EarlyReclaim           bool   `json:"early_reclaim"`
-	ReclaimCapPercent      int    `json:"reclaim_cap_percent"`
-	UsageBonusPercent      int    `json:"usage_bonus_percent"`
-	ThoroughRelease        bool   `json:"thorough_release"`
+	BasisMode               string `json:"basis_mode"`
+	CalculationDaysHundred  int64  `json:"calculation_days_hundred"`
+	TotalWorkdays           int    `json:"total_workdays"`
+	RemainingWorkdays       int    `json:"remaining_workdays"`
+	ConcentrationMultiplier int64  `json:"concentration_multiplier_basis_points"`
+	EarlyReclaim            bool   `json:"early_reclaim"`
+	ReclaimCapPercent       int    `json:"reclaim_cap_percent"`
+	UsageBonusPercent       int    `json:"usage_bonus_percent"`
+	ThoroughRelease         bool   `json:"thorough_release"`
+	Manual                  bool   `json:"manual,omitempty"`
+	RestoreCycleID          int    `json:"restore_cycle_id,omitempty"`
 }
 
 type snapshotParams struct {
@@ -162,14 +167,14 @@ func generationTransactionOptions() *sql.TxOptions {
 }
 
 func generatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt int64) (*PlanResult, error) {
-	calculation, err := calculatePlanInTransaction(tx, params, snapshotAt, allocationProduction, true)
+	calculation, err := calculatePlanInTransaction(tx, params, snapshotAt, allocationProduction, true, 0)
 	if err != nil {
 		return nil, err
 	}
 	return calculation.Result, nil
 }
 
-func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt int64, allocationMode string, persist bool) (*planCalculation, error) {
+func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt int64, allocationMode string, persist bool, concentrationBasisPoints int64) (*planCalculation, error) {
 	var cycle model.QuotaCycle
 	cycleQuery := tx
 	if persist {
@@ -186,10 +191,18 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 	}
 	if allocationMode == allocationProduction {
 		allocationMode = cycleAllocationMode(&cycle)
+		if allocationMode == allocationConcentration {
+			concentrationBasisPoints = cycle.ConcentrationMultiplier
+		}
+	}
+	if allocationMode == allocationConcentration {
+		if err := validateConcentrationMultiplier(concentrationBasisPoints); err != nil {
+			return nil, err
+		}
 	}
 	if persist && params.ThoroughRelease &&
-		(cycleAlgorithmVersion(&cycle) != CandidateAlgorithmVersion || cycle.RecoveryReserveQuota <= 0) {
-		return nil, errors.New("彻底释放需要先启用候选算法并配置正数小额恢复池")
+		!supportsThoroughRelease(&cycle) {
+		return nil, errors.New("彻底释放需要先配置可用的小额恢复渠道")
 	}
 	if params.ReclaimCapPercent < 0 || params.ReclaimCapPercent > 100 ||
 		params.UsageBonusPercent < 0 || params.UsageBonusPercent > 100 {
@@ -199,6 +212,9 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 		return nil, errors.New("预计下次调整日期不能为空")
 	}
 	params = normalizeGenerateParams(params, cycle)
+	if allocationMode == allocationConcentration {
+		params.UsageBonusPercent = 0
+	}
 	snapshot, err := validateGenerationParams(params, cycle, snapshotAt)
 	if err != nil {
 		return nil, err
@@ -283,7 +299,7 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 		adjustments = generateInitializationItems(users, cycle.InitialGrantQuota)
 	} else {
 		lastPositiveAdjustments := map[int]int64{}
-		if allocationMode == allocationCandidate {
+		if allocationMode == allocationCandidate || allocationMode == allocationConcentration {
 			lastPositiveAdjustments, err = loadLatestPositiveAdjustmentTimes(tx, cycle.Id)
 			if err != nil {
 				return nil, err
@@ -301,6 +317,7 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 			occupiedBefore,
 			allocationMode,
 			lastPositiveAdjustments,
+			concentrationBasisPoints,
 		)
 		if err != nil {
 			return nil, err
@@ -324,15 +341,18 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 	}
 	effectiveStagePercent := params.StagePercent
 	if params.PlanType == model.QuotaPlanTypeInitialization {
-		effectiveStagePercent64, err := bigRatio(
-			[]int64{occupiedAfter, 10_000},
-			[]int64{cycle.BudgetQuota},
-			true,
-		)
-		if err != nil {
-			return nil, err
+		effectiveStagePercent = 0
+		if occupiedAfter > 0 {
+			effectiveStagePercent64, err := bigRatio(
+				[]int64{occupiedAfter, 10_000},
+				[]int64{cycle.BudgetQuota},
+				true,
+			)
+			if err != nil {
+				return nil, err
+			}
+			effectiveStagePercent = int(effectiveStagePercent64)
 		}
-		effectiveStagePercent = int(effectiveStagePercent64)
 	}
 	stageCap := requestedStageCap
 	if plannedIncrease > 0 && occupiedAfter > stageCap {
@@ -340,14 +360,15 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 	}
 
 	parameters := PlanParameters{
-		BasisMode:              snapshot.BasisMode,
-		CalculationDaysHundred: snapshot.CalculationDaysHundred,
-		TotalWorkdays:          snapshot.TotalWorkdays,
-		RemainingWorkdays:      snapshot.RemainingWorkdays,
-		EarlyReclaim:           snapshot.EarlyReclaim,
-		ReclaimCapPercent:      snapshot.ReclaimCapPercent,
-		UsageBonusPercent:      snapshot.UsageBonusPercent,
-		ThoroughRelease:        snapshot.ThoroughRelease,
+		BasisMode:               snapshot.BasisMode,
+		CalculationDaysHundred:  snapshot.CalculationDaysHundred,
+		TotalWorkdays:           snapshot.TotalWorkdays,
+		RemainingWorkdays:       snapshot.RemainingWorkdays,
+		ConcentrationMultiplier: cycle.ConcentrationMultiplier,
+		EarlyReclaim:            snapshot.EarlyReclaim,
+		ReclaimCapPercent:       snapshot.ReclaimCapPercent,
+		UsageBonusPercent:       snapshot.UsageBonusPercent,
+		ThoroughRelease:         snapshot.ThoroughRelease,
 	}
 	parameterJSON, err := common.Marshal(parameters)
 	if err != nil {
@@ -357,13 +378,20 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 	if err != nil {
 		return nil, err
 	}
+	algorithmVersion := LegacyAlgorithmVersion
+	switch allocationMode {
+	case allocationCandidate:
+		algorithmVersion = CandidateAlgorithmVersion
+	case allocationConcentration:
+		algorithmVersion = ConcentrationAlgorithmVersion
+	}
 	plan := model.QuotaPlan{
 		CycleId:             cycle.Id,
 		PlanType:            params.PlanType,
 		StagePercent:        effectiveStagePercent,
 		SnapshotAt:          snapshotAt,
 		NextAdjustmentAt:    params.NextAdjustmentAt,
-		AlgorithmVersion:    AlgorithmVersion,
+		AlgorithmVersion:    algorithmVersion,
 		Parameters:          string(parameterJSON),
 		BudgetQuotaSnapshot: cycle.BudgetQuota,
 		TotalSpendQuota:     totalSpend,
@@ -372,9 +400,6 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 		Status:              model.QuotaPlanStatusDraft,
 		CreatedAt:           snapshotAt,
 		CreatedBy:           params.CreatedBy,
-	}
-	if allocationMode == allocationCandidate {
-		plan.AlgorithmVersion = CandidateAlgorithmVersion
 	}
 	if persist {
 		if err := tx.Create(&plan).Error; err != nil {
@@ -404,7 +429,7 @@ func calculatePlanInTransaction(tx *gorm.DB, params GenerateParams, snapshotAt i
 			AvailableAfter:  maxQuota(0, stageCap-occupiedAfter),
 		},
 	}
-	return &planCalculation{Result: result, Cycle: cycle, Snapshot: snapshot, Users: users, Profiles: profiles}, nil
+	return &planCalculation{Result: result, Cycle: cycle, Snapshot: snapshot, Users: users, Profiles: profiles, Stats: stats}, nil
 }
 
 func validateGenerationParams(params GenerateParams, cycle model.QuotaCycle, snapshotAt int64) (snapshotParams, error) {
@@ -413,6 +438,9 @@ func validateGenerationParams(params GenerateParams, cycle model.QuotaCycle, sna
 	}
 	if cycle.BudgetQuota <= 0 {
 		return snapshotParams{}, errors.New("周期预算不正确")
+	}
+	if cycle.ConcentrationMultiplier != 0 && !validConcentrationMultiplier(cycle.ConcentrationMultiplier) {
+		return snapshotParams{}, errors.New("周期自动分配上限倍率不正确")
 	}
 	if err := validateInitialGrantQuota(cycle.InitialGrantQuota); err != nil {
 		return snapshotParams{}, err
@@ -476,7 +504,7 @@ func loadManagedUsers(tx *gorm.DB) ([]userSnapshot, error) {
 	}
 	snapshots := make([]userSnapshot, 0, len(users))
 	for _, user := range users {
-		if user.Quota < 0 || int64(user.Quota) > int64(common.MaxQuota) {
+		if int64(user.Quota) < int64(common.MinQuota) || int64(user.Quota) > int64(common.MaxQuota) {
 			return nil, fmt.Errorf("用户 %d 的当前余额超出可支持范围", user.Id)
 		}
 		status := user.Status
@@ -712,6 +740,7 @@ func generateAdjustmentItems(
 	occupiedBefore int64,
 	allocationMode string,
 	lastPositiveAdjustments map[int]int64,
+	concentrationBasisPoints int64,
 ) ([]userAdjustment, error) {
 	minimumOrdinaryAdjustment := quotaPerUnit()
 	finalLowUsageThreshold := 10 * minimumOrdinaryAdjustment
@@ -725,6 +754,19 @@ func generateAdjustmentItems(
 		}
 	}
 	finalStage := params.StagePercent >= 10_000
+	basicSafetyTarget := int64(0)
+	positionCeiling := int64(0)
+	if allocationMode == allocationConcentration {
+		var err error
+		basicSafetyTarget, err = equalSafetyTarget(initialGrant, params.TotalWorkdays)
+		if err != nil {
+			return nil, err
+		}
+		positionCeiling, err = concentrationPositionCeiling(stageCap, len(activeUsers), concentrationBasisPoints)
+		if err != nil {
+			return nil, err
+		}
+	}
 	finalLowUsageIDs := make(map[int]bool)
 	if finalStage {
 		for _, user := range activeUsers {
@@ -757,6 +799,38 @@ func generateAdjustmentItems(
 		demandTarget, err := targetForDays(profile.WeeklyDemand, params.BasisMode, params.CalculationDaysHundred)
 		if err != nil {
 			return nil, fmt.Errorf("用户 %d 调增目标计算失败: %w", user.ID, err)
+		}
+		if allocationMode == allocationConcentration {
+			safetyTopUp, err := roundUpCent(maxQuota(0, basicSafetyTarget-user.Quota))
+			if err != nil {
+				return nil, err
+			}
+			positionAfterSafety, err := checkedSum(userStats.PeriodSpend, user.Quota, safetyTopUp)
+			if err != nil {
+				return nil, err
+			}
+			demandHeadroom := maxQuota(0, positionCeiling-positionAfterSafety)
+			demandGap := maxQuota(0, demandTarget-user.Quota-safetyTopUp)
+			demandTopUp := roundDownCent(minQuota(demandGap, demandHeadroom))
+			requested, err := checkedAdd(safetyTopUp, demandTopUp)
+			if err != nil {
+				return nil, err
+			}
+			if !isMaterialAdjustment(requested, minimumOrdinaryAdjustment) {
+				continue
+			}
+			target, err := checkedAdd(user.Quota, requested)
+			if err != nil {
+				return nil, err
+			}
+			increaseNeedIDs[user.ID] = true
+			requestBasisTexts[user.ID] = "先补足基础可用额度，再按预计需求和本周期个人自动分配上限核定增加额度"
+			requests = append(requests, requestRow{
+				UserID: user.ID, Requested: requested, ContinuityRequested: safetyTopUp,
+				Balance: user.Quota, SafetyTarget: basicSafetyTarget, Target: target,
+				LastPositiveAt: lastPositiveAdjustments[user.ID],
+			})
+			continue
 		}
 		minimumTarget := int64(0)
 		if user.Quota == 0 {
@@ -991,7 +1065,7 @@ func generateAdjustmentItems(
 	}
 	increaseCap := availableIncreaseCap(stageCap, occupiedBefore, decreaseTotal)
 	var baseAllocations map[int]int64
-	if allocationMode == allocationCandidate {
+	if allocationMode == allocationCandidate || allocationMode == allocationConcentration {
 		baseAllocations, err = allocateFairRequests(requests, minQuota(requestTotal, increaseCap), minimumOrdinaryAdjustment)
 	} else {
 		baseAllocations, err = allocateBaseRequests(requests, minQuota(requestTotal, increaseCap), minimumOrdinaryAdjustment)
@@ -1004,7 +1078,7 @@ func generateAdjustmentItems(
 		return nil, err
 	}
 	bonusCap := int64(0)
-	if allocationMode != allocationCandidate && !finalStage && baseTotal == requestTotal {
+	if allocationMode == allocationCurrent && !finalStage && baseTotal == requestTotal {
 		bonusCap = minQuota(bonusRequestTotal, maxQuota(0, increaseCap-baseTotal))
 	}
 	bonusAllocations, err := allocateBonusRequests(requests, bonusCap)
@@ -1048,6 +1122,9 @@ func generateAdjustmentItems(
 	}
 	weightedPoolCap := maxQuota(0, increaseCap-baseTotal-bonusTotal)
 	if allocationMode == allocationCandidate && baseTotal != requestTotal {
+		weightedPoolCap = 0
+	}
+	if allocationMode == allocationConcentration {
 		weightedPoolCap = 0
 	}
 	weightedPoolAllocations, err := allocateByWeight(weightedRecipients, weightedPoolCap, minimumOrdinaryAdjustment)
@@ -1114,7 +1191,7 @@ func generateAdjustmentItems(
 	if occupiedAfter > stageCap {
 		return nil, errors.New("计划结果超过当前阶段累计释放上限")
 	}
-	if len(weightedPoolRecipients) > 0 && stageCap-occupiedAfter > minimumOrdinaryAdjustment {
+	if allocationMode != allocationConcentration && len(weightedPoolRecipients) > 0 && stageCap-occupiedAfter > minimumOrdinaryAdjustment {
 		return nil, errors.New("当前阶段仍有可分配额度未释放")
 	}
 	return items, nil
@@ -1171,7 +1248,7 @@ func adjustmentsToItems(planID int, adjustments []userAdjustment) ([]model.Quota
 		if err != nil {
 			return nil, err
 		}
-		if after < 0 || after > int64(common.MaxQuota) {
+		if after < int64(common.MinQuota) || after > int64(common.MaxQuota) {
 			return nil, fmt.Errorf("用户 %d 调整后余额超出可支持范围", adjustment.UserID)
 		}
 		calculationJSON, err := common.Marshal(adjustment.CalculationData)

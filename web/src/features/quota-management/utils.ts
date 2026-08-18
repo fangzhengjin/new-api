@@ -31,6 +31,10 @@ export function formatQuota(value: string, signed = false): string {
   return signed && quota > 0 ? `+${formatted}` : formatted
 }
 
+export function formatConcentrationMultiplier(basisPoints: number): string {
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(basisPoints / 10_000)}×`
+}
+
 export function quotaToDisplayAmount(value: string): string {
   const { meta } = getCurrencyDisplay()
   if (meta.kind === 'tokens') return BigInt(value).toString()

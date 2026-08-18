@@ -276,9 +276,6 @@ func createResetSettlementPlan(tx *gorm.DB, cycle model.QuotaCycle, now int64, u
 	}
 	managed := int64(0)
 	for _, user := range users {
-		if user.Quota < 0 {
-			return 0, nil, fmt.Errorf("用户 %d 的当前余额不能为负数", user.Id)
-		}
 		var err error
 		managed, err = checkedAdd(managed, int64(user.Quota))
 		if err != nil {
@@ -289,7 +286,10 @@ func createResetSettlementPlan(tx *gorm.DB, cycle model.QuotaCycle, now int64, u
 	if err != nil {
 		return 0, nil, err
 	}
-	parameterJSON, err := common.Marshal(map[string]interface{}{"settlement_policy": "reset"})
+	parameterJSON, err := common.Marshal(map[string]interface{}{
+		"settlement_policy":                     "reset",
+		"concentration_multiplier_basis_points": cycle.ConcentrationMultiplier,
+	})
 	if err != nil {
 		return 0, nil, err
 	}
@@ -310,13 +310,17 @@ func createResetSettlementPlan(tx *gorm.DB, cycle model.QuotaCycle, now int64, u
 		if before == 0 {
 			continue
 		}
+		action := model.QuotaAdjustmentActionDecrease
+		if before < 0 {
+			action = model.QuotaAdjustmentActionIncrease
+		}
 		item := model.QuotaItem{
 			PlanId: plan.Id, UserId: user.Id, Username: user.Username,
 			DisplayName: user.DisplayName, Email: user.Email,
-			Action:               model.QuotaAdjustmentActionDecrease,
+			Action:               action,
 			SnapshotBalanceQuota: before, AdjustmentQuota: -before, RetainedQuota: 0,
 			CalculationData:   `{"decrease_kind":"cycle_reset"}`,
-			BasisText:         "周期到期按清零策略回收全部受管余额",
+			BasisText:         "周期到期按清零策略将受管余额调整为0",
 			ActualBeforeQuota: &before,
 			LogStatus:         model.QuotaNotificationStatusPending,
 			EmailStatus:       model.QuotaNotificationStatusPending,
@@ -461,6 +465,7 @@ func RestoreCycleSettlement(cycleID int, restoredBy string) (*ExecuteResult, err
 			usersByID[user.Id] = user
 		}
 		restoreTotal := int64(0)
+		restoreCount := 0
 		for _, item := range sourceItems {
 			if item.ActualBeforeQuota == nil || item.ActualAfterQuota == nil {
 				return errors.New("清零快照不完整")
@@ -470,9 +475,10 @@ func RestoreCycleSettlement(cycleID int, restoredBy string) (*ExecuteResult, err
 				return fmt.Errorf("用户 %d 的余额或白名单状态已变化，不能自动恢复", user.Id)
 			}
 			amount := *item.ActualBeforeQuota - *item.ActualAfterQuota
-			if amount < 0 {
-				return errors.New("清零快照额度不正确")
+			if amount == 0 {
+				continue
 			}
+			restoreCount++
 			var err error
 			restoreTotal, err = checkedAdd(restoreTotal, amount)
 			if err != nil {
@@ -494,22 +500,29 @@ func RestoreCycleSettlement(cycleID int, restoredBy string) (*ExecuteResult, err
 		if occupiedAfter > target.BudgetQuota {
 			return errors.New("活跃周期预算不足以恢复清零快照")
 		}
-		if restoreTotal == 0 {
+		if restoreCount == 0 {
 			return tx.Model(&model.QuotaCycle{}).Where("id = ?", source.Id).Updates(map[string]interface{}{
 				"restored_at": now, "restored_by": restoredBy, "updated_at": now, "updated_by": restoredBy,
 			}).Error
 		}
-		stagePercent64, err := bigRatio([]int64{occupiedAfter, 10_000}, []int64{target.BudgetQuota}, true)
-		if err != nil {
-			return err
+		stagePercent := 0
+		if occupiedAfter > 0 {
+			stagePercent64, err := bigRatio([]int64{occupiedAfter, 10_000}, []int64{target.BudgetQuota}, true)
+			if err != nil {
+				return err
+			}
+			stagePercent = int(stagePercent64)
 		}
-		parameters, err := common.Marshal(map[string]interface{}{"restore_cycle_id": source.Id})
+		parameters, err := common.Marshal(map[string]interface{}{
+			"restore_cycle_id":                      source.Id,
+			"concentration_multiplier_basis_points": target.ConcentrationMultiplier,
+		})
 		if err != nil {
 			return err
 		}
 		plan := model.QuotaPlan{
 			CycleId: target.Id, PlanType: model.QuotaPlanTypeAdjustment,
-			StagePercent: int(stagePercent64), SnapshotAt: now, NextAdjustmentAt: &target.CycleEndAt,
+			StagePercent: stagePercent, SnapshotAt: now, NextAdjustmentAt: &target.CycleEndAt,
 			AlgorithmVersion: cycleAlgorithmVersion(&target), Parameters: string(parameters),
 			BudgetQuotaSnapshot: target.BudgetQuota, TotalSpendQuota: spend,
 			ManagedBalanceQuota: managed, PlannedDeltaQuota: restoreTotal,

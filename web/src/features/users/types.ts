@@ -146,6 +146,14 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+  reason?: string
+  confirmed?: boolean
+}
+
+export interface ManualQuotaAdjustmentData {
+  stage_cap_quota?: string
+  occupied_after_quota?: string
+  stage_overage_quota?: string
 }
 
 // ============================================================================

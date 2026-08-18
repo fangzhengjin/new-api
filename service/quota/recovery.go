@@ -265,6 +265,7 @@ func approveRecoveryInTransaction(tx *gorm.DB, request *model.QuotaRecoveryReque
 	}
 	parameters, err := common.Marshal(map[string]interface{}{
 		"recovery_request_id": request.Id, "decision": decision, "reason": request.Reason,
+		"concentration_multiplier_basis_points": cycle.ConcentrationMultiplier,
 	})
 	if err != nil {
 		return nil, 0, err

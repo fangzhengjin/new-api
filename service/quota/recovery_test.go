@@ -14,10 +14,9 @@ import (
 
 func enableCompanyQuotaModeForTest(t *testing.T) {
 	t.Helper()
-	setting := operation_setting.GetQuotaSetting()
-	previous := setting.EnableCompanyQuotaMode
-	setting.EnableCompanyQuotaMode = true
-	t.Cleanup(func() { setting.EnableCompanyQuotaMode = previous })
+	previous := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previous })
 }
 
 func seedRecoveryCycleAndUser(t *testing.T, autoEnabled bool) (*model.QuotaCycle, *model.User) {

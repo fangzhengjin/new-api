@@ -164,7 +164,7 @@ export function PlanTable(props: { plans: QuotaPlan[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('Plan')}</TableHead>
+            <TableHead>{t('Quota plan')}</TableHead>
             <TableHead>{t('Type')}</TableHead>
             <TableHead>{t('Stage')}</TableHead>
             <TableHead>{t('Planned change')}</TableHead>

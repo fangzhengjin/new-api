@@ -66,6 +66,7 @@ import {
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
@@ -86,8 +87,10 @@ import {
   PageLoading,
   StatusBadge,
 } from './components/shared'
+import type { ConcentrationMultiplier } from './types'
 import {
   formatDateTime,
+  formatConcentrationMultiplier,
   formatQuota,
   queryKeys,
   quotaFromDisplayAmount,
@@ -103,9 +106,11 @@ type FormValues = {
   autoRecoveryThresholdAmount: string
   autoRecoveryMaxCount: string
   autoRecoveryMaxAmount: string
+  concentrationMultiplier: string
 }
 const currencyAmountPattern = /^\d+(?:\.\d{1,6})?$/
 const tokenAmountPattern = /^\d+$/
+const concentrationMultiplierPattern = /^(0|15000|20000|30000)$/
 
 export function QuotaCycleDetail(props: { cycleId: number }) {
   const { t } = useTranslation()
@@ -160,6 +165,12 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
           autoRecoveryThresholdAmount: z.string(),
           autoRecoveryMaxCount: z.string(),
           autoRecoveryMaxAmount: z.string(),
+          concentrationMultiplier: z
+            .string()
+            .regex(
+              concentrationMultiplierPattern,
+              t('Select an automatic allocation limit')
+            ),
         })
         .superRefine((values, context) => {
           if (!values.autoRecoveryEnabled) return
@@ -206,6 +217,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       autoRecoveryThresholdAmount: '0',
       autoRecoveryMaxCount: '0',
       autoRecoveryMaxAmount: '0',
+      concentrationMultiplier: '0',
     },
   })
 
@@ -230,6 +242,11 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       autoRecoveryMaxAmount: quotaToDisplayAmount(
         query.data.cycle.auto_recovery_max_quota
       ),
+      concentrationMultiplier:
+        query.data.cycle.status === 'scheduled' &&
+        query.data.cycle.concentration_multiplier_basis_points === 0
+          ? ''
+          : String(query.data.cycle.concentration_multiplier_basis_points),
     })
   }, [editOpen, form, query.data])
 
@@ -294,6 +311,12 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
         auto_recovery_max_quota:
           query.data?.cycle.status === 'scheduled'
             ? autoRecoveryMaxQuota
+            : undefined,
+        concentration_multiplier_basis_points:
+          query.data?.cycle.status === 'scheduled'
+            ? (Number(
+                values.concentrationMultiplier
+              ) as ConcentrationMultiplier)
             : undefined,
       })
     },
@@ -456,7 +479,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 t={t}
               />
             )}
-            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-6'>
+            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
               <Card>
                 <CardHeader>
                   <CardDescription>{t('Balance at cycle end')}</CardDescription>
@@ -501,6 +524,25 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>{t('Applied by initialization')}</CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription>
+                    {t('Automatic allocation limit')}
+                  </CardDescription>
+                  <CardTitle>
+                    {cycle.concentration_multiplier_basis_points
+                      ? formatConcentrationMultiplier(
+                          cycle.concentration_multiplier_basis_points
+                        )
+                      : t('Not set')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {cycle.concentration_multiplier_basis_points
+                    ? t('Used by every regular adjustment in this cycle')
+                    : t('Uses previous allocation rules')}
+                </CardContent>
               </Card>
               <Card>
                 <CardHeader>
@@ -590,6 +632,44 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 />
                 <FieldError
                   errors={[form.formState.errors.initialGrantAmount]}
+                />
+              </Field>
+              <Field
+                data-disabled={cycle.status !== 'scheduled'}
+                data-invalid={!!form.formState.errors.concentrationMultiplier}
+              >
+                <FieldLabel htmlFor='edit-cycle-concentration-multiplier'>
+                  {t('Automatic allocation limit')}
+                </FieldLabel>
+                <NativeSelect
+                  id='edit-cycle-concentration-multiplier'
+                  className='w-full'
+                  disabled={cycle.status !== 'scheduled'}
+                  aria-invalid={!!form.formState.errors.concentrationMultiplier}
+                  {...form.register('concentrationMultiplier')}
+                >
+                  {cycle.concentration_multiplier_basis_points === 0 && (
+                    <NativeSelectOption value='0' disabled>
+                      {t('Not set')}
+                    </NativeSelectOption>
+                  )}
+                  {cycle.status === 'scheduled' &&
+                    cycle.concentration_multiplier_basis_points === 0 && (
+                      <NativeSelectOption value='' disabled>
+                        {t('Select an automatic allocation limit')}
+                      </NativeSelectOption>
+                    )}
+                  <NativeSelectOption value='15000'>1.5×</NativeSelectOption>
+                  <NativeSelectOption value='20000'>2×</NativeSelectOption>
+                  <NativeSelectOption value='30000'>3×</NativeSelectOption>
+                </NativeSelect>
+                <FieldDescription>
+                  {t(
+                    'The setting can be changed before the cycle starts and is fixed after activation.'
+                  )}
+                </FieldDescription>
+                <FieldError
+                  errors={[form.formState.errors.concentrationMultiplier]}
                 />
               </Field>
               <Field

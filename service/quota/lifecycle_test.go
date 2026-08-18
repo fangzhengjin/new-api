@@ -39,6 +39,7 @@ func TestSettleCycleResetClearsManagedBalancesAndPreservesWhitelist(t *testing.T
 	}
 	users := []model.User{
 		{Username: "managed-reset", AffCode: "managed-reset", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "80"))},
+		{Username: "managed-negative-reset", AffCode: "managed-negative-reset", Status: common.UserStatusEnabled, Quota: -int(mustQuota(t, "20"))},
 		{Username: "whitelist-reset", AffCode: "whitelist-reset", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "200")), QuotaWhitelist: true},
 	}
 	require.NoError(t, db.Create(&cycle).Error)
@@ -58,12 +59,16 @@ func TestSettleCycleResetClearsManagedBalancesAndPreservesWhitelist(t *testing.T
 	require.NotNil(t, storedCycle.SettledAt)
 	require.NotNil(t, storedCycle.SettlementPlanId)
 	assert.Zero(t, storedUsers[0].Quota)
-	assert.Equal(t, int(mustQuota(t, "200")), storedUsers[1].Quota)
-	require.Len(t, items, 1)
+	assert.Zero(t, storedUsers[1].Quota)
+	assert.Equal(t, int(mustQuota(t, "200")), storedUsers[2].Quota)
+	require.Len(t, items, 2)
 	require.NotNil(t, items[0].ActualBeforeQuota)
 	require.NotNil(t, items[0].ActualAfterQuota)
 	assert.Equal(t, mustQuota(t, "80"), *items[0].ActualBeforeQuota)
 	assert.Zero(t, *items[0].ActualAfterQuota)
+	assert.Equal(t, model.QuotaAdjustmentActionIncrease, items[1].Action)
+	assert.Equal(t, -mustQuota(t, "20"), *items[1].ActualBeforeQuota)
+	assert.Zero(t, *items[1].ActualAfterQuota)
 }
 
 func TestSettleCycleCarryLeavesManagedBalanceUnchanged(t *testing.T) {
@@ -74,15 +79,19 @@ func TestSettleCycleCarryLeavesManagedBalanceUnchanged(t *testing.T) {
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
 		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusActive,
 	}
-	user := model.User{Username: "managed-carry", AffCode: "managed-carry", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "80"))}
+	users := []model.User{
+		{Username: "managed-carry", AffCode: "managed-carry", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "80"))},
+		{Username: "managed-negative-carry", AffCode: "managed-negative-carry", Status: common.UserStatusEnabled, Quota: -int(mustQuota(t, "20"))},
+	}
 	require.NoError(t, db.Create(&cycle).Error)
-	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&users).Error)
 
 	result, err := settleCycle(cycle.Id, now, "system")
 	require.NoError(t, err)
 	assert.Zero(t, result.planID)
-	require.NoError(t, db.First(&user, user.Id).Error)
-	assert.Equal(t, int(mustQuota(t, "80")), user.Quota)
+	require.NoError(t, db.Order("id").Find(&users).Error)
+	assert.Equal(t, int(mustQuota(t, "80")), users[0].Quota)
+	assert.Equal(t, -int(mustQuota(t, "20")), users[1].Quota)
 }
 
 func TestSettleCycleResetRollsBackEveryBalanceWhenOneUpdateFails(t *testing.T) {
@@ -226,7 +235,7 @@ func TestRunQuotaLifecycleExecutesEmptyInitialization(t *testing.T) {
 	assert.Zero(t, items)
 }
 
-func TestRestoreCycleSettlementRequiresUnchangedSnapshotAndActiveBudget(t *testing.T) {
+func TestRestoreCycleSettlementPreservesSignedNetZeroAndEnforcesActiveBudget(t *testing.T) {
 	db := setupQuotaTestDB(t)
 	configureLifecycleTest(t, false, "09:00")
 	now := time.Now().Unix()
@@ -235,26 +244,91 @@ func TestRestoreCycleSettlementRequiresUnchangedSnapshotAndActiveBudget(t *testi
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
 		BalancePolicy: model.QuotaCycleBalancePolicyReset, Status: model.QuotaCycleStatusActive,
 	}
-	user := model.User{Username: "restore-reset", AffCode: "restore-reset", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "80"))}
+	users := []model.User{
+		{Username: "restore-positive", AffCode: "restore-positive", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "80"))},
+		{Username: "restore-negative", AffCode: "restore-negative", Status: common.UserStatusEnabled, Quota: -int(mustQuota(t, "80"))},
+	}
 	require.NoError(t, db.Create(&source).Error)
-	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Create(&users).Error)
 	_, err := settleCycle(source.Id, now, "system")
 	require.NoError(t, err)
+	target := model.QuotaCycle{
+		CycleStartAt: now, CycleEndAt: now + 30*daySeconds,
+		BudgetQuota: mustQuota(t, "50"), InitialGrantQuota: mustQuota(t, "10"),
+		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusActive,
+	}
+	require.NoError(t, db.Create(&target).Error)
+	require.NoError(t, db.Create(&model.QuotaCycleSettlement{
+		BusinessKey: "restore-net-zero-spend", CycleId: target.Id, UserId: users[0].Id,
+		BillingAt: now, Quota: mustQuota(t, "60"), UpdatedAt: now,
+	}).Error)
+
+	_, err = RestoreCycleSettlement(source.Id, "root")
+	require.EqualError(t, err, "活跃周期预算不足以恢复清零快照")
+	require.NoError(t, db.Order("id").Find(&users).Error)
+	assert.Zero(t, users[0].Quota)
+	assert.Zero(t, users[1].Quota)
+	require.NoError(t, db.First(&source, source.Id).Error)
+	assert.Nil(t, source.RestoredAt)
+
+	require.NoError(t, db.Model(&target).Update("budget_quota", mustQuota(t, "1000")).Error)
+
+	result, err := RestoreCycleSettlement(source.Id, "root")
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.AffectedUsers)
+	require.NoError(t, db.Order("id").Find(&users).Error)
+	assert.Equal(t, int(mustQuota(t, "80")), users[0].Quota)
+	assert.Equal(t, -int(mustQuota(t, "80")), users[1].Quota)
+	require.NoError(t, db.First(&source, source.Id).Error)
+	require.NotNil(t, source.RestoredAt)
+
+	_, err = RestoreCycleSettlement(source.Id, "root")
+	require.EqualError(t, err, "该周期清零快照已经恢复")
+}
+
+func TestRestoreCycleSettlementRestoresSignedSnapshotThatLowersPosition(t *testing.T) {
+	db := setupQuotaTestDB(t)
+	configureLifecycleTest(t, false, "09:00")
+	now := time.Now().Unix()
+	source := model.QuotaCycle{
+		CycleStartAt: now - 30*daySeconds, CycleEndAt: now - 1,
+		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
+		BalancePolicy: model.QuotaCycleBalancePolicyReset, Status: model.QuotaCycleStatusActive,
+	}
+	positiveUser := model.User{Username: "restore-positive-net", AffCode: "restore-positive-net", Status: common.UserStatusEnabled, Quota: int(mustQuota(t, "20"))}
+	negativeUser := model.User{Username: "restore-negative-net", AffCode: "restore-negative-net", Status: common.UserStatusEnabled, Quota: -int(mustQuota(t, "40"))}
+	require.NoError(t, db.Create(&source).Error)
+	require.NoError(t, db.Create(&positiveUser).Error)
+	require.NoError(t, db.Create(&negativeUser).Error)
+	_, err := settleCycle(source.Id, now, "system")
+	require.NoError(t, err)
+	require.NoError(t, db.First(&positiveUser, positiveUser.Id).Error)
+	require.NoError(t, db.First(&negativeUser, negativeUser.Id).Error)
+	assert.Zero(t, positiveUser.Quota)
+	assert.Zero(t, negativeUser.Quota)
+
 	target := model.QuotaCycle{
 		CycleStartAt: now, CycleEndAt: now + 30*daySeconds,
 		BudgetQuota: mustQuota(t, "1000"), InitialGrantQuota: mustQuota(t, "100"),
 		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusActive,
 	}
 	require.NoError(t, db.Create(&target).Error)
+	require.NoError(t, db.Create(&model.QuotaCycleSettlement{
+		BusinessKey: "restore-signed-net-spend", CycleId: target.Id, UserId: positiveUser.Id,
+		BillingAt: now, Quota: mustQuota(t, "100"), UpdatedAt: now,
+	}).Error)
 
 	result, err := RestoreCycleSettlement(source.Id, "root")
 	require.NoError(t, err)
-	assert.Equal(t, 1, result.AffectedUsers)
-	require.NoError(t, db.First(&user, user.Id).Error)
-	assert.Equal(t, int(mustQuota(t, "80")), user.Quota)
-	require.NoError(t, db.First(&source, source.Id).Error)
-	require.NotNil(t, source.RestoredAt)
+	assert.Equal(t, 2, result.AffectedUsers)
+	require.NoError(t, db.First(&positiveUser, positiveUser.Id).Error)
+	require.NoError(t, db.First(&negativeUser, negativeUser.Id).Error)
+	assert.Equal(t, int(mustQuota(t, "20")), positiveUser.Quota)
+	assert.Equal(t, -int(mustQuota(t, "40")), negativeUser.Quota)
 
-	_, err = RestoreCycleSettlement(source.Id, "root")
-	require.EqualError(t, err, "该周期清零快照已经恢复")
+	var item model.QuotaItem
+	require.NoError(t, db.Where("user_id = ?", negativeUser.Id).Order("id DESC").First(&item).Error)
+	assert.Equal(t, model.QuotaAdjustmentActionRestore, item.Action)
+	assert.Equal(t, -mustQuota(t, "40"), item.AdjustmentQuota)
+	assert.Contains(t, item.LogContent, "本次恢复调减")
 }

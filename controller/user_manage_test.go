@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -158,4 +161,79 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	require.NoError(t, db.First(&unchanged, unchanged.Id).Error)
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
+}
+
+func TestManageUserRejectsQuotaOverrideInCompanyMode(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	user := model.User{
+		Username: "managed-company-quota-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "managed-company-quota-user",
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"override","value":10}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+}
+
+func TestManageUserReturnsStageOverageBeforeConfirmedManualIncrease(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousMode := operation_setting.CompanyQuotaModeEnabled
+	operation_setting.CompanyQuotaModeEnabled = true
+	t.Cleanup(func() { operation_setting.CompanyQuotaModeEnabled = previousMode })
+	require.NoError(t, db.AutoMigrate(
+		&model.QuotaCycle{}, &model.QuotaPlan{}, &model.QuotaItem{}, &model.QuotaCycleSettlement{},
+	))
+	now := time.Now().Unix()
+	quota := func(value float64) int64 {
+		return int64(common.QuotaFromFloat(value * common.QuotaPerUnit))
+	}
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*24*60*60,
+		BudgetQuota: quota(1000), InitialGrantQuota: quota(100), Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{
+		Username: "managed-stage-confirmation", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "managed-stage-confirmation", Quota: int(quota(50)),
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	executedAt := now - 30
+	require.NoError(t, db.Create(&model.QuotaPlan{
+		CycleId: cycle.Id, PlanType: model.QuotaPlanTypeInitialization, StagePercent: 1_000,
+		SnapshotAt: now - 60, AlgorithmVersion: quotaService.AlgorithmVersion,
+		Status: model.QuotaPlanStatusExecuted, ExecutedAt: &executedAt,
+	}).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":%d}`,
+		user.Id, quota(150),
+	))
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			StageCapQuota      string `json:"stage_cap_quota"`
+			OccupiedAfterQuota string `json:"occupied_after_quota"`
+			StageOverageQuota  string `json:"stage_overage_quota"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, strconv.FormatInt(quota(100), 10), response.Data.StageCapQuota)
+	assert.Equal(t, strconv.FormatInt(quota(200), 10), response.Data.OccupiedAfterQuota)
+	assert.Equal(t, strconv.FormatInt(quota(100), 10), response.Data.StageOverageQuota)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(quota(50)), user.Quota)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":%d,"confirmed":true}`,
+		user.Id, quota(150),
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(quota(200)), user.Quota)
 }

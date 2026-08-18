@@ -27,6 +27,7 @@ func quotaCycleResponse(cycle model.QuotaCycle) dto.QuotaCycleResponse {
 		AutoRecoveryThresholdQuota: quotaString(cycle.AutoRecoveryThresholdQuota),
 		AutoRecoveryMaxCount:       cycle.AutoRecoveryMaxCount,
 		AutoRecoveryMaxQuota:       quotaString(cycle.AutoRecoveryMaxQuota),
+		ConcentrationMultiplier:    cycle.ConcentrationMultiplier,
 		AllocationAlgorithmVersion: cycle.AllocationAlgorithmVersion,
 		LegacyRollbackAllowed:      cycle.LegacyRollbackAllowed,
 		BalancePolicy:              string(cycle.BalancePolicy), Status: string(cycle.Status),
@@ -151,6 +152,34 @@ func quotaFairnessMetricsResponse(metrics quotaService.FairnessMetrics) dto.Quot
 	}
 }
 
+func quotaConcentrationVariantResponse(variant quotaService.ConcentrationShadowVariant) dto.QuotaConcentrationShadowVariantResponse {
+	items := make([]dto.QuotaConcentrationShadowItemResponse, 0, len(variant.Items))
+	for _, item := range variant.Items {
+		items = append(items, dto.QuotaConcentrationShadowItemResponse{
+			UserID: item.UserID, Username: item.Username, PeriodSpendQuota: quotaString(item.PeriodSpendQuota),
+			CurrentBalanceQuota: quotaString(item.CurrentBalanceQuota), CurrentPositionQuota: quotaString(item.CurrentPositionQuota),
+			SpendShare: item.SpendShareBasisPoints, SafetyTargetQuota: quotaString(item.SafetyTargetQuota),
+			RawTargetQuota: quotaString(item.RawTargetQuota), EffectiveTargetQuota: quotaString(item.EffectiveTargetQuota),
+			PositionCeilingQuota: quotaString(item.PositionCeilingQuota), AdjustmentQuota: quotaString(item.AdjustmentQuota),
+			AfterBalanceQuota: quotaString(item.AfterBalanceQuota), AfterPositionQuota: quotaString(item.AfterPositionQuota),
+			CappedQuota: quotaString(item.CappedQuota), RawCoverage: item.RawCoverageBasisPoints,
+			EffectiveCoverage: item.EffectiveCoverageBasisPoints,
+		})
+	}
+	return dto.QuotaConcentrationShadowVariantResponse{
+		Multiplier: variant.MultiplierBasisPoints, Population: variant.Population,
+		PositionCeilingQuota: quotaString(variant.PositionCeilingQuota), MaximumPositionShare: variant.MaximumPositionShare,
+		CappedUsers: variant.CappedUsers, CappedQuota: quotaString(variant.CappedQuota),
+		MinimumRawCoverage: variant.MinimumRawCoverage, P10RawCoverage: variant.P10RawCoverage,
+		P50RawCoverage: variant.P50RawCoverage, MinimumEffectiveCoverage: variant.MinimumEffectiveCoverage,
+		P10EffectiveCoverage: variant.P10EffectiveCoverage, P50EffectiveCoverage: variant.P50EffectiveCoverage,
+		MinimumSafetyCoverage: variant.MinimumSafetyCoverage, SafetyUnmet: variant.SafetyUnmet,
+		PlannedIncreaseQuota: quotaString(variant.PlannedIncreaseQuota), ReclaimedQuota: quotaString(variant.ReclaimedQuota),
+		OccupiedAfterQuota: quotaString(variant.OccupiedAfterQuota), UnallocatedStageQuota: quotaString(variant.UnallocatedStageQuota),
+		Items: items,
+	}
+}
+
 func quotaFairnessShadowResponse(result *quotaService.FairnessShadowComparison) dto.QuotaFairnessShadowResponse {
 	items := make([]dto.QuotaFairnessShadowItemResponse, 0, len(result.Items))
 	for _, item := range result.Items {
@@ -163,11 +192,15 @@ func quotaFairnessShadowResponse(result *quotaService.FairnessShadowComparison) 
 			CandidateCoverage: item.CandidateCoverageBasisPoints,
 		})
 	}
+	variants := make([]dto.QuotaConcentrationShadowVariantResponse, 0, len(result.ConcentrationVariants))
+	for _, variant := range result.ConcentrationVariants {
+		variants = append(variants, quotaConcentrationVariantResponse(variant))
+	}
 	return dto.QuotaFairnessShadowResponse{
 		SnapshotAt: result.SnapshotAt, StageCapQuota: quotaString(result.StageCapQuota),
 		CurrentAlgorithmVersion: result.CurrentAlgorithmVersion, CandidateAlgorithmVersion: result.CandidateAlgorithmVersion,
 		CandidateQualified: result.CandidateQualified, Current: quotaFairnessMetricsResponse(result.Current),
-		Candidate: quotaFairnessMetricsResponse(result.Candidate), Items: items,
+		Candidate: quotaFairnessMetricsResponse(result.Candidate), Items: items, ConcentrationVariants: variants,
 	}
 }
 
@@ -246,8 +279,9 @@ func CreateQuotaCycle(c *gin.Context) {
 	cycle, err := quotaService.CreateCycle(quotaService.CreateCycleParams{
 		StartAt: request.CycleStartAt, EndAt: request.CycleEndAt,
 		BudgetQuota: budget, InitialGrantQuota: initialGrant, RecoveryReserveQuota: recoveryReserve,
-		RecoveryPolicy: recoveryPolicy,
-		BalancePolicy:  model.QuotaCycleBalancePolicy(request.BalancePolicy), CreatedBy: c.GetString("username"),
+		RecoveryPolicy:          recoveryPolicy,
+		ConcentrationMultiplier: request.ConcentrationMultiplier,
+		BalancePolicy:           model.QuotaCycleBalancePolicy(request.BalancePolicy), CreatedBy: c.GetString("username"),
 	})
 	if err != nil {
 		common.ApiError(c, err)
@@ -335,7 +369,10 @@ func UpdateQuotaCycle(c *gin.Context) {
 		}
 		recoveryPolicy = &value
 	}
-	if err := quotaService.UpdateCycleSettings(id, budget, initialGrant, recoveryReserve, recoveryPolicy, c.GetString("username")); err != nil {
+	if err := quotaService.UpdateCycleSettings(
+		id, budget, initialGrant, recoveryReserve, recoveryPolicy,
+		request.ConcentrationMultiplier, c.GetString("username"),
+	); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -605,31 +642,5 @@ func RetryQuotaPlanNotifications(c *gin.Context) {
 		common.ApiError(c, errors.New(result.Error))
 		return
 	}
-	common.ApiSuccess(c, result)
-}
-
-func ManualQuotaAdjust(c *gin.Context) {
-	var request struct {
-		UserID int    `json:"user_id"`
-		Target string `json:"target_quota"`
-		Reason string `json:"reason"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	target, err := quotaService.ParseNonNegativeQuota(request.Target, "目标额度")
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	result, err := quotaService.ManualAdjustUserQuota(request.UserID, target, request.Reason, c.GetString("username"))
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	recordManageAuditFor(c, request.UserID, "user.quota_adjustment_plan", map[string]interface{}{
-		"affected_users": result.AffectedUsers,
-	})
 	common.ApiSuccess(c, result)
 }

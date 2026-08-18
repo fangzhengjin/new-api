@@ -28,6 +28,7 @@ import type {
   UserFormData,
   ManageUserAction,
   ManageUserQuotaPayload,
+  ManualQuotaAdjustmentData,
   ApiResponse,
 } from './types'
 
@@ -150,8 +151,10 @@ export async function setQuotaWhitelist(
  */
 export async function adjustUserQuota(
   payload: ManageUserQuotaPayload
-): Promise<ApiResponse<Partial<User>>> {
-  const res = await api.post('/api/user/manage', payload)
+): Promise<ApiResponse<ManualQuotaAdjustmentData>> {
+  const res = await api.post('/api/user/manage', payload, {
+    skipBusinessError: true,
+  })
   return res.data
 }
 

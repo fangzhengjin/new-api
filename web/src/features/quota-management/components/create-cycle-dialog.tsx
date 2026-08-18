@@ -41,6 +41,7 @@ import {
   FieldLabel,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
   Select,
   SelectContent,
@@ -57,6 +58,7 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { createCycle } from '../api'
 import type {
   BalancePolicy,
+  ConcentrationMultiplier,
   CycleDefaults,
   InitialGrantRecommendation,
 } from '../types'
@@ -81,10 +83,12 @@ type FormValues = {
   autoRecoveryMaxCount: string
   autoRecoveryMaxAmount: string
   balancePolicy: BalancePolicy
+  concentrationMultiplier: string
 }
 
 const currencyAmountPattern = /^\d+(?:\.\d{1,6})?$/
 const tokenAmountPattern = /^\d+$/
+const concentrationMultiplierPattern = /^(15000|20000|30000)$/
 
 export function CreateCycleDialog(props: {
   open: boolean
@@ -134,6 +138,12 @@ export function CreateCycleDialog(props: {
           autoRecoveryMaxCount: z.string(),
           autoRecoveryMaxAmount: z.string(),
           balancePolicy: z.enum(['reset', 'carry']),
+          concentrationMultiplier: z
+            .string()
+            .regex(
+              concentrationMultiplierPattern,
+              t('Select an automatic allocation limit')
+            ),
         })
         .superRefine((values, context) => {
           if (!values.autoRecoveryEnabled) return
@@ -183,6 +193,7 @@ export function CreateCycleDialog(props: {
       autoRecoveryMaxCount: '0',
       autoRecoveryMaxAmount: '0',
       balancePolicy: 'reset',
+      concentrationMultiplier: '',
     },
   })
 
@@ -202,6 +213,7 @@ export function CreateCycleDialog(props: {
       autoRecoveryMaxCount: '0',
       autoRecoveryMaxAmount: '0',
       balancePolicy: 'reset',
+      concentrationMultiplier: '',
     })
   }, [form, props.defaults, props.open, props.recommendation])
 
@@ -263,6 +275,9 @@ export function CreateCycleDialog(props: {
         ? Number(values.autoRecoveryMaxCount)
         : 0,
       auto_recovery_max_quota: autoRecoveryMaxQuota,
+      concentration_multiplier_basis_points: Number(
+        values.concentrationMultiplier
+      ) as ConcentrationMultiplier,
       balance_policy: values.balancePolicy,
     })
   })
@@ -450,6 +465,34 @@ export function CreateCycleDialog(props: {
                   'Reset clears managed balances at cycle close; carry keeps them and counts them against the next cycle budget.'
                 )}
               </FieldDescription>
+            </Field>
+            <Field
+              data-invalid={!!form.formState.errors.concentrationMultiplier}
+            >
+              <FieldLabel htmlFor='quota-cycle-concentration-multiplier'>
+                {t('Automatic allocation limit')}
+              </FieldLabel>
+              <NativeSelect
+                id='quota-cycle-concentration-multiplier'
+                className='w-full'
+                aria-invalid={!!form.formState.errors.concentrationMultiplier}
+                {...form.register('concentrationMultiplier')}
+              >
+                <NativeSelectOption value='' disabled>
+                  {t('Select an automatic allocation limit')}
+                </NativeSelectOption>
+                <NativeSelectOption value='15000'>1.5×</NativeSelectOption>
+                <NativeSelectOption value='20000'>2×</NativeSelectOption>
+                <NativeSelectOption value='30000'>3×</NativeSelectOption>
+              </NativeSelect>
+              <FieldDescription>
+                {t(
+                  "The system compares each user's period spend plus current balance with the per-user share for the stage. 1.5× is strictest and 3× allows the most. Initial grants, manual grants, and temporary quota are not limited."
+                )}
+              </FieldDescription>
+              <FieldError
+                errors={[form.formState.errors.concentrationMultiplier]}
+              />
             </Field>
             <div className='grid gap-4 sm:grid-cols-2'>
               <Field data-invalid={!!form.formState.errors.budgetAmount}>

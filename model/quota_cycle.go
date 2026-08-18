@@ -41,6 +41,7 @@ type QuotaCycle struct {
 	AutoRecoveryThresholdQuota int64                   `json:"-" gorm:"bigint"`
 	AutoRecoveryMaxCount       int                     `json:"auto_recovery_max_count"`
 	AutoRecoveryMaxQuota       int64                   `json:"-" gorm:"bigint"`
+	ConcentrationMultiplier    int64                   `json:"concentration_multiplier_basis_points" gorm:"bigint"`
 	AllocationAlgorithmVersion string                  `json:"allocation_algorithm_version" gorm:"type:varchar(50)"`
 	LegacyRollbackAllowed      bool                    `json:"legacy_rollback_allowed"`
 	BalancePolicy              QuotaCycleBalancePolicy `json:"balance_policy" gorm:"type:varchar(20);index"`

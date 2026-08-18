@@ -51,7 +51,12 @@ import {
   StatusBadge,
 } from './components/shared'
 import type { PlanSummary, QuotaCategory } from './types'
-import { formatDateTime, formatQuota, queryKeys } from './utils'
+import {
+  formatConcentrationMultiplier,
+  formatDateTime,
+  formatQuota,
+  queryKeys,
+} from './utils'
 
 function SummaryTable(props: { summary: PlanSummary }) {
   const { t } = useTranslation()
@@ -159,6 +164,11 @@ export function QuotaPlanDetail(props: { planId: number }) {
   }
   const { plan, cycle, items, summary } = query.data
   const parameters = plan.parameters
+  const multiplierParameter = parameters.concentration_multiplier_basis_points
+  const concentrationMultiplier =
+    typeof multiplierParameter === 'number' && multiplierParameter > 0
+      ? multiplierParameter
+      : null
 
   return (
     <SectionPageLayout>
@@ -302,6 +312,21 @@ export function QuotaPlanDetail(props: { planId: number }) {
                   {String(parameters.total_workdays ?? '—')}
                 </div>
               </div>
+              {concentrationMultiplier && (
+                <div>
+                  <div className='text-muted-foreground'>
+                    {t('Automatic allocation limit')}
+                  </div>
+                  <div className='font-medium'>
+                    {formatConcentrationMultiplier(concentrationMultiplier)}
+                  </div>
+                  {plan.plan_type === 'initialization' && (
+                    <div className='text-muted-foreground text-xs'>
+                      {t('Initial grants do not use this limit')}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <div className='text-muted-foreground'>
                   {t('Early reclaim')}
@@ -382,7 +407,7 @@ export function QuotaPlanDetail(props: { planId: number }) {
                         <TableHead>{t('User')}</TableHead>
                         <TableHead>{t('Action')}</TableHead>
                         <TableHead>{t('Balance at snapshot')}</TableHead>
-                        <TableHead>{t('Adjustment')}</TableHead>
+                        <TableHead>{t('Quota change')}</TableHead>
                         <TableHead>{t('Retained')}</TableHead>
                         <TableHead>{t('Result')}</TableHead>
                         <TableHead>{t('Log')}</TableHead>

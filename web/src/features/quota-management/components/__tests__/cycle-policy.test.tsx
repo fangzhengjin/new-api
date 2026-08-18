@@ -62,6 +62,7 @@ function cycle(id: number, balancePolicy: 'reset' | 'carry'): QuotaCycle {
     auto_recovery_threshold_quota: '0',
     auto_recovery_max_count: 0,
     auto_recovery_max_quota: '0',
+    concentration_multiplier_basis_points: 0,
     allocation_algorithm_version: '1.8.0',
     legacy_rollback_allowed: false,
     balance_policy: balancePolicy,

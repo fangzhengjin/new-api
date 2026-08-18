@@ -44,13 +44,17 @@ func ExecutePlan(planID int, executedBy string) (*ExecuteResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return finishPlanExecution(planID, quotaDeltas), nil
+}
+
+func finishPlanExecution(planID int, quotaDeltas map[int]int64) *ExecuteResult {
 	for userID, delta := range quotaDeltas {
 		if err := model.SyncUserQuotaCacheDelta(userID, delta); err != nil {
 			common.SysError(fmt.Sprintf("failed to sync quota-adjusted user %d cache: %v", userID, err))
 		}
 	}
 	notifications := RetryNotifications(planID)
-	return &ExecuteResult{AffectedUsers: len(quotaDeltas), Notifications: notifications}, nil
+	return &ExecuteResult{AffectedUsers: len(quotaDeltas), Notifications: notifications}
 }
 
 func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy string, executedAt int64) (map[int]int64, error) {
@@ -88,12 +92,16 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 			return nil, fmt.Errorf("方案参数无效: %w", err)
 		}
 	}
+	if plan.AlgorithmVersion == ConcentrationAlgorithmVersion &&
+		planParameters.ConcentrationMultiplier != cycle.ConcentrationMultiplier {
+		return nil, errors.New("方案记录的自动分配上限与周期设置不一致，请重新生成")
+	}
 	if planParameters.ThoroughRelease && executedAt < finalAdjustmentTime(cycle.CycleStartAt, cycle.CycleEndAt) {
 		return nil, errors.New("彻底释放只能在最终调配窗口执行")
 	}
 	if planParameters.ThoroughRelease &&
-		(cycleAlgorithmVersion(&cycle) != CandidateAlgorithmVersion || cycle.RecoveryReserveQuota <= 0) {
-		return nil, errors.New("彻底释放需要可用的小额恢复渠道和候选算法")
+		!supportsThoroughRelease(&cycle) {
+		return nil, errors.New("彻底释放需要先配置可用的小额恢复渠道")
 	}
 
 	var items []model.QuotaItem
@@ -119,6 +127,8 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 			restoreOnly = false
 		}
 	}
+	cycleRestore := restoreOnly && planParameters.RestoreCycleID > 0
+	hasStageLimitedIncrease := hasIncrease && !planParameters.Manual && !cycleRestore
 	if hasRestore && !restoreOnly {
 		return nil, errors.New("恢复方案不能混入普通调配条目")
 	}
@@ -172,7 +182,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 			}
 		}
 	}
-	if hasIncrease {
+	if hasIncrease && !cycleRestore {
 		totalSpendBefore, err := totalSpendAt(tx, logDatabaseForTransaction(tx), cycle.Id, cycle.CycleStartAt, executedAt)
 		if err != nil {
 			return nil, err
@@ -185,7 +195,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 		if err != nil {
 			return nil, err
 		}
-		if occupiedBefore > stageCap || occupiedBefore > cycle.BudgetQuota {
+		if occupiedBefore > cycle.BudgetQuota || hasStageLimitedIncrease && occupiedBefore > stageCap {
 			common.SysError(fmt.Sprintf("quota allocation frozen: cycle %d occupied position exceeds current cap", cycle.Id))
 			return nil, errors.New("当前受管头寸已超过可用上限，所有正向调配已冻结")
 		}
@@ -204,24 +214,26 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 		if err != nil {
 			return nil, err
 		}
-		if after < 0 && item.AdjustmentQuota < 0 {
+		if after < 0 && item.AdjustmentQuota < 0 && item.Action != model.QuotaAdjustmentActionRestore {
 			return nil, fmt.Errorf("用户 %d 当前余额不足以扣除方案额度", user.Id)
 		}
-		if after < 0 || after > int64(common.MaxQuota) {
+		if after < int64(common.MinQuota) || after > int64(common.MaxQuota) {
 			return nil, fmt.Errorf("用户 %d 调整后余额超出可支持范围", user.Id)
 		}
 		updateQuery := tx.Unscoped().Model(&model.User{}).Where("id = ?", user.Id)
-		if item.AdjustmentQuota < 0 {
+		if item.AdjustmentQuota < 0 && item.Action != model.QuotaAdjustmentActionRestore {
 			updateQuery = updateQuery.Where("quota >= ?", -item.AdjustmentQuota)
 		} else {
-			updateQuery = updateQuery.Where("quota <= ?", int64(common.MaxQuota)-item.AdjustmentQuota)
+			if item.AdjustmentQuota > 0 {
+				updateQuery = updateQuery.Where("quota <= ?", int64(common.MaxQuota)-item.AdjustmentQuota)
+			}
 		}
 		update := updateQuery.Update("quota", gorm.Expr("quota + ?", item.AdjustmentQuota))
 		if update.Error != nil {
 			return nil, update.Error
 		}
 		if update.RowsAffected != 1 {
-			if item.AdjustmentQuota < 0 {
+			if item.AdjustmentQuota < 0 && item.Action != model.QuotaAdjustmentActionRestore {
 				return nil, fmt.Errorf("用户 %d 当前余额不足以扣除方案额度", user.Id)
 			}
 			return nil, fmt.Errorf("用户 %d 调整后余额超出可支持范围", user.Id)
@@ -269,7 +281,7 @@ func executePlanInTransaction(tx *gorm.DB, planID int, cycleID int, executedBy s
 	if err != nil {
 		return nil, err
 	}
-	if occupied > stageCap && hasIncrease {
+	if occupied > stageCap && hasStageLimitedIncrease {
 		return nil, fmt.Errorf(
 			"阶段额度检查失败：本期已消费 %s + 账户余额 %s = %s 超过当前阶段上限 %s",
 			FormatQuota(totalSpend), FormatQuota(managedBalance), FormatQuota(occupied), FormatQuota(stageCap),
@@ -324,7 +336,7 @@ func validateExecutionItem(item model.QuotaItem, user model.User) error {
 			return fmt.Errorf("用户 %d 的初始化条件已变化", item.UserId)
 		}
 	case model.QuotaAdjustmentActionRestore:
-		if item.AdjustmentQuota <= 0 {
+		if item.AdjustmentQuota == 0 {
 			return fmt.Errorf("用户 %d 的恢复额度不正确", item.UserId)
 		}
 	default:
@@ -368,9 +380,6 @@ func currentManagedBalance(tx *gorm.DB) (int64, error) {
 		Where("quota_whitelist = ? OR quota_whitelist IS NULL", false).
 		Scan(&total).Error; err != nil {
 		return 0, err
-	}
-	if total < 0 {
-		return 0, errors.New("参与调配账户余额总额不能为负数")
 	}
 	return total, nil
 }
@@ -436,14 +445,19 @@ func GenerateLogContent(item model.QuotaItem, actualBefore int64, actualAfter in
 		)
 	default:
 		operation := "调增"
+		amount := item.AdjustmentQuota
 		if item.Action == model.QuotaAdjustmentActionGrant {
 			operation = "补发"
 		} else if item.Action == model.QuotaAdjustmentActionRestore {
 			operation = "恢复"
+			if amount < 0 {
+				operation = "恢复调减"
+				amount = -amount
+			}
 		}
 		lines = append(lines,
 			fmt.Sprintf("调整前余额：%s", FormatQuota(actualBefore)),
-			fmt.Sprintf("本次%s：%s", operation, FormatQuota(item.AdjustmentQuota)),
+			fmt.Sprintf("本次%s：%s", operation, FormatQuota(amount)),
 			fmt.Sprintf("调整后余额：%s", FormatQuota(actualAfter)),
 		)
 	}

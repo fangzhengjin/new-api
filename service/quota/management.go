@@ -48,14 +48,15 @@ type CycleDetail struct {
 
 // CreateCycleParams contains validated quota units and Unix-second boundaries.
 type CreateCycleParams struct {
-	StartAt              int64
-	EndAt                int64
-	BudgetQuota          int64
-	InitialGrantQuota    int64
-	RecoveryReserveQuota int64
-	RecoveryPolicy       RecoveryPolicy
-	BalancePolicy        model.QuotaCycleBalancePolicy
-	CreatedBy            string
+	StartAt                 int64
+	EndAt                   int64
+	BudgetQuota             int64
+	InitialGrantQuota       int64
+	RecoveryReserveQuota    int64
+	RecoveryPolicy          RecoveryPolicy
+	ConcentrationMultiplier int64
+	BalancePolicy           model.QuotaCycleBalancePolicy
+	CreatedBy               string
 }
 
 // RecoveryPolicy is the scheduled-cycle auto-approval policy frozen at activation.
@@ -185,6 +186,9 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 	if err := validateRecoveryPolicy(params.RecoveryPolicy, params.RecoveryReserveQuota); err != nil {
 		return nil, err
 	}
+	if err := validateConcentrationMultiplier(params.ConcentrationMultiplier); err != nil {
+		return nil, err
+	}
 	if !params.BalancePolicy.Valid() {
 		return nil, errors.New("周期余额策略必须是 reset 或 carry")
 	}
@@ -197,6 +201,7 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 		AutoRecoveryThresholdQuota: params.RecoveryPolicy.ThresholdQuota,
 		AutoRecoveryMaxCount:       params.RecoveryPolicy.MaxCount,
 		AutoRecoveryMaxQuota:       params.RecoveryPolicy.MaxQuota,
+		ConcentrationMultiplier:    params.ConcentrationMultiplier,
 		Status:                     model.QuotaCycleStatusScheduled, CreatedBy: params.CreatedBy,
 	}
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
@@ -205,7 +210,7 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		cycle.AllocationAlgorithmVersion = cycleAlgorithmVersion(&latest)
+		cycle.AllocationAlgorithmVersion = cycleAlgorithmVersion(&cycle)
 		var overlap int64
 		if err := tx.Model(&model.QuotaCycle{}).
 			Where("cycle_start_at < ? AND cycle_end_at > ?", params.EndAt, params.StartAt).
@@ -224,7 +229,7 @@ func CreateCycle(params CreateCycleParams) (*model.QuotaCycle, error) {
 }
 
 // UpdateCycleSettings updates budget and scheduled-only allocation settings.
-func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int64, recoveryReserveQuota *int64, recoveryPolicy *RecoveryPolicy, updatedBy string) error {
+func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int64, recoveryReserveQuota *int64, recoveryPolicy *RecoveryPolicy, concentrationMultiplier *int64, updatedBy string) error {
 	if budgetQuota <= 0 {
 		return errors.New("采购总额必须大于0")
 	}
@@ -238,6 +243,18 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 		}
 		if cycle.Status == model.QuotaCycleStatusClosed {
 			return errors.New("周期已关闭")
+		}
+		resolvedMultiplier := cycle.ConcentrationMultiplier
+		if concentrationMultiplier != nil {
+			if cycle.Status != model.QuotaCycleStatusScheduled {
+				return errors.New("只有已规划周期可以修改自动分配上限")
+			}
+			resolvedMultiplier = *concentrationMultiplier
+		}
+		if cycle.Status == model.QuotaCycleStatusScheduled {
+			if err := validateConcentrationMultiplier(resolvedMultiplier); err != nil {
+				return err
+			}
 		}
 		reserveQuota := cycle.RecoveryReserveQuota
 		if recoveryReserveQuota != nil {
@@ -266,6 +283,7 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 		settingsChanged := budgetQuota != cycle.BudgetQuota ||
 			(initialGrantQuota != nil && *initialGrantQuota != cycle.InitialGrantQuota) ||
 			(recoveryReserveQuota != nil && *recoveryReserveQuota != cycle.RecoveryReserveQuota) ||
+			(concentrationMultiplier != nil && *concentrationMultiplier != cycle.ConcentrationMultiplier) ||
 			(recoveryPolicy != nil && (recoveryPolicy.Enabled != cycle.AutoRecoveryEnabled ||
 				recoveryPolicy.SingleQuota != cycle.AutoRecoverySingleQuota ||
 				recoveryPolicy.ThresholdQuota != cycle.AutoRecoveryThresholdQuota ||
@@ -309,6 +327,11 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 			updates["auto_recovery_max_count"] = recoveryPolicy.MaxCount
 			updates["auto_recovery_max_quota"] = recoveryPolicy.MaxQuota
 		}
+		if concentrationMultiplier != nil {
+			updates["concentration_multiplier"] = *concentrationMultiplier
+			updates["allocation_algorithm_version"] = ConcentrationAlgorithmVersion
+			updates["legacy_rollback_allowed"] = false
+		}
 		if err := tx.Model(&model.QuotaCycle{}).Where("id = ?", cycleID).Updates(updates).Error; err != nil {
 			return err
 		}
@@ -319,7 +342,7 @@ func UpdateCycleSettings(cycleID int, budgetQuota int64, initialGrantQuota *int6
 			Where("cycle_id = ? AND status = ?", cycleID, model.QuotaPlanStatusDraft).
 			Updates(map[string]interface{}{
 				"status": model.QuotaPlanStatusCancelled, "cancelled_at": time.Now().Unix(),
-				"cancelled_by": updatedBy, "cancel_reason": "周期预算、首次额度或恢复策略变更",
+				"cancelled_by": updatedBy, "cancel_reason": "周期预算、首次额度、恢复策略或自动分配上限变更",
 			}).Error
 	}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 }

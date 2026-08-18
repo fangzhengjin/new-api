@@ -68,6 +68,7 @@ import type {
   QuotaCycle,
 } from '../types'
 import {
+  formatConcentrationMultiplier,
   formatDateTime,
   formatQuota,
   fromShanghaiAdjustmentDate,
@@ -88,6 +89,13 @@ type FormValues = {
 }
 
 function planWriteFromForm(values: FormValues, cycle: QuotaCycle): PlanWrite {
+  let usageBonusPercent =
+    values.usageBonusPercent.trim() === ''
+      ? 30
+      : Number(values.usageBonusPercent)
+  if (cycle.concentration_multiplier_basis_points > 0) {
+    usageBonusPercent = 0
+  }
   return {
     cycle_id: cycle.id,
     plan_type: values.planType,
@@ -102,10 +110,7 @@ function planWriteFromForm(values: FormValues, cycle: QuotaCycle): PlanWrite {
       values.reclaimCapPercent.trim() === ''
         ? 30
         : Number(values.reclaimCapPercent),
-    usage_bonus_percent:
-      values.usageBonusPercent.trim() === ''
-        ? 30
-        : Number(values.usageBonusPercent),
+    usage_bonus_percent: usageBonusPercent,
     thorough_release: values.thorough,
   }
 }
@@ -121,6 +126,9 @@ export function GeneratePlanDialog(props: {
   const [shadowResult, setShadowResult] =
     useState<FairnessShadowComparison | null>(null)
   const [shadowParams, setShadowParams] = useState<PlanWrite | null>(null)
+  const concentrationMultiplier =
+    props.options?.cycle?.concentration_multiplier_basis_points ?? 0
+  const usesCycleLimit = concentrationMultiplier > 0
   const schema = useMemo(
     () =>
       z.object({
@@ -332,6 +340,19 @@ export function GeneratePlanDialog(props: {
                     {formatQuota(props.options.cycle.budget_quota)} ·{' '}
                     {t('Initial grant per user')}:{' '}
                     {formatQuota(props.options.cycle.initial_grant_quota)}
+                    {usesCycleLimit && (
+                      <>
+                        <br />
+                        {t('Automatic allocation limit')}:{' '}
+                        {formatConcentrationMultiplier(concentrationMultiplier)}{' '}
+                        ·{' '}
+                        {props.options.initialization_required
+                          ? t('Initial grants do not use this limit')
+                          : t(
+                              'Fixed for this cycle and cannot be changed in a draft'
+                            )}
+                      </>
+                    )}
                     {props.options.schedule && (
                       <>
                         <br />
@@ -432,7 +453,7 @@ export function GeneratePlanDialog(props: {
                                 {t('Initialization')}
                               </SelectItem>
                               <SelectItem value='adjustment'>
-                                {t('Adjustment')}
+                                {t('Regular adjustment')}
                               </SelectItem>
                             </SelectGroup>
                           </SelectContent>
@@ -539,24 +560,26 @@ export function GeneratePlanDialog(props: {
                       errors={[form.formState.errors.reclaimCapPercent]}
                     />
                   </Field>
-                  <Field
-                    data-invalid={!!form.formState.errors.usageBonusPercent}
-                  >
-                    <FieldLabel htmlFor='quota-usage-bonus'>
-                      {t('Usage bonus (%)')}
-                    </FieldLabel>
-                    <Input
-                      id='quota-usage-bonus'
-                      type='number'
-                      min='0'
-                      max='100'
-                      disabled={thorough}
-                      {...form.register('usageBonusPercent')}
-                    />
-                    <FieldError
-                      errors={[form.formState.errors.usageBonusPercent]}
-                    />
-                  </Field>
+                  {!usesCycleLimit && (
+                    <Field
+                      data-invalid={!!form.formState.errors.usageBonusPercent}
+                    >
+                      <FieldLabel htmlFor='quota-usage-bonus'>
+                        {t('Usage bonus (%)')}
+                      </FieldLabel>
+                      <Input
+                        id='quota-usage-bonus'
+                        type='number'
+                        min='0'
+                        max='100'
+                        disabled={thorough}
+                        {...form.register('usageBonusPercent')}
+                      />
+                      <FieldError
+                        errors={[form.formState.errors.usageBonusPercent]}
+                      />
+                    </Field>
+                  )}
                 </div>
                 <Field orientation='horizontal' data-disabled={thorough}>
                   <Controller
@@ -579,7 +602,13 @@ export function GeneratePlanDialog(props: {
               </FieldGroup>
             </form>
           )}
-        {shadowResult && <FairnessShadowResult result={shadowResult} />}
+        {shadowResult && (
+          <FairnessShadowResult
+            key={shadowResult.snapshot_at}
+            result={shadowResult}
+            selectedMultiplierBasisPoints={concentrationMultiplier}
+          />
+        )}
         <DialogFooter>
           <Button
             type='button'
@@ -593,7 +622,8 @@ export function GeneratePlanDialog(props: {
           >
             {t('Cancel')}
           </Button>
-          {shadowResult?.candidate_qualified &&
+          {!usesCycleLimit &&
+            shadowResult?.candidate_qualified &&
             shadowParams?.stage_percent === 10_000 &&
             shadowParams.thorough_release && (
               <Button

@@ -301,3 +301,42 @@ func TestChannelAffinityHitCodexRuleDoesNotApplyOverrideTemplate(t *testing.T) {
 	require.False(t, applied)
 	require.Equal(t, baseOverride, mergedOverride)
 }
+
+func TestRecordChannelAffinityFixedTTLDoesNotRenewSuccessfulHit(t *testing.T) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+	originalRenewTTLOnSuccess := setting.RenewTTLOnSuccess
+	setting.RenewTTLOnSuccess = false
+	t.Cleanup(func() {
+		setting.RenewTTLOnSuccess = originalRenewTTLOnSuccess
+	})
+
+	cacheKeySuffix := fmt.Sprintf("fixed-ttl-%d", time.Now().UnixNano())
+	cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
+	})
+
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:   cacheKeyFull,
+		TTLSeconds: 90,
+	})
+	MarkChannelAffinityUsed(ctx, "default", 9527)
+
+	// A concurrent value makes an unnecessary rewrite observable without waiting for TTL.
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9528, time.Minute))
+	RecordChannelAffinity(ctx, 9527)
+	channelID, found, err := cache.Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 9528, channelID)
+
+	ctx.Set("channel_id", 9529)
+	RecordChannelAffinity(ctx, 9527)
+	channelID, found, err = cache.Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 9529, channelID)
+}

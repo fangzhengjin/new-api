@@ -1,0 +1,4 @@
+interface:
+  display_name: "线性同步 main 到 next"
+  short_description: "审计上游功能覆盖，线性重写并安全推送 next 分支"
+  default_prompt: "使用 $sync-upstream-next 将最新 origin/main 线性同步到 next，核对上游是否完整覆盖本地必要行为，采用上游并保留未覆盖的必要差异后安全推送。"

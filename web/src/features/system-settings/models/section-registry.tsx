@@ -121,10 +121,32 @@ const MODELS_SECTIONS = [
     titleKey: 'Codex',
     build: (settings: ModelSettings) => (
       <CodexSettingsCard
+        builtInDefaults={settings['codex.default_settings'] ?? '{}'}
         defaultValues={{
           codex: {
+            client_version_check_enabled:
+              settings['codex.client_version_check_enabled'],
+            minimum_client_version: settings['codex.minimum_client_version'],
+            desktop_client_version_check_enabled:
+              settings['codex.desktop_client_version_check_enabled'],
+            minimum_desktop_client_version:
+              settings['codex.minimum_desktop_client_version'],
             request_header_fallback_enabled:
               settings['codex.request_header_fallback_enabled'],
+            request_header_fallback_client:
+              settings['codex.request_header_fallback_client'],
+            request_header_fallback_version:
+              settings['codex.request_header_fallback_version'],
+            request_header_fallback_os:
+              settings['codex.request_header_fallback_os'],
+            request_header_fallback_os_version:
+              settings['codex.request_header_fallback_os_version'],
+            request_header_fallback_architecture:
+              settings['codex.request_header_fallback_architecture'],
+            request_header_fallback_terminal:
+              settings['codex.request_header_fallback_terminal'],
+            request_header_model_patterns:
+              settings['codex.request_header_model_patterns'],
           },
         }}
       />
@@ -135,8 +157,18 @@ const MODELS_SECTIONS = [
     titleKey: 'Claude',
     build: (settings: ModelSettings) => (
       <ClaudeSettingsCard
+        builtInDefaults={settings['claude.default_settings'] ?? '{}'}
         defaultValues={{
           claude: {
+            client_version_check_enabled:
+              settings['claude.client_version_check_enabled'],
+            minimum_client_version: settings['claude.minimum_client_version'],
+            request_header_fallback_enabled:
+              settings['claude.request_header_fallback_enabled'],
+            request_header_fallback_version:
+              settings['claude.request_header_fallback_version'],
+            request_header_model_patterns:
+              settings['claude.request_header_model_patterns'],
             model_headers_settings: settings['claude.model_headers_settings'],
             default_max_tokens: settings['claude.default_max_tokens'],
             thinking_adapter_enabled:

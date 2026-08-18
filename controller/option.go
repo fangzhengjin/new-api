@@ -110,6 +110,20 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	options = append(options,
+		&model.Option{
+			Key:   operation_setting.RequestHeaderRulesDefaultOptionKey,
+			Value: operation_setting.DefaultRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
+			Value: operation_setting.SystemRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   "RequestHeaderAuditCapacityBytes",
+			Value: strconv.Itoa(operation_setting.RequestHeaderAuditCapacityBytes),
+		},
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -260,6 +274,42 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 				"success": false,
 				"message": err.Error(),
 			})
+			return false
+		}
+	case "codex.minimum_client_version", "codex.minimum_desktop_client_version",
+		"codex.request_header_fallback_version", "claude.minimum_client_version",
+		"claude.request_header_fallback_version":
+		err = model_setting.ValidateClientVersion(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_client":
+		err = model_setting.ValidateCodexUserAgentClient(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
+		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
+		err = model_setting.ValidateCodexUserAgentComponent(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_model_patterns", "claude.request_header_model_patterns":
+		err = model_setting.ValidateClientIdentityModelPatterns(value)
+		if err != nil {
+			common.ApiError(c, err)
 			return false
 		}
 	case operation_setting.ToolPriceOptionKey:

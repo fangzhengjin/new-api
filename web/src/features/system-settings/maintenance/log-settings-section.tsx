@@ -17,12 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Add01Icon, Delete02Icon, ReloadIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useFieldArray, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
+import { StaticDataTable } from '@/components/data-table/static/static-data-table'
 import { DateTimePicker } from '@/components/datetime-picker'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -37,6 +41,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -70,6 +75,7 @@ import {
 import {
   SettingsControlGroup,
   SettingsForm,
+  SettingsFormSection,
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
@@ -77,15 +83,89 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import type { LogCleanupTask } from '../types'
+import { safeJsonParse } from '../utils/json-parser'
 
-const logSettingsSchema = z.object({
-  LogConsumeEnabled: z.boolean(),
-})
+const headerNamePattern = /^[!#$%&'+\-.^_`|~0-9A-Za-z]+$/
 
-type LogSettingsFormValues = z.infer<typeof logSettingsSchema>
+type RequestHeaderRuleFormValue = {
+  name: string
+  record: boolean
+  forward: boolean
+}
+
+type LogSettingsFormValues = {
+  LogConsumeEnabled: boolean
+  RequestHeaderRules: RequestHeaderRuleFormValue[]
+}
+
+type RequestHeaderRuleTableRow = RequestHeaderRuleFormValue & {
+  key: string
+  index: number
+  system: boolean
+}
+
+function createLogSettingsSchema(
+  t: TFunction,
+  systemRules: RequestHeaderRuleFormValue[]
+) {
+  const systemRuleNames = new Set(
+    systemRules.map((rule) => rule.name.toLowerCase())
+  )
+  const ruleSchema = z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t('Request header rule is required'))
+      .refine((value) => {
+        const name = value.endsWith('*') ? value.slice(0, -1) : value
+        return Boolean(
+          name && !name.includes('*') && headerNamePattern.test(name)
+        )
+      }, t('Use an HTTP header name; only a trailing * wildcard is supported')),
+    record: z.boolean(),
+    forward: z.boolean(),
+  })
+
+  return z.object({
+    LogConsumeEnabled: z.boolean(),
+    RequestHeaderRules: z
+      .array(ruleSchema)
+      .max(200, t('Request header rules cannot exceed 200 rules'))
+      .superRefine((rules, context) => {
+        if (JSON.stringify(rules).length > 8192) {
+          context.addIssue({
+            code: 'custom',
+            message: t('Request header rules cannot exceed 8 KiB'),
+          })
+        }
+        const seen = new Set<string>()
+        rules.forEach((rule, index) => {
+          const name = rule.name.trim().toLowerCase()
+          if (seen.has(name)) {
+            context.addIssue({
+              code: 'custom',
+              path: [index, 'name'],
+              message: t('Duplicate request header rule'),
+            })
+          } else if (systemRuleNames.has(name)) {
+            context.addIssue({
+              code: 'custom',
+              path: [index, 'name'],
+              message: t('This request header rule is managed by the system'),
+            })
+          }
+          seen.add(name)
+        })
+      }),
+  })
+}
 
 type LogSettingsSectionProps = {
   defaultEnabled: boolean
+  defaultRules: string
+  builtInRules: string
+  systemRules: string
+  capacityBytes: number
 }
 
 type ServerLogInfo = {
@@ -98,6 +178,27 @@ type ServerLogInfo = {
 }
 
 const HOURS_IN_DAY = 24
+
+function parseRequestHeaderRules(value: string): RequestHeaderRuleFormValue[] {
+  const rules = safeJsonParse<unknown>(value, { fallback: [], silent: true })
+  if (!Array.isArray(rules)) return []
+  return rules.filter(
+    (rule): rule is RequestHeaderRuleFormValue =>
+      typeof rule === 'object' &&
+      rule !== null &&
+      typeof rule.name === 'string' &&
+      typeof rule.record === 'boolean' &&
+      typeof rule.forward === 'boolean'
+  )
+}
+
+function serializeRequestHeaderRules(
+  rules: RequestHeaderRuleFormValue[]
+): string {
+  return JSON.stringify(
+    rules.map((rule) => ({ ...rule, name: rule.name.trim() }))
+  )
+}
 
 function formatBytes(bytes: number, decimals = 2): string {
   if (!bytes || Number.isNaN(bytes)) return '0 Bytes'
@@ -139,16 +240,35 @@ function isActiveLogCleanupTask(task: LogCleanupTask | null) {
   return task?.status === 'pending' || task?.status === 'running'
 }
 
-export function LogSettingsSection({
-  defaultEnabled,
-}: LogSettingsSectionProps) {
+export function LogSettingsSection(props: LogSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const defaultRules = useMemo(
+    () => parseRequestHeaderRules(props.defaultRules),
+    [props.defaultRules]
+  )
+  const builtInRules = useMemo(
+    () => parseRequestHeaderRules(props.builtInRules),
+    [props.builtInRules]
+  )
+  const systemRules = useMemo(
+    () => parseRequestHeaderRules(props.systemRules),
+    [props.systemRules]
+  )
+  const logSettingsSchema = useMemo(
+    () => createLogSettingsSchema(t, systemRules),
+    [systemRules, t]
+  )
   const form = useForm<LogSettingsFormValues>({
     resolver: zodResolver(logSettingsSchema),
     defaultValues: {
-      LogConsumeEnabled: defaultEnabled,
+      LogConsumeEnabled: props.defaultEnabled,
+      RequestHeaderRules: defaultRules,
     },
+  })
+  const { fields, append, remove, replace } = useFieldArray({
+    control: form.control,
+    name: 'RequestHeaderRules',
   })
 
   const [purgeDate, setPurgeDate] = useState<Date | undefined>(() =>
@@ -174,8 +294,11 @@ export function LogSettingsSection({
   }, [])
 
   useEffect(() => {
-    form.reset({ LogConsumeEnabled: defaultEnabled })
-  }, [defaultEnabled, form])
+    form.reset({
+      LogConsumeEnabled: props.defaultEnabled,
+      RequestHeaderRules: defaultRules,
+    })
+  }, [defaultRules, form, props.defaultEnabled])
 
   useEffect(() => {
     fetchServerLogInfo()
@@ -257,11 +380,54 @@ export function LogSettingsSection({
   }, [logCleanupActive, logCleanupTaskId, t])
 
   const onSubmit = async (values: LogSettingsFormValues) => {
-    if (values.LogConsumeEnabled === defaultEnabled) return
-    await updateOption.mutateAsync({
-      key: 'LogConsumeEnabled',
-      value: values.LogConsumeEnabled,
-    })
+    const updates = []
+    if (values.LogConsumeEnabled !== props.defaultEnabled) {
+      updates.push({
+        key: 'LogConsumeEnabled',
+        value: values.LogConsumeEnabled,
+      })
+    }
+    const requestHeaderRules = serializeRequestHeaderRules(
+      values.RequestHeaderRules
+    )
+    if (requestHeaderRules !== serializeRequestHeaderRules(defaultRules)) {
+      updates.push({
+        key: 'RequestHeaderRules',
+        value: requestHeaderRules,
+      })
+    }
+    if (updates.length === 0) return
+    await updateOption.mutateAsync(updates)
+  }
+
+  const requestHeaderRules = form.watch('RequestHeaderRules')
+  const requestHeaderRulesError = form.formState.errors.RequestHeaderRules
+  const hasBuiltInHeaderDefaults = builtInRules.length > 0
+  const headerRulesUseBuiltInDefaults =
+    serializeRequestHeaderRules(requestHeaderRules) ===
+    serializeRequestHeaderRules(builtInRules)
+  const requestHeaderRuleRows: RequestHeaderRuleTableRow[] = [
+    ...requestHeaderRules.map((rule, index) => ({
+      ...rule,
+      key: fields[index]?.id ?? `user-${index}`,
+      index,
+      system: false,
+    })),
+    ...systemRules.map((rule, index) => ({
+      ...rule,
+      key: `system-${rule.name.toLowerCase()}`,
+      index,
+      system: true,
+    })),
+  ]
+
+  const restoreHeaderDefaults = () => {
+    replace(builtInRules)
+    void form.trigger('RequestHeaderRules')
+  }
+
+  const addRequestHeaderRule = () => {
+    append({ name: '', record: false, forward: false }, { shouldFocus: true })
   }
 
   const handleRequestCleanLogs = () => {
@@ -580,6 +746,201 @@ export function LogSettingsSection({
             </Alert>
           ))}
       </div>
+
+      <Separator />
+
+      <Form {...form}>
+        <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
+          <SettingsFormSection
+            title={t('Request header audit')}
+            description={t(
+              'Exact rules take precedence; otherwise the wildcard with the longest fixed prefix is used. System rules always apply.'
+            )}
+            action={
+              <div className='flex flex-col gap-2 sm:flex-row'>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  onClick={restoreHeaderDefaults}
+                  disabled={
+                    updateOption.isPending ||
+                    !hasBuiltInHeaderDefaults ||
+                    headerRulesUseBuiltInDefaults
+                  }
+                >
+                  <HugeiconsIcon
+                    icon={ReloadIcon}
+                    strokeWidth={2}
+                    data-icon='inline-start'
+                    aria-hidden='true'
+                  />
+                  {t('Restore defaults')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={addRequestHeaderRule}
+                  disabled={
+                    updateOption.isPending || requestHeaderRules.length >= 200
+                  }
+                >
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    strokeWidth={2}
+                    data-icon='inline-start'
+                    aria-hidden='true'
+                  />
+                  {t('Add rule')}
+                </Button>
+              </div>
+            }
+          >
+            <StaticDataTable
+              data={requestHeaderRuleRows}
+              getRowKey={(row) => row.key}
+              getRowClassName={(row) =>
+                row.system ? 'bg-muted/30' : undefined
+              }
+              emptyContent={t('No rules yet')}
+              columns={[
+                {
+                  id: 'name',
+                  header: t('Header rule'),
+                  className: 'min-w-60',
+                  cell: (row) => {
+                    const error = row.system
+                      ? undefined
+                      : form.formState.errors.RequestHeaderRules?.[row.index]
+                          ?.name
+                    const label = t('Header rule: {{name}}', {
+                      name: row.name || row.index + 1,
+                    })
+                    return (
+                      <div className='space-y-1'>
+                        {row.system ? (
+                          <Input value={row.name} aria-label={label} disabled />
+                        ) : (
+                          <Input
+                            {...form.register(
+                              `RequestHeaderRules.${row.index}.name`
+                            )}
+                            aria-label={label}
+                            aria-invalid={Boolean(error)}
+                            spellCheck={false}
+                          />
+                        )}
+                        {error?.message ? (
+                          <p className='text-destructive text-xs' role='alert'>
+                            {error.message}
+                          </p>
+                        ) : null}
+                      </div>
+                    )
+                  },
+                },
+                {
+                  id: 'record',
+                  header: t('Record'),
+                  className: 'w-24 text-center',
+                  cellClassName: 'text-center',
+                  cell: (row) => (
+                    <div className='flex justify-center'>
+                      <Checkbox
+                        checked={row.record}
+                        disabled={row.system}
+                        aria-label={t('Record {{name}}', { name: row.name })}
+                        onCheckedChange={(checked) => {
+                          if (row.system) return
+                          form.setValue(
+                            `RequestHeaderRules.${row.index}.record`,
+                            checked === true,
+                            { shouldDirty: true, shouldValidate: true }
+                          )
+                        }}
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  id: 'forward',
+                  header: t('Forward'),
+                  className: 'w-24 text-center',
+                  cellClassName: 'text-center',
+                  cell: (row) => (
+                    <div className='flex justify-center'>
+                      <Checkbox
+                        checked={row.forward}
+                        disabled={row.system}
+                        aria-label={t('Forward {{name}}', { name: row.name })}
+                        onCheckedChange={(checked) => {
+                          if (row.system) return
+                          form.setValue(
+                            `RequestHeaderRules.${row.index}.forward`,
+                            checked === true,
+                            { shouldDirty: true, shouldValidate: true }
+                          )
+                        }}
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  id: 'actions',
+                  header: t('Actions'),
+                  className: 'w-20 text-right',
+                  cellClassName: 'text-right',
+                  cell: (row) => (
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      disabled={row.system || updateOption.isPending}
+                      aria-label={t('Delete {{name}} rule', {
+                        name: row.name,
+                      })}
+                      onClick={() => {
+                        if (!row.system) remove(row.index)
+                      }}
+                    >
+                      <HugeiconsIcon
+                        icon={Delete02Icon}
+                        strokeWidth={2}
+                        aria-hidden='true'
+                      />
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+
+            {requestHeaderRulesError?.message ? (
+              <p className='text-destructive text-xs' role='alert'>
+                {requestHeaderRulesError.message}
+              </p>
+            ) : null}
+
+            <dl className='grid gap-1 text-xs sm:grid-cols-[auto_1fr] sm:gap-x-4'>
+              <dt className='text-muted-foreground'>{t('Audit capacity')}</dt>
+              <dd>
+                {props.capacityBytes > 0
+                  ? t(
+                      '{{size}} KiB for incoming and outgoing headers separately',
+                      {
+                        size: Math.round(props.capacityBytes / 1024),
+                      }
+                    )
+                  : t('Not available')}
+              </dd>
+            </dl>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Request headers are available only to administrators in log details.'
+              )}
+            </p>
+          </SettingsFormSection>
+        </SettingsForm>
+      </Form>
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>

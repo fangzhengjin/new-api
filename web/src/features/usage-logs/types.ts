@@ -142,6 +142,19 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    user_agent?: {
+      client: string
+      upstream_before_fallback?: string
+      upstream_after_fallback?: string
+    }
+    request_headers?: {
+      incoming?: Record<string, string>
+      outgoing?: Record<string, string>
+      omitted?: {
+        incoming?: Array<{ name: string; byte_length: number }>
+        outgoing?: Array<{ name: string; byte_length: number }>
+      }
+    }
   }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.

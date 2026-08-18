@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -113,6 +114,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 	}()
+
+	checkCodexVersion := relayFormat == types.RelayFormatOpenAIResponses ||
+		relayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		relayFormat == types.RelayFormatOpenAIAlphaSearch
+	if outdated := model_setting.CheckClientVersion(c.Request.UserAgent(), relayFormat == types.RelayFormatClaude, checkCodexVersion); outdated != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(outdated.Message()),
+			types.ErrorCodeClientVersionTooLow,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+		recordRelayErrorLog(c, newAPIError)
+		return
+	}
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {
@@ -523,7 +538,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	if allowDisable && service.ShouldDisableChannel(err) && channelError.AutoBan {
 		service.DisableChannel(channelError, err.ErrorWithStatusCode())
 	}
+	recordRelayErrorLog(c, err)
+}
 
+func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError) {
 	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
@@ -550,6 +568,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		service.AppendRequestHeadersAdminInfo(c, adminInfo)
 		other["admin_info"] = adminInfo
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
@@ -558,7 +577,6 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		useTimeSeconds := int(time.Since(startTime).Seconds())
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
-
 }
 
 func RelayMidjourney(c *gin.Context) {

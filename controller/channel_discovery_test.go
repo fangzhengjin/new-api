@@ -183,6 +183,7 @@ func TestChannelDiscoveryProbeRequestUsesStreamAndCodexFallback(t *testing.T) {
 	settings := model_setting.GetCodexSettings()
 	originalSettings := *settings
 	settings.RequestHeaderFallbackEnabled = true
+	settings.RequestHeaderModelPatterns = []string{`^gpt-.*$`, `^codex-.*$`}
 	defer func() { *settings = originalSettings }()
 
 	req, err := newChannelDiscoveryProbeRequest(
@@ -219,6 +220,17 @@ func TestChannelDiscoveryProbeRequestUsesStreamAndCodexFallback(t *testing.T) {
 	require.NoError(t, common.DecodeJson(nonStreamReq.Body, &body))
 	_, hasStream := body["stream"]
 	assert.False(t, hasStream)
+
+	nonMatchingReq, err := newChannelDiscoveryProbeRequest(
+		context.Background(),
+		"https://api.example.test/v1/responses",
+		"secret-key",
+		"responses",
+		"deepseek-chat",
+		false,
+	)
+	require.NoError(t, err)
+	assert.Empty(t, nonMatchingReq.Header.Get("User-Agent"))
 }
 
 func TestReadChannelDiscoveryStreamProbeRequiresProtocolEvent(t *testing.T) {

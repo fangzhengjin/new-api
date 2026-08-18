@@ -482,9 +482,10 @@ func newChannelDiscoveryProbeRequest(ctx context.Context, endpoint string, key s
 		format = types.RelayFormatOpenAIResponses
 		request = &dto.OpenAIResponsesRequest{Model: modelName}
 	}
-	relaychannel.ApplyCodexRequestHeaderFallback(nil, req, &relaycommon.RelayInfo{
+	relaychannel.NormalizeClientIdentityHeaders(nil, req, &relaycommon.RelayInfo{
 		RelayFormat: format,
 		Request:     request,
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: modelName},
 	})
 	return req, nil
 }

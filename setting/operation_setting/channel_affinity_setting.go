@@ -36,35 +36,6 @@ type ChannelAffinitySetting struct {
 	Rules                 []ChannelAffinityRule `json:"rules"`
 }
 
-// Keep Codex CLI passthrough aligned with upstream. Codex uses lower-case
-// header names, while HTTP matching here is case-insensitive.
-// Request session/thread headers:
-// https://github.com/openai/codex/commit/7c7b4861d88960f7e3bd5b7f30f8351be666dd84
-// Responses metadata headers/client_metadata:
-// https://github.com/openai/codex/commit/14df0e8833aad0d6d78287954b61ffac67af936c
-// x-codex-turn-state response/request round trip:
-// https://github.com/openai/codex/commit/ebdd8795e924a8149b616e46ca2ed7848c207a4b
-var codexCliPassThroughHeaders = []string{
-	"Originator",
-	"Session_id",
-	"Thread_id",
-	"Session-Id",
-	"Thread-Id",
-	"X-Client-Request-Id",
-	"User-Agent",
-	"X-Codex-Beta-Features",
-	"X-Codex-Turn-State",
-	"X-Codex-Turn-Metadata",
-	"X-Codex-Window-Id",
-	"X-Codex-Parent-Thread-Id",
-	//"X-Codex-Installation-Id",
-	"X-OpenAI-Subagent",
-	"X-OpenAI-Memgen-Request",
-	//"X-OAI-Attestation",
-	"X-ResponsesAPI-Include-Timing-Metrics",
-	"X-OpenAI-Internal-Codex-Responses-Lite",
-}
-
 var claudeCliPassThroughHeaders = []string{
 	"X-Stainless-Arch",
 	"X-Stainless-Lang",
@@ -95,20 +66,6 @@ func buildPassHeaderTemplate(headers []string) map[string]interface{} {
 	}
 }
 
-func buildCodexPassHeaderTemplate() map[string]interface{} {
-	requestHeaders := make([]string, 0, len(codexCliPassThroughHeaders))
-	requestHeaders = append(requestHeaders, codexCliPassThroughHeaders...)
-	return map[string]interface{}{
-		"operations": []map[string]interface{}{
-			{
-				"mode":        "pass_headers",
-				"value":       requestHeaders,
-				"keep_origin": true,
-			},
-		},
-	}
-}
-
 var channelAffinitySetting = ChannelAffinitySetting{
 	Enabled:               true,
 	SwitchOnSuccess:       true,
@@ -123,13 +80,12 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},
 			},
-			ValueRegex:            "",
-			TTLSeconds:            0,
-			ParamOverrideTemplate: buildCodexPassHeaderTemplate(),
-			SkipRetryOnFailure:    true,
-			IncludeUsingGroup:     true,
-			IncludeRuleName:       true,
-			UserAgentInclude:      nil,
+			ValueRegex:         "",
+			TTLSeconds:         0,
+			SkipRetryOnFailure: true,
+			IncludeUsingGroup:  true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
 		},
 		{
 			Name:       "claude cli trace",

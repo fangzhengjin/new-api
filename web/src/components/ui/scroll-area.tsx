@@ -20,15 +20,26 @@ import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 
 import { cn } from '@/lib/utils'
 
+type ScrollAreaProps = ScrollAreaPrimitive.Root.Props & {
+  autoHide?: boolean
+}
+
+/** Scrollable viewport with an optional interaction-only scrollbar. */
 function ScrollArea({
   className,
   children,
+  autoHide = false,
   ...props
-}: ScrollAreaPrimitive.Root.Props) {
+}: ScrollAreaProps) {
   return (
     <ScrollAreaPrimitive.Root
       data-slot='scroll-area'
-      className={cn('relative', className)}
+      className={cn(
+        'relative',
+        autoHide &&
+          '[&_[data-slot=scroll-area-scrollbar]]:opacity-0 [&_[data-slot=scroll-area-scrollbar]]:transition-opacity [&_[data-slot=scroll-area-scrollbar][data-hovering]]:opacity-100 [&_[data-slot=scroll-area-scrollbar][data-scrolling]]:opacity-100 focus-within:[&_[data-slot=scroll-area-scrollbar]]:opacity-100',
+        className
+      )}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport

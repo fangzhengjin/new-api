@@ -25,39 +25,63 @@ export const DEFAULT_OVERVIEW_PANEL_ORDER = [
 
 export type OverviewPanelId = (typeof DEFAULT_OVERVIEW_PANEL_ORDER)[number]
 
+export type OverviewPanelSpan = 1 | 2 | 3
+
+export type OverviewPanelLayoutItem = {
+  id: OverviewPanelId
+  span: OverviewPanelSpan
+}
+
+export const DEFAULT_OVERVIEW_PANEL_LAYOUT: readonly OverviewPanelLayoutItem[] =
+  DEFAULT_OVERVIEW_PANEL_ORDER.map((id) => ({ id, span: 1 }))
+
 const overviewPanelIds = new Set<string>(DEFAULT_OVERVIEW_PANEL_ORDER)
 
+function createDefaultOverviewPanelLayout(): OverviewPanelLayoutItem[] {
+  return DEFAULT_OVERVIEW_PANEL_LAYOUT.map((item) => ({ ...item }))
+}
+
 /**
- * Normalizes persisted panel order while preserving newly introduced panels.
+ * Normalizes persisted panel layout while preserving legacy order arrays and
+ * newly introduced panels.
  */
-export function normalizeOverviewPanelOrder(value: unknown): OverviewPanelId[] {
+export function normalizeOverviewPanelLayout(
+  value: unknown
+): OverviewPanelLayoutItem[] {
   let parsed = value
   if (typeof value === 'string') {
     try {
       parsed = JSON.parse(value)
     } catch {
-      return [...DEFAULT_OVERVIEW_PANEL_ORDER]
+      return createDefaultOverviewPanelLayout()
     }
   }
 
-  if (!Array.isArray(parsed)) return [...DEFAULT_OVERVIEW_PANEL_ORDER]
+  if (!Array.isArray(parsed)) return createDefaultOverviewPanelLayout()
 
   const seen = new Set<OverviewPanelId>()
-  const order: OverviewPanelId[] = []
+  const layout: OverviewPanelLayoutItem[] = []
   for (const item of parsed) {
+    const id = typeof item === 'string' ? item : item?.id
     if (
-      typeof item === 'string' &&
-      overviewPanelIds.has(item) &&
-      !seen.has(item as OverviewPanelId)
+      typeof id === 'string' &&
+      overviewPanelIds.has(id) &&
+      !seen.has(id as OverviewPanelId)
     ) {
-      const panelId = item as OverviewPanelId
+      const panelId = id as OverviewPanelId
+      const span =
+        typeof item === 'object' &&
+        item !== null &&
+        (item.span === 1 || item.span === 2 || item.span === 3)
+          ? item.span
+          : 1
       seen.add(panelId)
-      order.push(panelId)
+      layout.push({ id: panelId, span })
     }
   }
 
   for (const panelId of DEFAULT_OVERVIEW_PANEL_ORDER) {
-    if (!seen.has(panelId)) order.push(panelId)
+    if (!seen.has(panelId)) layout.push({ id: panelId, span: 1 })
   }
-  return order
+  return layout
 }

@@ -42,7 +42,7 @@ describe('overview layout settings', () => {
     mutateAsync.mockClear()
   })
 
-  test('keeps disabled panels sortable and saves the new order', async () => {
+  test('shows enabled panels and saves drag order without losing disabled panels', async () => {
     const actionsContainer = document.createElement('div')
     document.body.appendChild(actionsContainer)
 
@@ -60,18 +60,70 @@ describe('overview layout settings', () => {
       </SettingsPageProvider>
     )
 
-    expect(screen.getByText('Uptime Kuma').closest('li')).toHaveTextContent(
-      'Disabled'
+    expect(screen.queryByText('Uptime Kuma')).not.toBeInTheDocument()
+
+    const dataTransfer = {
+      effectAllowed: '',
+      setData: vi.fn(),
+      setDragImage: vi.fn(),
+    }
+    fireEvent.dragStart(
+      screen.getByRole('button', { name: 'Drag API Info to reorder' }),
+      { dataTransfer }
+    )
+    const announcementCard = screen
+      .getByText('Announcements')
+      .closest<HTMLElement>('[data-layout-card]')
+    if (!announcementCard) throw new Error('Announcement layout card missing')
+    fireEvent.dragEnter(announcementCard)
+    fireEvent.dragEnd(
+      screen.getByRole('button', { name: 'Drag API Info to reorder' })
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move API Info down' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
 
     await waitFor(() => {
       expect(mutateAsync).toHaveBeenCalledWith({
         key: 'console_setting.overview_panel_order',
-        value: '["announcements","api-info","faq","uptime-kuma"]',
+        value:
+          '[{"id":"announcements","span":1},{"id":"api-info","span":1},{"id":"faq","span":1},{"id":"uptime-kuma","span":1}]',
       })
     })
+  })
+
+  test('snaps pointer and keyboard resize to grid columns', () => {
+    render(
+      <SettingsPageProvider actionsContainer={document.createElement('div')}>
+        <OverviewLayoutSection
+          defaultValue='[{"id":"announcements","span":1}]'
+          enabledPanels={{
+            'api-info': false,
+            announcements: true,
+            faq: false,
+            'uptime-kuma': false,
+          }}
+        />
+      </SettingsPageProvider>
+    )
+
+    const resizeHandle = screen.getByRole('separator', {
+      name: 'Resize Announcements',
+    })
+    vi.spyOn(
+      screen.getByRole('list', { name: 'Overview content order' }),
+      'getBoundingClientRect'
+    ).mockReturnValue({ width: 900 } as DOMRect)
+
+    fireEvent.pointerDown(resizeHandle, { pointerId: 1, clientX: 0 })
+    fireEvent.pointerMove(resizeHandle, { pointerId: 1, clientX: 310 })
+
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '2')
+
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' })
+
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '3')
+    expect(
+      screen.getByText('Announcements').closest('[data-layout-card]')
+    ).toHaveAttribute('data-panel-span', '3')
   })
 })

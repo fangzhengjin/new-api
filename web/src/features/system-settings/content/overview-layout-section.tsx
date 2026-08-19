@@ -16,22 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Link } from '@tanstack/react-router'
-import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
-  DEFAULT_OVERVIEW_PANEL_ORDER,
-  normalizeOverviewPanelOrder,
+  DEFAULT_OVERVIEW_PANEL_LAYOUT,
+  normalizeOverviewPanelLayout,
   type OverviewPanelId,
+  type OverviewPanelSpan,
 } from '@/features/dashboard/lib/overview-panels'
 
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { OverviewLayoutPreview } from './overview-layout-preview'
 
 const overviewPanels: Record<OverviewPanelId, { titleKey: string }> = {
   'api-info': {
@@ -54,48 +52,82 @@ type OverviewLayoutSectionProps = {
 }
 
 /**
- * Configures the global reading order of overview content panels.
+ * Configures the global order and grid span of overview content panels.
  */
 export function OverviewLayoutSection(props: OverviewLayoutSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const defaultOrder = useMemo(
-    () => normalizeOverviewPanelOrder(props.defaultValue),
+  const defaultLayout = useMemo(
+    () => normalizeOverviewPanelLayout(props.defaultValue),
     [props.defaultValue]
   )
-  const [panelOrder, setPanelOrder] = useState(defaultOrder)
+  const [panelLayout, setPanelLayout] = useState(defaultLayout)
 
   useEffect(() => {
-    setPanelOrder(defaultOrder)
-  }, [defaultOrder])
+    setPanelLayout(defaultLayout)
+  }, [defaultLayout])
 
-  const hasChanges = panelOrder.some(
-    (panelId, index) => panelId !== defaultOrder[index]
+  const hasChanges = panelLayout.some(
+    (item, index) =>
+      item.id !== defaultLayout[index]?.id ||
+      item.span !== defaultLayout[index]?.span
   )
-  const usesDefaultOrder = panelOrder.every(
-    (panelId, index) => panelId === DEFAULT_OVERVIEW_PANEL_ORDER[index]
+  const usesDefaultLayout = panelLayout.every(
+    (item, index) =>
+      item.id === DEFAULT_OVERVIEW_PANEL_LAYOUT[index]?.id &&
+      item.span === DEFAULT_OVERVIEW_PANEL_LAYOUT[index]?.span
   )
+  const visibleLayout = panelLayout.filter(
+    (item) => props.enabledPanels[item.id]
+  )
+  const panelNames = Object.fromEntries(
+    Object.entries(overviewPanels).map(([panelId, panel]) => [
+      panelId,
+      t(panel.titleKey),
+    ])
+  ) as Record<OverviewPanelId, string>
 
-  const movePanel = (panelId: OverviewPanelId, offset: -1 | 1) => {
-    setPanelOrder((current) => {
-      const index = current.indexOf(panelId)
-      const targetIndex = index + offset
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) {
+  const movePanel = (
+    panelId: OverviewPanelId,
+    targetPanelId: OverviewPanelId
+  ) => {
+    setPanelLayout((current) => {
+      const visible = current.filter((item) => props.enabledPanels[item.id])
+      const sourceIndex = visible.findIndex((item) => item.id === panelId)
+      const targetIndex = visible.findIndex((item) => item.id === targetPanelId)
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
         return current
       }
 
-      const next = [...current]
-      const targetPanel = next[targetIndex]
-      next[targetIndex] = next[index]
-      next[index] = targetPanel
-      return next
+      const nextVisible = [...visible]
+      const [source] = nextVisible.splice(sourceIndex, 1)
+      nextVisible.splice(targetIndex, 0, source)
+      let visibleIndex = 0
+      return current.map((item) =>
+        props.enabledPanels[item.id] ? nextVisible[visibleIndex++] : item
+      )
     })
+  }
+
+  const movePanelByOffset = (panelId: OverviewPanelId, offset: -1 | 1) => {
+    const index = visibleLayout.findIndex((item) => item.id === panelId)
+    const targetPanel = visibleLayout[index + offset]
+    if (targetPanel) movePanel(panelId, targetPanel.id)
+  }
+
+  const changePanelSpan = (
+    panelId: OverviewPanelId,
+    span: OverviewPanelSpan
+  ) => {
+    setPanelLayout((current) =>
+      current.map((item) => (item.id === panelId ? { ...item, span } : item))
+    )
   }
 
   const handleSave = async () => {
     await updateOption.mutateAsync({
       key: 'console_setting.overview_panel_order',
-      value: JSON.stringify(panelOrder),
+      value: JSON.stringify(panelLayout),
     })
   }
 
@@ -103,10 +135,14 @@ export function OverviewLayoutSection(props: OverviewLayoutSectionProps) {
     <SettingsSection title={t('Overview Layout')}>
       <SettingsPageFormActions
         onSave={handleSave}
-        onReset={() => setPanelOrder([...DEFAULT_OVERVIEW_PANEL_ORDER])}
+        onReset={() =>
+          setPanelLayout(
+            DEFAULT_OVERVIEW_PANEL_LAYOUT.map((item) => ({ ...item }))
+          )
+        }
         isSaving={updateOption.isPending}
         isSaveDisabled={!hasChanges}
-        isResetDisabled={usesDefaultOrder}
+        isResetDisabled={usesDefaultLayout}
         resetLabel='Restore defaults'
       />
 
@@ -114,77 +150,18 @@ export function OverviewLayoutSection(props: OverviewLayoutSectionProps) {
         <h3 className='text-sm font-medium'>{t('Overview content order')}</h3>
         <p className='text-muted-foreground text-sm leading-relaxed'>
           {t(
-            'Arrange overview content panels. Disabled panels keep their position and return there when enabled.'
+            'Drag cards to reorder. Drag the right edge to change their width.'
           )}
         </p>
       </div>
 
-      <ol className='overflow-hidden rounded-xl border'>
-        {panelOrder.map((panelId, index) => {
-          const panel = overviewPanels[panelId]
-          const panelName = t(panel.titleKey)
-          const enabled = props.enabledPanels[panelId]
-
-          return (
-            <li
-              key={panelId}
-              className='flex min-w-0 items-center gap-3 px-3 py-3 not-last:border-b sm:px-4'
-            >
-              <span className='text-muted-foreground w-5 shrink-0 text-center text-sm tabular-nums'>
-                {index + 1}
-              </span>
-              <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
-                <span className='truncate text-sm font-medium'>
-                  {panelName}
-                </span>
-                <Badge variant={enabled ? 'secondary' : 'outline'}>
-                  {t(enabled ? 'Enabled' : 'Disabled')}
-                </Badge>
-              </div>
-              <div className='flex shrink-0 items-center gap-1'>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  render={
-                    <Link
-                      to='/system-settings/content/$section'
-                      params={{ section: panelId }}
-                    />
-                  }
-                >
-                  {t('Configure')}
-                </Button>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='icon-sm'
-                  onClick={() => movePanel(panelId, -1)}
-                  disabled={index === 0}
-                  aria-label={t('Move {{name}} up', { name: panelName })}
-                  title={t('Move {{name}} up', { name: panelName })}
-                >
-                  <ChevronUp aria-hidden='true' />
-                </Button>
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='icon-sm'
-                  onClick={() => movePanel(panelId, 1)}
-                  disabled={index === panelOrder.length - 1}
-                  aria-label={t('Move {{name}} down', { name: panelName })}
-                  title={t('Move {{name}} down', { name: panelName })}
-                >
-                  <ChevronDown aria-hidden='true' />
-                </Button>
-              </div>
-            </li>
-          )
-        })}
-      </ol>
-
-      <p className='text-muted-foreground text-xs'>
-        {t('Only enabled panels appear on the overview page.')}
-      </p>
+      <OverviewLayoutPreview
+        items={visibleLayout}
+        panelNames={panelNames}
+        onMove={movePanel}
+        onMoveByOffset={movePanelByOffset}
+        onSpanChange={changePanelSpan}
+      />
     </SettingsSection>
   )
 }

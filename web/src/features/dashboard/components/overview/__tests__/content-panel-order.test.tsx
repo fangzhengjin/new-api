@@ -53,7 +53,12 @@ vi.mock('../../../hooks/use-status-data', () => ({
     announcements: true,
     faq: true,
     uptimeKuma: true,
-    panelOrder: ['faq', 'api-info', 'announcements', 'uptime-kuma'],
+    panelLayout: [
+      { id: 'faq', span: 2 },
+      { id: 'api-info', span: 1 },
+      { id: 'announcements', span: 1 },
+      { id: 'uptime-kuma', span: 3 },
+    ],
   }),
 }))
 
@@ -86,5 +91,16 @@ describe('dashboard content panel order', () => {
         .getAllByTestId('overview-content-panel')
         .map((panel) => panel.textContent)
     ).toEqual(['FAQ', 'API Info', 'Announcements', 'Uptime Kuma'])
+
+    for (const panel of screen.getAllByTestId('overview-content-panel')) {
+      expect(panel.parentElement).toHaveClass('h-full')
+    }
+
+    expect(
+      screen.getByText('FAQ').closest('.lg\\:col-span-2')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Uptime Kuma').closest('.xl\\:col-span-3')
+    ).toBeInTheDocument()
   })
 })

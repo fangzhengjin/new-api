@@ -60,7 +60,10 @@ import {
   useApiInfo,
   useDashboardContentVisibility,
 } from '../../hooks/use-status-data'
-import type { OverviewPanelId } from '../../lib/overview-panels'
+import type {
+  OverviewPanelId,
+  OverviewPanelSpan,
+} from '../../lib/overview-panels'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -70,6 +73,12 @@ import { UptimePanel } from './uptime-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
   'dashboard_overview_setup_guide_expanded'
+
+const overviewPanelSpanClassNames: Record<OverviewPanelSpan, string> = {
+  1: '',
+  2: 'lg:col-span-2 xl:col-span-2',
+  3: 'lg:col-span-2 xl:col-span-3',
+}
 
 const SETUP_GUIDE_CODE_PATTERN = [
   'const request = await client.responses.create({',
@@ -465,7 +474,7 @@ export function OverviewDashboard() {
     announcements: showAnnouncementsPanel,
     faq: showFAQPanel,
     uptimeKuma: showUptimePanel,
-    panelOrder,
+    panelLayout,
   } = useDashboardContentVisibility()
   const [manualSetupGuideExpanded, setManualSetupGuideExpanded] = useState<
     boolean | null
@@ -615,10 +624,10 @@ export function OverviewDashboard() {
     faq: showFAQPanel ? <FAQPanel /> : null,
     'uptime-kuma': showUptimePanel ? <UptimePanel /> : null,
   }
-  const visiblePanelIds = panelOrder.filter(
-    (panelId) => contentPanels[panelId] !== null
+  const visiblePanelLayout = panelLayout.filter(
+    (item) => contentPanels[item.id] !== null
   )
-  const showContentPanels = isAdmin || visiblePanelIds.length > 0
+  const showContentPanels = isAdmin || visiblePanelLayout.length > 0
 
   const handleSetupGuideToggle = () => {
     const nextExpanded = !setupGuideExpanded
@@ -772,9 +781,15 @@ export function OverviewDashboard() {
               <PerformanceHealthPanel />
             </CardStaggerItem>
           )}
-          {visiblePanelIds.map((panelId) => (
-            <CardStaggerItem key={panelId} className='min-w-0'>
-              {contentPanels[panelId]}
+          {visiblePanelLayout.map((item) => (
+            <CardStaggerItem
+              key={item.id}
+              className={cn(
+                'h-full min-w-0',
+                overviewPanelSpanClassNames[item.span]
+              )}
+            >
+              {contentPanels[item.id]}
             </CardStaggerItem>
           ))}
         </CardStaggerContainer>

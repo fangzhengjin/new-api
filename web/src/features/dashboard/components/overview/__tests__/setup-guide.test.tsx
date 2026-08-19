@@ -79,7 +79,12 @@ vi.mock('../../../hooks/use-status-data', () => ({
     announcements: false,
     faq: false,
     uptimeKuma: false,
-    panelOrder: ['api-info', 'announcements', 'faq', 'uptime-kuma'],
+    panelLayout: [
+      { id: 'api-info', span: 1 },
+      { id: 'announcements', span: 1 },
+      { id: 'faq', span: 1 },
+      { id: 'uptime-kuma', span: 1 },
+    ],
   }),
 }))
 

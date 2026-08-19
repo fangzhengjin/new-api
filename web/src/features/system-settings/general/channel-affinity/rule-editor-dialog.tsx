@@ -44,7 +44,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 import { SettingsSwitchField } from '../../components/settings-form-layout'
-import { RULE_TEMPLATES } from './constants'
+import { PARAM_OVERRIDE_EXAMPLES, RULE_TEMPLATES } from './constants'
 import type { AffinityRule, KeySource } from './types'
 
 type KeySourceRow = KeySource & {
@@ -119,6 +119,9 @@ export function RuleEditorDialog(props: Props) {
     createKeySourceRow(),
   ])
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [paramOverrideExample, setParamOverrideExample] = useState<
+    string | null
+  >(null)
 
   const form = useForm<RuleFormValues>({
     defaultValues: {
@@ -166,6 +169,8 @@ export function RuleEditorDialog(props: Props) {
 
   useEffect(() => {
     if (!props.open) return
+
+    setParamOverrideExample(null)
 
     if (props.rule) {
       resetFromRule(props.rule)
@@ -438,9 +443,47 @@ export function RuleEditorDialog(props: Props) {
             </div>
 
             <div className='grid gap-1.5'>
-              <Label htmlFor='channel-affinity-param-override-template'>
-                {t('Parameter Override Template (JSON)')}
-              </Label>
+              <div className='flex items-center justify-between gap-2'>
+                <Label htmlFor='channel-affinity-param-override-template'>
+                  {t('Parameter Override Template (JSON)')}
+                </Label>
+                <Select
+                  items={PARAM_OVERRIDE_EXAMPLES.map((example) => ({
+                    value: example.key,
+                    label: t(example.label),
+                  }))}
+                  value={paramOverrideExample}
+                  onValueChange={(value) => {
+                    setParamOverrideExample(value)
+                    const example = PARAM_OVERRIDE_EXAMPLES.find(
+                      (candidate) => candidate.key === value
+                    )
+                    if (!example) return
+                    form.setValue(
+                      'param_override_template_json',
+                      JSON.stringify(example.template, null, 2),
+                      { shouldDirty: true }
+                    )
+                  }}
+                >
+                  <SelectTrigger
+                    size='sm'
+                    aria-label={t('Example')}
+                    className='max-w-44'
+                  >
+                    <SelectValue placeholder={t('Example')} />
+                  </SelectTrigger>
+                  <SelectContent align='end' alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      {PARAM_OVERRIDE_EXAMPLES.map((example) => (
+                        <SelectItem key={example.key} value={example.key}>
+                          {t(example.label)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
               <JsonCodeEditor
                 id='channel-affinity-param-override-template'
                 value={form.watch('param_override_template_json') || ''}
@@ -460,6 +503,7 @@ export function RuleEditorDialog(props: Props) {
                   })
                 }}
                 textareaRef={paramOverrideTemplateField.ref}
+                ariaLabel={t('Parameter Override Template (JSON)')}
                 placeholder='{"operations": [...]}'
                 heightClassName='h-40 min-h-40 max-h-40'
               />

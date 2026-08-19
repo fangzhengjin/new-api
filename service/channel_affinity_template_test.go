@@ -302,6 +302,19 @@ func TestChannelAffinityHitCodexRuleDoesNotApplyOverrideTemplate(t *testing.T) {
 	require.Equal(t, baseOverride, mergedOverride)
 }
 
+func TestClaudeAffinityRuleDoesNotApplyOverrideTemplate(t *testing.T) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+
+	for i := range setting.Rules {
+		if setting.Rules[i].Name == "claude cli trace" {
+			require.Empty(t, setting.Rules[i].ParamOverrideTemplate)
+			return
+		}
+	}
+	require.Fail(t, "claude cli trace rule not found")
+}
+
 func TestRecordChannelAffinityFixedTTLDoesNotRenewSuccessfulHit(t *testing.T) {
 	setting := operation_setting.GetChannelAffinitySetting()
 	require.NotNil(t, setting)

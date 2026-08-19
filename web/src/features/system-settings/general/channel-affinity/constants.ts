@@ -18,35 +18,37 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AffinityRule } from './types'
 
-const CLAUDE_CLI_HEADER_PASSTHROUGH_HEADERS = [
-  'X-Stainless-Arch',
-  'X-Stainless-Lang',
-  'X-Stainless-Os',
-  'X-Stainless-Package-Version',
-  'X-Stainless-Retry-Count',
-  'X-Stainless-Runtime',
-  'X-Stainless-Runtime-Version',
-  'X-Stainless-Timeout',
-  'User-Agent',
-  'X-App',
-  'Anthropic-Beta',
-  'Anthropic-Dangerous-Direct-Browser-Access',
-  'Anthropic-Version',
-]
-
-function buildPassHeadersTemplate(headers: string[]) {
-  return {
-    operations: [
-      {
-        mode: 'pass_headers',
-        value: [...headers],
-        keep_origin: true,
-      },
-    ],
-  }
-}
-
 export type RuleTemplate = Omit<AffinityRule, 'id'>
+
+export const PARAM_OVERRIDE_EXAMPLES = [
+  {
+    key: 'set-field',
+    label: 'Set Field',
+    template: {
+      operations: [{ mode: 'set', path: 'service_tier', value: 'priority' }],
+    },
+  },
+  {
+    key: 'delete-field',
+    label: 'Delete Field',
+    template: {
+      operations: [{ mode: 'delete', path: 'store' }],
+    },
+  },
+  {
+    key: 'pass-headers',
+    label: 'Pass Through Headers',
+    template: {
+      operations: [
+        {
+          mode: 'pass_headers',
+          value: ['X-Tenant-Id'],
+          keep_origin: true,
+        },
+      ],
+    },
+  },
+] as const
 
 export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
   codexCli: {
@@ -66,9 +68,6 @@ export const RULE_TEMPLATES: Record<string, RuleTemplate> = {
     model_regex: ['^claude-.*$'],
     path_regex: ['/v1/messages'],
     key_sources: [{ type: 'gjson', path: 'metadata.user_id' }],
-    param_override_template: buildPassHeadersTemplate(
-      CLAUDE_CLI_HEADER_PASSTHROUGH_HEADERS
-    ),
     value_regex: '',
     ttl_seconds: 0,
     skip_retry_on_failure: true,

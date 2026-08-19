@@ -37,36 +37,6 @@ type ChannelAffinitySetting struct {
 	Rules                 []ChannelAffinityRule `json:"rules"`
 }
 
-var claudeCliPassThroughHeaders = []string{
-	"X-Stainless-Arch",
-	"X-Stainless-Lang",
-	"X-Stainless-Os",
-	"X-Stainless-Package-Version",
-	"X-Stainless-Retry-Count",
-	"X-Stainless-Runtime",
-	"X-Stainless-Runtime-Version",
-	"X-Stainless-Timeout",
-	"User-Agent",
-	"X-App",
-	"Anthropic-Beta",
-	"Anthropic-Dangerous-Direct-Browser-Access",
-	"Anthropic-Version",
-}
-
-func buildPassHeaderTemplate(headers []string) map[string]interface{} {
-	clonedHeaders := make([]string, 0, len(headers))
-	clonedHeaders = append(clonedHeaders, headers...)
-	return map[string]interface{}{
-		"operations": []map[string]interface{}{
-			{
-				"mode":        "pass_headers",
-				"value":       clonedHeaders,
-				"keep_origin": true,
-			},
-		},
-	}
-}
-
 var channelAffinitySetting = ChannelAffinitySetting{
 	Enabled:               true,
 	RenewTTLOnSuccess:     true,
@@ -96,13 +66,12 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "metadata.user_id"},
 			},
-			ValueRegex:            "",
-			TTLSeconds:            0,
-			ParamOverrideTemplate: buildPassHeaderTemplate(claudeCliPassThroughHeaders),
-			SkipRetryOnFailure:    true,
-			IncludeUsingGroup:     true,
-			IncludeRuleName:       true,
-			UserAgentInclude:      nil,
+			ValueRegex:         "",
+			TTLSeconds:         0,
+			SkipRetryOnFailure: true,
+			IncludeUsingGroup:  true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
 		},
 	},
 }

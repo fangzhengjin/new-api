@@ -6,6 +6,7 @@
 -- 3. 先完成数据库备份；时间戳会降为 Unix 秒，脚本不提供无损回滚
 -- 4. 脚本不删除表或业务记录，任一校验失败会回滚整个事务
 -- 5. quota 已是 new-api 原始单位；脚本不会对任何 quota 字段乘除或按汇率换算
+-- 6. 脚本成功后启动 new-api；AutoMigrate 创建结算账本后会自动补录旧消费
 
 BEGIN;
 
@@ -21,6 +22,18 @@ BEGIN
   END IF;
   IF to_regclass('tool_quota_adjustment_items') IS NULL THEN
     RAISE EXCEPTION '缺少表 tool_quota_adjustment_items';
+  END IF;
+  IF to_regclass('logs') IS NULL THEN
+    RAISE EXCEPTION '缺少旧工具使用的 logs 表，无法补录周期消费';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'tool_quota_cycles'
+      AND column_name = 'initial_stage_percent'
+  ) THEN
+    RAISE EXCEPTION '缺少旧工具列 initial_stage_percent，源表不是受支持的版本';
   END IF;
 END
 $migration$;
@@ -280,6 +293,20 @@ $migration$;
 ALTER TABLE tool_quota_cycles
   ADD CONSTRAINT valid_cycle_duration CHECK (cycle_end_at > cycle_start_at);
 
+-- 旧工具的检查约束不认识当前周期结算和额度恢复类型。
+-- GORM AutoMigrate 不会删除模型中未声明的旧约束，因此在这里显式替换。
+ALTER TABLE tool_quota_adjustment_plans
+  DROP CONSTRAINT IF EXISTS tool_quota_adjustment_plans_plan_type_check;
+ALTER TABLE tool_quota_adjustment_plans
+  ADD CONSTRAINT tool_quota_adjustment_plans_plan_type_check
+  CHECK (plan_type IN ('initialization', 'adjustment', 'settlement'));
+
+ALTER TABLE tool_quota_adjustment_items
+  DROP CONSTRAINT IF EXISTS tool_quota_adjustment_items_action_check;
+ALTER TABLE tool_quota_adjustment_items
+  ADD CONSTRAINT tool_quota_adjustment_items_action_check
+  CHECK (action IN ('initialize', 'increase', 'decrease', 'grant', 'reclaim', 'restore'));
+
 -- 补齐目标模型新增的单活跃周期键和日志投递状态。
 ALTER TABLE tool_quota_cycles
   ADD COLUMN IF NOT EXISTS active_key INTEGER;
@@ -460,6 +487,7 @@ BEGIN
   RAISE NOTICE '额度方案迁移完成：% 条', invalid_count;
   SELECT COUNT(*) INTO invalid_count FROM tool_quota_adjustment_items;
   RAISE NOTICE '额度明细迁移完成：% 条', invalid_count;
+  RAISE NOTICE '启动 new-api 后将自动补录旧消费；补录成功前不得生成或执行调配方案';
 END
 $migration$;
 

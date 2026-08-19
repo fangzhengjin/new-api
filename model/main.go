@@ -324,6 +324,9 @@ func migrateDB() error {
 	if err := migrateQuotaCyclePolicies(); err != nil {
 		return err
 	}
+	if err := migrateQuotaToolData(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -416,6 +419,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := migrateQuotaCyclePolicies(); err != nil {
+		return err
+	}
+	if err := migrateQuotaToolData(); err != nil {
 		return err
 	}
 	common.SysLog("database migrated")

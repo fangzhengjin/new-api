@@ -22,6 +22,12 @@ type Option struct {
 	Value string `json:"value"`
 }
 
+var retiredChatOptionKeys = map[string]struct{}{
+	"InfiniteCanvasEnabled":          {},
+	"InfiniteCanvasLaunchURL":        {},
+	chatPresetsLegacyBackupOptionKey: {},
+}
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
@@ -171,6 +177,7 @@ func InitOptionMap() {
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
 	common.OptionMap["CompanyQuotaModeEnabled"] = strconv.FormatBool(operation_setting.CompanyQuotaModeEnabled)
+	common.OptionMap["ChatMenuCollapseThreshold"] = strconv.Itoa(setting.ChatMenuCollapseThreshold)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
@@ -240,6 +247,9 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if _, retired := retiredChatOptionKeys[key]; retired {
+		return fmt.Errorf("配置项 %s 已停用，请在 Chats 中配置", key)
+	}
 	switch key {
 	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
@@ -250,9 +260,15 @@ func validateOptionValue(key string, value string) error {
 	case "AutomaticDisableStatusCodes", "AutomaticRetryStatusCodes":
 		_, err := operation_setting.ParseHTTPStatusCodeRanges(value)
 		return err
-	case "Chats", "PayMethods":
+	case "Chats":
+		_, err := setting.ParseChatsJSON(value)
+		return err
+	case "PayMethods":
 		var entries []map[string]string
 		return common.UnmarshalJsonStr(value, &entries)
+	case "ChatMenuCollapseThreshold":
+		_, err := setting.ValidateChatMenuCollapseThreshold(value)
+		return err
 	case operation_setting.RequestHeaderRulesOptionKey:
 		return operation_setting.ValidateRequestHeaderRulesJSON(value)
 	case operation_setting.LegacyRequestHeaderIgnoredHeadersKey,
@@ -260,6 +276,10 @@ func validateOptionValue(key string, value string) error {
 		return fmt.Errorf("配置项 %s 已合并到 %s", key, operation_setting.RequestHeaderRulesOptionKey)
 	case operation_setting.RequestHeaderRulesDefaultOptionKey,
 		operation_setting.RequestHeaderSystemRulesOptionKey,
+		model_setting.CodexSettingsDefaultOptionKey,
+		model_setting.ClaudeSettingsDefaultOptionKey,
+		setting.ChatsDefaultOptionKey,
+		setting.ChatMenuCollapseThresholdDefaultOptionKey,
 		"RequestHeaderAuditCapacityBytes":
 		return fmt.Errorf("配置项 %s 为只读", key)
 	case "AutoGroups":
@@ -350,7 +370,8 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	if key == retiredThemeOptionKey {
+	_, retiredChatOption := retiredChatOptionKeys[key]
+	if key == retiredThemeOptionKey || retiredChatOption {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
@@ -359,6 +380,10 @@ func updateOptionMap(key string, value string) (err error) {
 	if key == operation_setting.RequestHeaderRulesOptionKey ||
 		key == operation_setting.RequestHeaderRulesDefaultOptionKey ||
 		key == operation_setting.RequestHeaderSystemRulesOptionKey ||
+		key == model_setting.CodexSettingsDefaultOptionKey ||
+		key == model_setting.ClaudeSettingsDefaultOptionKey ||
+		key == setting.ChatsDefaultOptionKey ||
+		key == setting.ChatMenuCollapseThresholdDefaultOptionKey ||
 		key == "RequestHeaderAuditCapacityBytes" {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
@@ -502,6 +527,8 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.PayAddress = value
 	case "Chats":
 		err = setting.UpdateChatsByJsonString(value)
+	case "ChatMenuCollapseThreshold":
+		err = setting.UpdateChatMenuCollapseThreshold(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
 	case "MaxTokenAutoGroups":

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +33,7 @@ func TestUpdateOptionsBulkRejectsInvalidJSONBeforeWriting(t *testing.T) {
 	assert.Equal(t, "old.example.com", option.Value)
 	assert.ErrorIs(t, db.First(&Option{}, "key = ?", "ModelPrice").Error, gorm.ErrRecordNotFound)
 }
+
 func TestInitOptionMapConvertsLegacyRequestHeaderRulesWithoutWritingDatabase(t *testing.T) {
 	previousDB := DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -70,5 +73,18 @@ func TestValidateOptionValueRejectsLegacyRequestHeaderRuleWrites(t *testing.T) {
 		operation_setting.LegacyRequestHeaderBlockedHeadersKey,
 	} {
 		require.Error(t, validateOptionValue(key, "X-Test"), key)
+	}
+}
+
+func TestValidateOptionValueRejectsReadOnlyDefaults(t *testing.T) {
+	for _, key := range []string{
+		operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderSystemRulesOptionKey,
+		model_setting.CodexSettingsDefaultOptionKey,
+		model_setting.ClaudeSettingsDefaultOptionKey,
+		setting.ChatsDefaultOptionKey,
+		setting.ChatMenuCollapseThresholdDefaultOptionKey,
+	} {
+		require.Error(t, validateOptionValue(key, "changed"), key)
 	}
 }

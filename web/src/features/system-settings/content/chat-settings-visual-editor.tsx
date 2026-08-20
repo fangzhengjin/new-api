@@ -24,9 +24,13 @@ import { StaticDataTable } from '@/components/data-table/static/static-data-tabl
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import {
+  parseChatConfigEntries,
+  serializeChatConfigEntry,
+  type ChatConfigEntry,
+} from '@/features/chat/lib/chat-links'
 
-import { safeJsonParseWithValidation } from '../utils/json-parser'
-import { isArray } from '../utils/json-validators'
 import { ChatDialog, type ChatEntryData } from './chat-dialog'
 
 type ChatSettingsVisualEditorProps = {
@@ -34,7 +38,7 @@ type ChatSettingsVisualEditorProps = {
   onChange: (value: string) => void
 }
 
-type ChatEntry = ChatEntryData
+type ChatEntry = ChatConfigEntry
 
 export function ChatSettingsVisualEditor({
   value,
@@ -45,27 +49,7 @@ export function ChatSettingsVisualEditor({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editData, setEditData] = useState<ChatEntry | null>(null)
 
-  const chats = useMemo(() => {
-    const parsed = safeJsonParseWithValidation<unknown[]>(value, {
-      fallback: [],
-      validator: isArray,
-      validatorMessage: 'Chats must be a JSON array',
-      context: 'chats',
-    })
-
-    return parsed
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          const entries = Object.entries(item)
-          if (entries.length === 1) {
-            const [name, url] = entries[0]
-            return { name, url: String(url) }
-          }
-        }
-        return null
-      })
-      .filter((item): item is ChatEntry => item !== null)
-  }, [value])
+  const chats = useMemo(() => parseChatConfigEntries(value), [value])
 
   const filteredChats = useMemo(() => {
     if (!searchText) return chats
@@ -78,43 +62,40 @@ export function ChatSettingsVisualEditor({
   }, [chats, searchText])
 
   const handleSave = (data: ChatEntryData) => {
-    const chatsArray = safeJsonParseWithValidation<unknown[]>(value, {
-      fallback: [],
-      validator: isArray,
-      silent: true,
-    })
-
-    let updatedArray = [...chatsArray]
-
-    if (editData) {
-      updatedArray = updatedArray.filter((item) => {
-        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          return !Object.keys(item).includes(editData.name)
-        }
-        return true
-      })
+    const entry = {
+      ...data,
+      enabled: editData?.enabled ?? true,
     }
-
-    updatedArray.push({ [data.name]: data.url })
-
-    onChange(JSON.stringify(updatedArray, null, 2))
+    const updated = editData
+      ? chats.map((chat) => (chat.name === editData.name ? entry : chat))
+      : [...chats, entry]
+    onChange(JSON.stringify(updated.map(serializeChatConfigEntry), null, 2))
   }
 
   const handleDelete = (name: string) => {
-    const chatsArray = safeJsonParseWithValidation<unknown[]>(value, {
-      fallback: [],
-      validator: isArray,
-      silent: true,
-    })
+    onChange(
+      JSON.stringify(
+        chats
+          .filter((chat) => chat.name !== name)
+          .map(serializeChatConfigEntry),
+        null,
+        2
+      )
+    )
+  }
 
-    const updatedArray = chatsArray.filter((item) => {
-      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-        return !Object.keys(item).includes(name)
-      }
-      return true
-    })
-
-    onChange(JSON.stringify(updatedArray, null, 2))
+  const handleEnabledChange = (chat: ChatEntry, enabled: boolean) => {
+    onChange(
+      JSON.stringify(
+        chats.map((item) =>
+          serializeChatConfigEntry(
+            item.name === chat.name ? { ...item, enabled } : item
+          )
+        ),
+        null,
+        2
+      )
+    )
   }
 
   const handleEdit = (chat: ChatEntry) => {
@@ -134,12 +115,13 @@ export function ChatSettingsVisualEditor({
           <Search className='text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4' />
           <Input
             placeholder={t('Search chat presets...')}
+            aria-label={t('Search chat presets')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className='pl-9'
           />
         </div>
-        <Button onClick={handleAdd}>
+        <Button type='button' onClick={handleAdd}>
           <Plus className='mr-2 h-4 w-4' />
           {t('Add chat preset')}
         </Button>
@@ -167,6 +149,34 @@ export function ChatSettingsVisualEditor({
             header: t('URL'),
             cellClassName: 'max-w-md truncate font-mono text-sm',
             cell: (chat) => chat.url,
+          },
+          {
+            id: 'open-mode',
+            header: t('Open mode'),
+            cell: (chat) =>
+              chat.openMode
+                ? t(chat.openMode === 'new_tab' ? 'New tab' : 'Embedded')
+                : '—',
+          },
+          {
+            id: 'status',
+            header: t('Status'),
+            cell: (chat) => (
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={chat.enabled}
+                  onCheckedChange={(enabled) =>
+                    handleEnabledChange(chat, enabled)
+                  }
+                  aria-label={t('Enable {{parameter}}', {
+                    parameter: chat.name,
+                  })}
+                />
+                <span className='text-muted-foreground text-sm'>
+                  {t(chat.enabled ? 'Enabled' : 'Disabled')}
+                </span>
+              </div>
+            ),
           },
           {
             id: 'actions',

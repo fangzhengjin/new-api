@@ -113,7 +113,12 @@ const CONTENT_SECTIONS = [
     id: 'chat',
     titleKey: 'Chat Presets',
     build: (settings: ContentSettings) => (
-      <ChatSettingsSection defaultValue={settings.Chats} />
+      <ChatSettingsSection
+        defaultValue={settings.Chats}
+        defaultThreshold={settings.ChatMenuCollapseThreshold}
+        builtInValue={settings.ChatsDefault}
+        builtInThreshold={settings.ChatMenuCollapseThresholdDefault}
+      />
     ),
   },
   {

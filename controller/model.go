@@ -207,59 +207,13 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 }
 
 func ListModels(c *gin.Context, modelType int) {
-	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
-	if !acceptUnsetRatioModel {
-		userId := c.GetInt("id")
-		if userId > 0 {
-			userSettings, _ := model.GetUserSetting(userId, false)
-			if userSettings.AcceptUnsetRatioModel {
-				acceptUnsetRatioModel = true
-			}
-		}
-	}
-
-	userModelNames := make([]string, 0)
-	groups, err := getModelListGroups(c)
+	userOpenAiModels, err := getUserOpenAIModels(c)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "get user group failed",
 		})
 		return
-	}
-	ownerGroups := groups.ownerGroups
-	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
-	var tokenModelLimit map[string]bool
-	if modelLimitEnable {
-		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
-		if ok {
-			tokenModelLimit, _ = s.(map[string]bool)
-		}
-		if tokenModelLimit == nil {
-			tokenModelLimit = map[string]bool{}
-		}
-	}
-	models := service.GetGroupsEnabledModels(ownerGroups)
-	for _, modelName := range models {
-		if modelLimitEnable {
-			matchingName := ratio_setting.FormatMatchingModelName(modelName)
-			if !tokenModelLimit[modelName] && !tokenModelLimit[matchingName] {
-				continue
-			}
-		}
-		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
-			continue
-		}
-		userModelNames = append(userModelNames, modelName)
-	}
-
-	ownerByModel := map[string]string{}
-	if len(ownerGroups) > 0 {
-		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
-	}
-	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
-	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
 	}
 
 	switch modelType {
@@ -304,6 +258,60 @@ func ListModels(c *gin.Context, modelType int) {
 			"object":  "list",
 		})
 	}
+}
+
+func getUserOpenAIModels(c *gin.Context) ([]dto.OpenAIModels, error) {
+	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
+	if !acceptUnsetRatioModel {
+		userId := c.GetInt("id")
+		if userId > 0 {
+			userSettings, _ := model.GetUserSetting(userId, false)
+			if userSettings.AcceptUnsetRatioModel {
+				acceptUnsetRatioModel = true
+			}
+		}
+	}
+
+	userModelNames := make([]string, 0)
+	groups, err := getModelListGroups(c)
+	if err != nil {
+		return nil, err
+	}
+	ownerGroups := groups.ownerGroups
+	modelLimitEnable := common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled)
+	var tokenModelLimit map[string]bool
+	if modelLimitEnable {
+		s, ok := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+		if ok {
+			tokenModelLimit, _ = s.(map[string]bool)
+		}
+		if tokenModelLimit == nil {
+			tokenModelLimit = map[string]bool{}
+		}
+	}
+	models := service.GetGroupsEnabledModels(ownerGroups)
+	for _, modelName := range models {
+		if modelLimitEnable {
+			matchingName := ratio_setting.FormatMatchingModelName(modelName)
+			if !tokenModelLimit[modelName] && !tokenModelLimit[matchingName] {
+				continue
+			}
+		}
+		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
+			continue
+		}
+		userModelNames = append(userModelNames, modelName)
+	}
+
+	ownerByModel := map[string]string{}
+	if len(ownerGroups) > 0 {
+		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+	}
+	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
+	for _, modelName := range userModelNames {
+		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+	}
+	return userOpenAiModels, nil
 }
 
 func ChannelListModels(c *gin.Context) {

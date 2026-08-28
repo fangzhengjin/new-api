@@ -29,6 +29,7 @@ type ChannelAffinityRule struct {
 
 type ChannelAffinitySetting struct {
 	Enabled               bool                  `json:"enabled"`
+	RenewTTLOnSuccess     bool                  `json:"renew_ttl_on_success"`
 	SwitchOnSuccess       bool                  `json:"switch_on_success"`
 	KeepOnChannelDisabled bool                  `json:"keep_on_channel_disabled"`
 	MaxEntries            int                   `json:"max_entries"`
@@ -36,81 +37,9 @@ type ChannelAffinitySetting struct {
 	Rules                 []ChannelAffinityRule `json:"rules"`
 }
 
-// Keep Codex CLI passthrough aligned with upstream. Codex uses lower-case
-// header names, while HTTP matching here is case-insensitive.
-// Request session/thread headers:
-// https://github.com/openai/codex/commit/7c7b4861d88960f7e3bd5b7f30f8351be666dd84
-// Responses metadata headers/client_metadata:
-// https://github.com/openai/codex/commit/14df0e8833aad0d6d78287954b61ffac67af936c
-// x-codex-turn-state response/request round trip:
-// https://github.com/openai/codex/commit/ebdd8795e924a8149b616e46ca2ed7848c207a4b
-var codexCliPassThroughHeaders = []string{
-	"Originator",
-	"Session_id",
-	"Thread_id",
-	"Session-Id",
-	"Thread-Id",
-	"X-Client-Request-Id",
-	"User-Agent",
-	"X-Codex-Beta-Features",
-	"X-Codex-Turn-State",
-	"X-Codex-Turn-Metadata",
-	"X-Codex-Window-Id",
-	"X-Codex-Parent-Thread-Id",
-	//"X-Codex-Installation-Id",
-	"X-OpenAI-Subagent",
-	"X-OpenAI-Memgen-Request",
-	//"X-OAI-Attestation",
-	"X-ResponsesAPI-Include-Timing-Metrics",
-	"X-OpenAI-Internal-Codex-Responses-Lite",
-}
-
-var claudeCliPassThroughHeaders = []string{
-	"X-Stainless-Arch",
-	"X-Stainless-Lang",
-	"X-Stainless-Os",
-	"X-Stainless-Package-Version",
-	"X-Stainless-Retry-Count",
-	"X-Stainless-Runtime",
-	"X-Stainless-Runtime-Version",
-	"X-Stainless-Timeout",
-	"User-Agent",
-	"X-App",
-	"Anthropic-Beta",
-	"Anthropic-Dangerous-Direct-Browser-Access",
-	"Anthropic-Version",
-}
-
-func buildPassHeaderTemplate(headers []string) map[string]interface{} {
-	clonedHeaders := make([]string, 0, len(headers))
-	clonedHeaders = append(clonedHeaders, headers...)
-	return map[string]interface{}{
-		"operations": []map[string]interface{}{
-			{
-				"mode":        "pass_headers",
-				"value":       clonedHeaders,
-				"keep_origin": true,
-			},
-		},
-	}
-}
-
-func buildCodexPassHeaderTemplate() map[string]interface{} {
-	requestHeaders := make([]string, 0, len(codexCliPassThroughHeaders))
-	requestHeaders = append(requestHeaders, codexCliPassThroughHeaders...)
-	return map[string]interface{}{
-		"operations": []map[string]interface{}{
-			{
-				"mode":        "pass_headers",
-				"value":       requestHeaders,
-				"keep_origin": true,
-			},
-		},
-	}
-}
-
 var channelAffinitySetting = ChannelAffinitySetting{
 	Enabled:               true,
+	RenewTTLOnSuccess:     true,
 	SwitchOnSuccess:       true,
 	KeepOnChannelDisabled: false,
 	MaxEntries:            100_000,
@@ -123,13 +52,12 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},
 			},
-			ValueRegex:            "",
-			TTLSeconds:            0,
-			ParamOverrideTemplate: buildCodexPassHeaderTemplate(),
-			SkipRetryOnFailure:    true,
-			IncludeUsingGroup:     true,
-			IncludeRuleName:       true,
-			UserAgentInclude:      nil,
+			ValueRegex:         "",
+			TTLSeconds:         0,
+			SkipRetryOnFailure: true,
+			IncludeUsingGroup:  true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
 		},
 		{
 			Name:       "claude cli trace",
@@ -138,13 +66,12 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "metadata.user_id"},
 			},
-			ValueRegex:            "",
-			TTLSeconds:            0,
-			ParamOverrideTemplate: buildPassHeaderTemplate(claudeCliPassThroughHeaders),
-			SkipRetryOnFailure:    true,
-			IncludeUsingGroup:     true,
-			IncludeRuleName:       true,
-			UserAgentInclude:      nil,
+			ValueRegex:         "",
+			TTLSeconds:         0,
+			SkipRetryOnFailure: true,
+			IncludeUsingGroup:  true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
 		},
 	},
 }

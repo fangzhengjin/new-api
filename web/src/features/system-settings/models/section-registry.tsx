@@ -203,6 +203,8 @@ const MODELS_SECTIONS = [
         defaultValues={{
           'channel_affinity_setting.enabled':
             settings['channel_affinity_setting.enabled'],
+          'channel_affinity_setting.renew_ttl_on_success':
+            settings['channel_affinity_setting.renew_ttl_on_success'],
           'channel_affinity_setting.switch_on_success':
             settings['channel_affinity_setting.switch_on_success'],
           'channel_affinity_setting.keep_on_channel_disabled':

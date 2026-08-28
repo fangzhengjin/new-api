@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -263,7 +262,7 @@ func TestClearCurrentChannelAffinityCache(t *testing.T) {
 	require.False(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
 }
 
-func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
+func TestChannelAffinityHitCodexRuleDoesNotApplyOverrideTemplate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	setting := operation_setting.GetChannelAffinitySetting()
@@ -272,7 +271,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	var codexRule *operation_setting.ChannelAffinityRule
 	for i := range setting.Rules {
 		rule := &setting.Rules[i]
-		if strings.EqualFold(strings.TrimSpace(rule.Name), "codex cli trace") {
+		if rule.Name == "codex cli trace" {
 			codexRule = rule
 			break
 		}
@@ -297,38 +296,60 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, 9527, channelID)
 
-	baseOverride := map[string]interface{}{
-		"temperature": 0.2,
-	}
+	baseOverride := map[string]interface{}{"temperature": 0.2}
 	mergedOverride, applied := ApplyChannelAffinityOverrideTemplate(ctx, baseOverride)
-	require.True(t, applied)
-	require.Equal(t, 0.2, mergedOverride["temperature"])
+	require.False(t, applied)
+	require.Equal(t, baseOverride, mergedOverride)
+}
 
-	info := &relaycommon.RelayInfo{
-		RequestHeaders: map[string]string{
-			"Originator": "Codex CLI",
-			"Session_id": "sess-123",
-			"User-Agent": "codex-cli-test",
-		},
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ParamOverride: mergedOverride,
-			HeadersOverride: map[string]interface{}{
-				"X-Static": "legacy-static",
-			},
-		},
+func TestClaudeAffinityRuleDoesNotApplyOverrideTemplate(t *testing.T) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+
+	for i := range setting.Rules {
+		if setting.Rules[i].Name == "claude cli trace" {
+			require.Empty(t, setting.Rules[i].ParamOverrideTemplate)
+			return
+		}
 	}
+	require.Fail(t, "claude cli trace rule not found")
+}
 
-	_, err := relaycommon.ApplyParamOverrideWithRelayInfo([]byte(`{"model":"gpt-5"}`), info)
+func TestRecordChannelAffinityFixedTTLDoesNotRenewSuccessfulHit(t *testing.T) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+	originalRenewTTLOnSuccess := setting.RenewTTLOnSuccess
+	setting.RenewTTLOnSuccess = false
+	t.Cleanup(func() {
+		setting.RenewTTLOnSuccess = originalRenewTTLOnSuccess
+	})
+
+	cacheKeySuffix := fmt.Sprintf("fixed-ttl-%d", time.Now().UnixNano())
+	cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
+	})
+
+	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+		CacheKey:   cacheKeyFull,
+		TTLSeconds: 90,
+	})
+	MarkChannelAffinityUsed(ctx, "default", 9527)
+
+	// A concurrent value makes an unnecessary rewrite observable without waiting for TTL.
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9528, time.Minute))
+	RecordChannelAffinity(ctx, 9527)
+	channelID, found, err := cache.Get(cacheKeySuffix)
 	require.NoError(t, err)
-	require.True(t, info.UseRuntimeHeadersOverride)
+	require.True(t, found)
+	require.Equal(t, 9528, channelID)
 
-	require.Equal(t, "legacy-static", info.RuntimeHeadersOverride["x-static"])
-	require.Equal(t, "Codex CLI", info.RuntimeHeadersOverride["originator"])
-	require.Equal(t, "sess-123", info.RuntimeHeadersOverride["session_id"])
-	require.Equal(t, "codex-cli-test", info.RuntimeHeadersOverride["user-agent"])
-
-	_, exists := info.RuntimeHeadersOverride["x-codex-beta-features"]
-	require.False(t, exists)
-	_, exists = info.RuntimeHeadersOverride["x-codex-turn-metadata"]
-	require.False(t, exists)
+	ctx.Set("channel_id", 9529)
+	RecordChannelAffinity(ctx, 9527)
+	channelID, found, err = cache.Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 9529, channelID)
 }

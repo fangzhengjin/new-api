@@ -129,6 +129,9 @@ export function ChannelAffinitySection(props: Props) {
   const [enabled, setEnabled] = useState(
     props.defaultValues['channel_affinity_setting.enabled']
   )
+  const [renewTTLOnSuccess, setRenewTTLOnSuccess] = useState(
+    props.defaultValues['channel_affinity_setting.renew_ttl_on_success']
+  )
   const [switchOnSuccess, setSwitchOnSuccess] = useState(
     props.defaultValues['channel_affinity_setting.switch_on_success']
   )
@@ -168,6 +171,9 @@ export function ChannelAffinitySection(props: Props) {
 
   useEffect(() => {
     setEnabled(props.defaultValues['channel_affinity_setting.enabled'])
+    setRenewTTLOnSuccess(
+      props.defaultValues['channel_affinity_setting.renew_ttl_on_success']
+    )
     setSwitchOnSuccess(
       props.defaultValues['channel_affinity_setting.switch_on_success']
     )
@@ -263,6 +269,15 @@ export function ChannelAffinitySection(props: Props) {
         })
       }
       if (
+        renewTTLOnSuccess !==
+        props.defaultValues['channel_affinity_setting.renew_ttl_on_success']
+      ) {
+        updates.push({
+          key: 'channel_affinity_setting.renew_ttl_on_success',
+          value: String(renewTTLOnSuccess),
+        })
+      }
+      if (
         switchOnSuccess !==
         props.defaultValues['channel_affinity_setting.switch_on_success']
       ) {
@@ -319,9 +334,7 @@ export function ChannelAffinitySection(props: Props) {
         return
       }
 
-      for (const u of updates) {
-        await updateOption.mutateAsync(u)
-      }
+      await updateOption.mutateAsync(updates)
       toast.success(t('Saved successfully'))
     } catch {
       toast.error(t('Failed to save'))
@@ -440,6 +453,14 @@ export function ChannelAffinitySection(props: Props) {
           </div>
         </div>
 
+        <SettingsSwitchField
+          checked={renewTTLOnSuccess}
+          onCheckedChange={setRenewTTLOnSuccess}
+          label={t('Renew affinity TTL on success')}
+          description={t(
+            'When enabled, each successful affinity request resets the TTL. When disabled, TTL starts when the binding is created and the channel is reselected after expiry.'
+          )}
+        />
         <SettingsSwitchField
           checked={switchOnSuccess}
           onCheckedChange={setSwitchOnSuccess}

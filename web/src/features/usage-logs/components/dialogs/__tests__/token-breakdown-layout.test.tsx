@@ -70,6 +70,7 @@ function createLog(promptTokens: number): UsageLog {
     type: 2,
     content: '',
     username: '',
+    display_name: '',
     token_name: '',
     model_name: '',
     quota: 0,

@@ -244,6 +244,22 @@ function AffinitySettings() {
             >
               <FormField
                 control={form.control}
+                name='channel_affinity_setting.renew_ttl_on_success'
+                render={({ field: renewField }) => (
+                  <SettingsSwitchField
+                    controlId='channel_affinity_setting.renew_ttl_on_success'
+                    disabled={!enabled}
+                    checked={renewField.value}
+                    onCheckedChange={renewField.onChange}
+                    label={t('Renew affinity TTL on success')}
+                    description={t(
+                      'A successful request extends the binding lifetime.'
+                    )}
+                  />
+                )}
+              />
+              <FormField
+                control={form.control}
                 name='channel_affinity_setting.switch_on_success'
                 render={({ field: switchField }) => (
                   <SettingsSwitchField

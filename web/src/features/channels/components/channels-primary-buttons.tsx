@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AiScanIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   Plus,
   MoreHorizontal,
@@ -66,6 +69,10 @@ import {
 } from '../lib'
 import { useChannels } from './channels-provider'
 
+/**
+ * Renders channel actions permitted for the current administrator.
+ * @returns The responsive primary action group, including setup workflow entries.
+ */
 export function ChannelsPrimaryButtons() {
   const { t } = useTranslation()
   const {
@@ -89,7 +96,11 @@ export function ChannelsPrimaryButtons() {
     ADMIN_PERMISSION_RESOURCES.CHANNEL,
     ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
   )
-
+  const canOperate = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.CHANNEL,
+    ADMIN_PERMISSION_ACTIONS.OPERATE
+  )
   const handleTagModeToggle = (checked: boolean) => {
     localStorage.setItem('enable-tag-mode', String(checked))
     setEnableTagMode(checked)
@@ -146,6 +157,25 @@ export function ChannelsPrimaryButtons() {
             onCheckedChange={handleIdSortToggle}
           />
         </div>
+
+        <Tooltip>
+          <TooltipTrigger render={<span className='inline-flex' />}>
+            <Button
+              variant='outline'
+              size='sm'
+              className='max-sm:size-11'
+              aria-label={t('Smart Recognition')}
+              disabled={!canOperate}
+              render={
+                canOperate ? <Link to='/channels/discovery' /> : undefined
+              }
+            >
+              <HugeiconsIcon icon={AiScanIcon} strokeWidth={2} />
+              <span className='hidden xl:inline'>{t('Smart Recognition')}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t('Smart Recognition')}</TooltipContent>
+        </Tooltip>
 
         {/* Create Channel */}
         <Tooltip>

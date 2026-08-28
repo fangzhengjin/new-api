@@ -82,11 +82,12 @@ const queryClient = new QueryClient({
     },
   },
   queryCache: new QueryCache({
-    onError: (error) => {
+      onError: (error) => {
       if (error instanceof AxiosError) {
         if (error.response?.status === 500) {
-          toast.error(i18next.t('Internal Server Error!'))
-          router.navigate({ to: '/500' })
+          // Keep the user on the page that failed so the toast can retain the
+          // server's actionable message and the current form state.
+          handleServerError(error)
         }
       }
     },

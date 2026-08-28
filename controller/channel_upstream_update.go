@@ -333,8 +333,11 @@ func sanitizeAdvancedCustomRequestError(err error, key string, requestURL string
 	return errors.New(message)
 }
 
-func getFetchModelsResponseBody(method string, requestURL string, channel *model.Channel, headers http.Header) ([]byte, error) {
-	request, err := http.NewRequest(method, requestURL, nil)
+// getFetchModelsResponseBody executes one model-list request under ctx.
+// maxResponseBytes <= 0 preserves the existing unbounded caller contract;
+// normalization passes a positive limit for durable background work.
+func getFetchModelsResponseBody(ctx context.Context, maxResponseBytes int64, method string, requestURL string, channel *model.Channel, headers http.Header) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -358,10 +361,29 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status code: %d", response.StatusCode)
 	}
-	return io.ReadAll(response.Body)
+	if maxResponseBytes <= 0 {
+		return io.ReadAll(response.Body)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxResponseBytes {
+		return nil, fmt.Errorf("upstream response exceeds %d bytes", maxResponseBytes)
+	}
+	return body, nil
 }
 
+// fetchChannelUpstreamModelIDs retains the existing timeout and response-size
+// behavior for established callers. It returns normalized upstream model IDs.
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+	return fetchChannelUpstreamModelIDsWithContext(context.Background(), 0, channel)
+}
+
+// fetchChannelUpstreamModelIDsWithContext adds caller-owned cancellation and an
+// optional response limit to model discovery. It returns the same normalized IDs
+// as fetchChannelUpstreamModelIDs without changing existing caller semantics.
+func fetchChannelUpstreamModelIDsWithContext(ctx context.Context, maxResponseBytes int64, channel *model.Channel) ([]string, error) {
 	if channel.Type == constant.ChannelTypeTaskPlugin {
 		plugin, ok := jsplugin.DefaultRegistry.Get(channel.GetSetting().TaskPluginKey)
 		if !ok {
@@ -399,7 +421,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
-		return fetchAdvancedCustomUpstreamModelIDs(channel, baseURL)
+		return fetchAdvancedCustomUpstreamModelIDs(ctx, maxResponseBytes, channel, baseURL)
 	}
 
 	if channel.Type == constant.ChannelTypeCodex {
@@ -443,7 +465,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		return nil, sanitizeFetchModelsError(err, key)
 	}
 
-	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	body, err := getFetchModelsResponseBody(ctx, maxResponseBytes, http.MethodGet, url, channel, headers)
 	if err != nil {
 		return nil, sanitizeAdvancedCustomRequestError(err, key, url)
 	}
@@ -461,7 +483,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	return normalizeModelNames(ids), nil
 }
 
-func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
+func fetchAdvancedCustomUpstreamModelIDs(ctx context.Context, maxResponseBytes int64, channel *model.Channel, baseURL string) ([]string, error) {
 	key, _, apiErr := channel.GetNextEnabledKey()
 	if apiErr != nil {
 		return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
@@ -489,7 +511,7 @@ func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string)
 		return nil, sanitizeFetchModelsError(err, key)
 	}
 
-	body, err := getFetchModelsResponseBody(http.MethodGet, url, channel, headers)
+	body, err := getFetchModelsResponseBody(ctx, maxResponseBytes, http.MethodGet, url, channel, headers)
 	if err != nil {
 		return nil, sanitizeFetchModelsError(err, key)
 	}

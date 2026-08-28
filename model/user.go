@@ -1404,9 +1404,9 @@ func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
 	//}
 }
 
-func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) {
+func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) error {
 	if quota == 0 && usedQuota == 0 && requestCount == 0 {
-		return
+		return nil
 	}
 
 	err := DB.Model(&User{}).Where("id = ?", id).Updates(
@@ -1417,8 +1417,9 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 		},
 	).Error
 	if err != nil {
-		common.SysLog("failed to batch update user quota, used quota and request count: " + err.Error())
+		return fmt.Errorf("failed to batch update user quota, used quota and request count: user_id=%d, delta_quota=%d, delta_used_quota=%d, delta_request_count=%d, error=%w", id, quota, usedQuota, requestCount, err)
 	}
+	return nil
 }
 
 // GetUsernameById gets username from Redis first, falls back to DB if needed

@@ -888,14 +888,17 @@ func UpdateChannelUsedQuota(id int, quota int) {
 		addNewRecord(BatchUpdateTypeChannelUsedQuota, id, quota)
 		return
 	}
-	updateChannelUsedQuota(id, quota)
+	if err := updateChannelUsedQuota(id, quota); err != nil {
+		common.SysLog(err.Error())
+	}
 }
 
-func updateChannelUsedQuota(id int, quota int) {
+func updateChannelUsedQuota(id int, quota int) error {
 	err := DB.Model(&Channel{}).Where("id = ?", id).Update("used_quota", gorm.Expr("used_quota + ?", quota)).Error
 	if err != nil {
-		common.SysLog(fmt.Sprintf("failed to update channel used quota: channel_id=%d, delta_quota=%d, error=%v", id, quota, err))
+		return fmt.Errorf("failed to update channel used quota: channel_id=%d, delta_quota=%d, error=%w", id, quota, err)
 	}
+	return nil
 }
 
 func DeleteChannelByStatus(status int64) (int64, error) {

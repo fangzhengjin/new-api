@@ -1,12 +1,15 @@
 package deepseek
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -276,7 +279,40 @@ func deepSeekRunEffort(thinkingType string, effort string) string {
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	requestBody, err := injectDeepSeekUserID(requestBody, info)
+	if err != nil {
+		return nil, err
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
+}
+
+func injectDeepSeekUserID(requestBody io.Reader, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if info == nil || info.UserId <= 0 {
+		return requestBody, nil
+	}
+
+	path := ""
+	if info.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+		path = "metadata.user_id"
+	} else if info.RelayMode == constant.RelayModeChatCompletions {
+		path = "user_id"
+	} else if info.RelayMode == constant.RelayModeResponses {
+		path = "user"
+	}
+	if path == "" {
+		return requestBody, nil
+	}
+
+	// ponytail: Request bodies are bounded by MAX_REQUEST_BODY_MB; use a streaming JSON rewriter if buffering becomes measurable.
+	body, err := io.ReadAll(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("read DeepSeek request body: %w", err)
+	}
+	body, err = ojson.SetBytes(body, path, strconv.Itoa(info.UserId))
+	if err != nil {
+		return nil, fmt.Errorf("set DeepSeek user_id: %w", err)
+	}
+	return bytes.NewReader(body), nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {

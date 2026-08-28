@@ -28,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -115,6 +116,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 	}()
+
+	checkCodexVersion := relayFormat == types.RelayFormatOpenAIResponses ||
+		relayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		relayFormat == types.RelayFormatOpenAIAlphaSearch
+	if outdated := model_setting.CheckClientVersion(c.Request.UserAgent(), relayFormat == types.RelayFormatClaude, checkCodexVersion); outdated != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(outdated.Message()),
+			types.ErrorCodeClientVersionTooLow,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+		return
+	}
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {

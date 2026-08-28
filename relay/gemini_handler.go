@@ -94,6 +94,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
+		relaycommon.FinalizeReasoningEffortForPassthrough(info)
 		requestBody = common.NewReplayableBodyReader(storage)
 	} else {
 		// 使用 ConvertGeminiRequest 转换请求格式
@@ -114,6 +115,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				return newAPIErrorFromParamOverride(err)
 			}
 		}
+		relaycommon.UpdateReasoningEffortForUpstreamJSON(info, jsonData)
 
 		logger.LogDebug(c, "Gemini request body: %s", jsonData)
 

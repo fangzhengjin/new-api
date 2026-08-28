@@ -654,3 +654,9 @@ func TestChannelOtherSettingsValidateToolLossPolicy(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool_loss_policy")
 }
+
+func TestChannelSettingsConcurrencyWaitTimeout(t *testing.T) {
+	assert.Equal(t, 90, (&ChannelSettings{}).ConcurrencyWaitTimeout())
+	zero := 0
+	assert.Zero(t, (&ChannelSettings{ConcurrencyWaitTimeoutSeconds: &zero}).ConcurrencyWaitTimeout())
+}

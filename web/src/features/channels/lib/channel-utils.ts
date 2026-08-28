@@ -161,6 +161,32 @@ export function isMultiKeyChannel(channel: Channel): boolean {
   return channel.channel_info?.is_multi_key || false
 }
 
+/**
+ * Format an active channel request count as current requests over its limit.
+ * @param current - Current Redis-backed active request count.
+ * @param limit - Configured maximum concurrency, or zero for unlimited.
+ * @param available - Whether the Redis count could be read.
+ * @returns A compact `current / limit` display value.
+ */
+export function formatChannelConcurrency(
+  current: number | undefined,
+  limit: number,
+  available: boolean
+): string {
+  if (!available) {
+    return '—'
+  }
+  return `${current ?? 0} / ${limit > 0 ? limit : '∞'}`
+}
+
+/** Returns whether visible channel concurrency values need polling. */
+export function shouldFetchChannelConcurrency(
+  channelIds: number[],
+  visible: boolean
+): boolean {
+  return visible && channelIds.length > 0
+}
+
 // ============================================================================
 // Key Formatting
 // ============================================================================

@@ -41,7 +41,7 @@ import { OverviewDashboard } from './components/overview/overview-dashboard'
 import { DEFAULT_TIME_GRANULARITY } from './constants'
 import {
   buildDefaultDashboardFilters,
-  getDefaultDays,
+  getDefaultRange,
   getSavedChartPreferences,
   getSavedGranularity,
   saveChartPreferences,
@@ -211,7 +211,7 @@ export function Dashboard() {
       const granularity = getSavedGranularity()
       return {
         timeGranularity: granularity,
-        selectedRange: getDefaultDays(granularity),
+        selectedRange: getDefaultRange(granularity),
         topUserLimit: 10,
       }
     }

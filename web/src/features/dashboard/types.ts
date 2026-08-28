@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { TimeGranularity } from '@/lib/time'
+import type { CalendarRange, TimeGranularity } from '@/lib/time'
 
 // ============================================================================
 // Quota & Usage Data Types
@@ -198,7 +198,7 @@ export type ModelAnalyticsChartTab = 'trend' | 'proportion' | 'top'
 export interface DashboardChartPreferences {
   consumptionDistributionChart: ConsumptionDistributionChartType
   modelAnalyticsChart: ModelAnalyticsChartTab
-  defaultTimeRangeDays: number
+  defaultTimeRange: CalendarRange
   defaultTimeGranularity: TimeGranularity
 }
 
@@ -206,7 +206,7 @@ export interface DashboardChartPreferences {
 // switching between dashboard sub-sections, matching the model/flow filters.
 export interface UserChartsFilters {
   timeGranularity: TimeGranularity
-  selectedRange: number
+  selectedRange: CalendarRange
   topUserLimit: number
 }
 

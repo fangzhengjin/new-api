@@ -42,7 +42,7 @@ import type {
   DashboardChartPreferences,
   ModelAnalyticsChartTab,
 } from '@/features/dashboard/types'
-import type { TimeGranularity } from '@/lib/time'
+import type { CalendarRange, TimeGranularity } from '@/lib/time'
 
 interface ModelsChartPreferencesProps {
   preferences: DashboardChartPreferences
@@ -91,17 +91,15 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
       <div className='grid gap-1.5'>
         <Label htmlFor='default-time-range'>{t('Default range')}</Label>
         <Select
-          items={[
-            ...TIME_RANGE_PRESETS.map((option) => ({
-              value: String(option.days),
-              label: t(option.label),
-            })),
-          ]}
-          value={String(draft.defaultTimeRangeDays)}
+          items={TIME_RANGE_PRESETS.map((option) => ({
+            value: option.value,
+            label: t(option.label),
+          }))}
+          value={draft.defaultTimeRange}
           onValueChange={(value) =>
             setDraft((prev) => ({
               ...prev,
-              defaultTimeRangeDays: Number(value),
+              defaultTimeRange: value as CalendarRange,
             }))
           }
         >
@@ -111,7 +109,7 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
           <SelectContent alignItemWithTrigger={false}>
             <SelectGroup>
               {TIME_RANGE_PRESETS.map((option) => (
-                <SelectItem key={option.days} value={String(option.days)}>
+                <SelectItem key={option.value} value={option.value}>
                   {t(option.label)}
                 </SelectItem>
               ))}
@@ -124,12 +122,10 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
           {t('Default time granularity')}
         </Label>
         <Select
-          items={[
-            ...TIME_GRANULARITY_OPTIONS.map((option) => ({
-              value: option.value,
-              label: t(option.label),
-            })),
-          ]}
+          items={TIME_GRANULARITY_OPTIONS.map((option) => ({
+            value: option.value,
+            label: t(option.label),
+          }))}
           value={draft.defaultTimeGranularity}
           onValueChange={(value) =>
             setDraft((prev) => ({
@@ -157,12 +153,10 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
           {t('Default consumption chart')}
         </Label>
         <Select
-          items={[
-            ...CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((option) => ({
-              value: option.value,
-              label: t(option.labelKey),
-            })),
-          ]}
+          items={CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((option) => ({
+            value: option.value,
+            label: t(option.labelKey),
+          }))}
           value={draft.consumptionDistributionChart}
           onValueChange={(value) =>
             setDraft((prev) => ({
@@ -191,12 +185,10 @@ export function ModelsChartPreferences(props: ModelsChartPreferencesProps) {
           {t('Default model call chart')}
         </Label>
         <Select
-          items={[
-            ...MODEL_ANALYTICS_CHART_OPTIONS.map((option) => ({
-              value: option.value,
-              label: t(option.labelKey),
-            })),
-          ]}
+          items={MODEL_ANALYTICS_CHART_OPTIONS.map((option) => ({
+            value: option.value,
+            label: t(option.labelKey),
+          }))}
           value={draft.modelAnalyticsChart}
           onValueChange={(value) =>
             setDraft((prev) => ({

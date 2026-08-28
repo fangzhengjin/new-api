@@ -26,6 +26,9 @@ import dayjs from '@/lib/dayjs'
  */
 export type TimeGranularity = 'hour' | 'day' | 'week'
 
+/** Calendar periods used by dashboard range presets. */
+export type CalendarRange = 'today' | 'thisWeek' | 'thisMonth' | 'lastMonth'
+
 /**
  * Convert Date object to Unix timestamp (seconds)
  */
@@ -64,35 +67,58 @@ export function getEndOfDay(date: Date = new Date()): Date {
 }
 
 /**
- * Calculate date range with start and end of day normalization
- * @param days Number of days to go back
- * @param fromDate Starting point (defaults to now)
- * @returns Object with normalized start (00:00:00) and end (23:59:59) dates
+ * Resolve a calendar period to complete-day boundaries.
+ * @param range Calendar period to resolve.
+ * @param fromDate Date used to determine the current period.
+ * @returns Start and end timestamps for the period.
  */
-export function getNormalizedDateRange(
-  days: number,
+export function getCalendarDateRange(
+  range: CalendarRange,
   fromDate: Date = new Date()
 ): { start: Date; end: Date } {
-  const end = new Date(fromDate)
-  const start = new Date(fromDate)
-  start.setDate(end.getDate() - days)
+  if (range === 'today') {
+    return {
+      start: getStartOfDay(fromDate),
+      end: getEndOfDay(fromDate),
+    }
+  }
+
+  if (range === 'thisWeek') {
+    const start = getStartOfDay(fromDate)
+    const daysSinceMonday = (start.getDay() + 6) % 7
+    start.setDate(start.getDate() - daysSinceMonday)
+    const end = getEndOfDay(start)
+    end.setDate(end.getDate() + 6)
+    return { start, end }
+  }
+
+  const year = fromDate.getFullYear()
+  const month = fromDate.getMonth()
+  if (range === 'thisMonth') {
+    return {
+      start: new Date(year, month, 1),
+      end: new Date(year, month + 1, 0, 23, 59, 59, 999),
+    }
+  }
 
   return {
-    start: getStartOfDay(start),
-    end: getEndOfDay(end),
+    start: new Date(year, month - 1, 1),
+    end: new Date(year, month, 0, 23, 59, 59, 999),
   }
 }
 
 /**
- * Calculate a rolling date range ending at the current moment.
- * Example: 1 day means the last 24 hours, not yesterday 00:00 to today 23:59.
+ * Calculate a rolling hour range ending at the current moment.
+ * @param hours Number of hours included in the range.
+ * @param fromDate End of the range.
+ * @returns Start and end timestamps for the range.
  */
-export function getRollingDateRange(
-  days: number,
+export function getRollingHourRange(
+  hours: number,
   fromDate: Date = new Date()
 ): { start: Date; end: Date } {
   const end = new Date(fromDate)
-  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
+  const start = new Date(end.getTime() - hours * 60 * 60 * 1000)
 
   return { start, end }
 }

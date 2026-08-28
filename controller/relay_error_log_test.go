@@ -19,7 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing.T) {
+func TestRecordRelayErrorLogUsesSnapshotWithoutLeakingChannelMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousRedisEnabled := common.RedisEnabled
@@ -69,7 +69,7 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	}
 	apiErr := types.NewOpenAIError(errors.New("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
 
-	processChannelError(ctx, channelSnapshot, apiErr, nil)
+	recordRelayErrorLog(ctx, apiErr, nil, &channelSnapshot)
 
 	var stored model.Log
 	require.NoError(t, database.First(&stored).Error)

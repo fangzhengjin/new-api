@@ -67,6 +67,7 @@ import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
+  getRetryTargetChain,
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
@@ -576,9 +577,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
     props.log.type !== 6 &&
     (other?.request_path || conversionChain.length > 0)
 
-  const useChannel = other?.admin_info?.use_channel
+  const retryTargets = getRetryTargetChain(other?.admin_info, t('Key'))
   const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+    retryTargets.length > 0 ? retryTargets.join(' → ') : undefined
   const reasoningEffortVariant = getReasoningEffortVariant(
     other?.reasoning_effort
   )

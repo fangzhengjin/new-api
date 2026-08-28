@@ -57,6 +57,21 @@ export const channelsQueryKeys = {
     [...channelsQueryKeys.all, 'concurrency', ids] as const,
 }
 
+const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
+  'embeddings',
+  'jina-rerank',
+  'openai-response-compact',
+])
+
+/**
+ * Checks whether a channel-test endpoint supports streaming.
+ * @param endpointType Selected endpoint type.
+ * @returns Whether the stream option can be enabled.
+ */
+export function isChannelTestStreamSupported(endpointType: string): boolean {
+  return !STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
+}
+
 function getChannelTestResponseTime(
   response: ChannelTestResponse
 ): number | undefined {
@@ -276,6 +291,7 @@ export async function handleTestChannel(
     testModel?: string
     endpointType?: string
     stream?: boolean
+    manualModelBatch?: boolean
     silent?: boolean
   },
   onTestComplete?: (
@@ -285,16 +301,12 @@ export async function handleTestChannel(
     errorCode?: string
   ) => void
 ): Promise<void> {
-  const payload =
-    options && (options.testModel || options.endpointType || options.stream)
-      ? {
-          ...(options.testModel ? { model: options.testModel } : {}),
-          ...(options.endpointType
-            ? { endpoint_type: options.endpointType }
-            : {}),
-          ...(options.stream ? { stream: true } : {}),
-        }
-      : undefined
+  const payload = {
+    ...(options?.testModel ? { model: options.testModel } : {}),
+    ...(options?.endpointType ? { endpoint_type: options.endpointType } : {}),
+    stream: options?.stream ?? true,
+    ...(options?.manualModelBatch ? { manual_model_batch: true } : {}),
+  }
 
   try {
     const response = await testChannel(id, payload)

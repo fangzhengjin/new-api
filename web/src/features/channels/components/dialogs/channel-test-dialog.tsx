@@ -86,6 +86,7 @@ import {
   channelsQueryKeys,
   formatResponseTime,
   handleTestChannel,
+  isChannelTestStreamSupported,
 } from '../../lib'
 import type {
   Channel,
@@ -192,13 +193,6 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
   },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
 ]
-
-const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
-  'embeddings',
-  'image-generation',
-  'jina-rerank',
-  'openai-response-compact',
-])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
@@ -323,7 +317,7 @@ function ChannelTestDialogContent({
     typeof toast.loading
   > | null>(null)
   const [endpointType, setEndpointType] = useState('auto')
-  const [isStreamTest, setIsStreamTest] = useState(false)
+  const [isStreamTest, setIsStreamTest] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
@@ -390,7 +384,7 @@ function ChannelTestDialogContent({
   const resetState = useCallback(() => {
     batchStopRequestedRef.current = true
     setEndpointType('auto')
-    setIsStreamTest(false)
+    setIsStreamTest(true)
     setSearchTerm('')
     setTestResults({})
     setRowSelection({})
@@ -405,16 +399,13 @@ function ChannelTestDialogContent({
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
 
-  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
+  const streamDisabled = !isChannelTestStreamSupported(endpointType)
   const effectiveStreamTest = !streamDisabled && isStreamTest
 
   const handleEndpointTypeChange = useCallback((value: string | null) => {
     if (value === null) return
 
     setEndpointType(value)
-    if (STREAM_INCOMPATIBLE_ENDPOINTS.has(value)) {
-      setIsStreamTest(false)
-    }
   }, [])
 
   const handleSearchTermChange = useCallback(
@@ -536,7 +527,8 @@ function ChannelTestDialogContent({
     async (
       model: string,
       silent = false,
-      refreshList = true
+      refreshList = true,
+      manualModelBatch = false
     ): Promise<TestResult | undefined> => {
       if (!currentRow) return
 
@@ -551,7 +543,8 @@ function ChannelTestDialogContent({
             channelName: currentRow.name,
             testModel: model,
             endpointType: endpointType === 'auto' ? undefined : endpointType,
-            stream: effectiveStreamTest || undefined,
+            stream: effectiveStreamTest,
+            manualModelBatch,
             silent,
           },
           (success, responseTime, error, errorCode) => {
@@ -650,8 +643,21 @@ function ChannelTestDialogContent({
           })
         }
 
+        const firstModel = uniqueModels[0]
+        const testedFirstResult = await testSingleModel(
+          firstModel,
+          true,
+          false,
+          true
+        )
+        const firstResult = testedFirstResult ?? createFallbackResult()
+        if (!testedFirstResult) {
+          updateTestResult(firstModel, firstResult)
+        }
+        recordBatchResult(firstResult)
+
         for (
-          let startIndex = 0;
+          let startIndex = 1;
           startIndex < uniqueModels.length;
           startIndex += BATCH_TEST_CONCURRENCY
         ) {
@@ -969,7 +975,7 @@ function ChannelTestDialogContent({
             <span className='min-w-0 truncate'>{currentRow.name}</span>
           </span>
         }
-        contentClassName='max-h-[90vh] overflow-hidden sm:max-w-4xl'
+        contentClassName='max-h-[90vh] max-w-[calc(100%-2rem)] overflow-hidden sm:max-w-[90vw] xl:max-w-[1400px]'
         contentHeight='auto'
         bodyClassName='space-y-4'
         footer={
@@ -1020,7 +1026,9 @@ function ChannelTestDialogContent({
               <div className='min-w-0 space-y-2'>
                 <p className='text-sm font-medium'>{t('Channel models')}</p>
                 <p className='text-muted-foreground text-xs'>
-                  {t('Select models to run batch tests.')}
+                  {t(
+                    'Select models to run batch tests. Successful tests may restore automatically disabled channels or keys.'
+                  )}
                 </p>
                 <div className='flex flex-wrap items-center gap-2'>
                   {isBatchTesting ? (

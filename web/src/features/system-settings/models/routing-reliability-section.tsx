@@ -358,7 +358,7 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Number of times to retry failed requests (0-10)')}
+                      {t('Retries per channel or key before switching (0-10)')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -571,9 +571,13 @@ export function RoutingReliabilitySection({
                 render={({ field }) => (
                   <SettingsSwitchItem>
                     <SettingsSwitchContent>
-                      <FormLabel>{t('Disable on failure')}</FormLabel>
+                      <FormLabel>
+                        {t('Disable after retries are exhausted')}
+                      </FormLabel>
                       <FormDescription>
-                        {t('Automatically disable channels when tests fail')}
+                        {t(
+                          'After retries are exhausted, matching status codes or keywords automatically disable the failed channel or key.'
+                        )}
                       </FormDescription>
                     </SettingsSwitchContent>
                     <FormControl>

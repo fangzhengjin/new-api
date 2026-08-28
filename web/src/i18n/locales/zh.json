@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "其中 {{count}} 个不在当前视图",
+    "Option key cannot be empty": "设置项名称不能为空",
     "_copy": "_复制",
     "，": "，",
     ", and": "，和",

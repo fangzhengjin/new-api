@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "{{count}} outside this view",
+    "Option key cannot be empty": "Option key cannot be empty",
     "_copy": "_copy",
     "，": ", ",
     ", and": ", and",

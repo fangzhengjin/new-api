@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "其中 {{count}} 個不在目前檢視",
+    "Option key cannot be empty": "設定項名稱不能為空",
     "_copy": "_複製",
     "，": "，",
     ", and": "，和",

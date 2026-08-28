@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "{{count}} hors de cette vue",
+    "Option key cannot be empty": "La clé de l’option ne peut pas être vide",
     "_copy": "_copie",
     "，": ", ",
     ", and": ", et",

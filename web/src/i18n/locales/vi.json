@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "{{count}} kênh ngoài chế độ xem này",
+    "Option key cannot be empty": "Khóa tùy chọn không được để trống",
     "_copy": "_bản sao",
     "，": ", ",
     ", and": ", và",

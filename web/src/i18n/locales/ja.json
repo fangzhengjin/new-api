@@ -4,6 +4,7 @@
     "1000": "1000",
     "10000": "10000",
     "{{count}} outside this view": "うち {{count}} 件は表示範囲外",
+    "Option key cannot be empty": "設定キーは空にできません",
     "_copy": "_copy",
     "，": "、",
     ", and": "、および",

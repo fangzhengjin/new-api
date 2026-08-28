@@ -68,7 +68,12 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 			})
 			decompressed = true
 		case "zstd":
-			reader, err := zstd.NewReader(origBody)
+			// Bound decoder memory and workers because compressed request bodies are untrusted.
+			reader, err := zstd.NewReader(
+				origBody,
+				zstd.WithDecoderConcurrency(1),
+				zstd.WithDecoderMaxMemory(uint64(maxBytes)),
+			)
 			if err != nil {
 				_ = origBody.Close()
 				c.AbortWithStatus(http.StatusBadRequest)

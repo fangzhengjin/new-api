@@ -84,6 +84,51 @@ func ValidateConsoleSettings(settingsStr string, settingType string) error {
 	}
 }
 
+// ValidateOverviewPanelOrder validates legacy order arrays and current layout objects.
+func ValidateOverviewPanelOrder(value string) error {
+	if len(value) > 2048 {
+		return fmt.Errorf("概览布局配置过长")
+	}
+	var layout []interface{}
+	if err := common.UnmarshalJsonStr(value, &layout); err != nil {
+		return fmt.Errorf("概览布局格式错误：%s", err.Error())
+	}
+	validPanels := map[string]bool{
+		"api-info": true, "announcements": true, "faq": true, "uptime-kuma": true,
+	}
+	if len(layout) == 0 || len(layout) > len(validPanels) {
+		return fmt.Errorf("概览布局必须包含1至%d个面板", len(validPanels))
+	}
+	seen := make(map[string]bool, len(layout))
+	for index, raw := range layout {
+		var id string
+		switch item := raw.(type) {
+		case string:
+			id = item
+		case map[string]interface{}:
+			if len(item) != 2 {
+				return fmt.Errorf("第%d个概览面板只能包含id和span", index+1)
+			}
+			var ok bool
+			id, ok = item["id"].(string)
+			span, spanOK := item["span"].(float64)
+			if !ok || !spanOK || (span != 1 && span != 2 && span != 3) {
+				return fmt.Errorf("第%d个概览面板的id或span不正确", index+1)
+			}
+		default:
+			return fmt.Errorf("第%d个概览面板格式不正确", index+1)
+		}
+		if !validPanels[id] {
+			return fmt.Errorf("第%d个概览面板名称不正确", index+1)
+		}
+		if seen[id] {
+			return fmt.Errorf("概览面板不能重复")
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
 func validateApiInfo(apiInfoStr string) error {
 	apiInfoList, err := parseJSONArray(apiInfoStr, "API信息")
 	if err != nil {

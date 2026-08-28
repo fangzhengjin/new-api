@@ -41,6 +41,14 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
   return res.data
 }
 
+/** Updates multiple system options atomically and returns the shared API result. */
+export async function updateSystemOptions(requests: UpdateOptionRequest[]) {
+  const res = await api.put<UpdateOptionResponse>('/api/option/batch', {
+    options: requests,
+  })
+  return res.data
+}
+
 export async function confirmPaymentCompliance() {
   const res = await api.post<ConfirmPaymentComplianceResponse>(
     '/api/option/payment_compliance',

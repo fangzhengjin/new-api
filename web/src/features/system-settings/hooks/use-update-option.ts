@@ -23,7 +23,7 @@ import { toast } from 'sonner'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
-import { updateSystemOption } from '../api'
+import { updateSystemOption, updateSystemOptions } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
@@ -46,15 +46,20 @@ export function useUpdateOption() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (request: UpdateOptionRequest) =>
-      requireServerSuccess(await updateSystemOption(request)),
+    mutationFn: async (request: UpdateOptionRequest | UpdateOptionRequest[]) =>
+      requireServerSuccess(
+        await (Array.isArray(request)
+          ? updateSystemOptions(request)
+          : updateSystemOption(request))
+      ),
     onSuccess: (data, variables) => {
       if (data.success) {
         // Always refresh system-options
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
         // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.has(variables.key)) {
+        const requests = Array.isArray(variables) ? variables : [variables]
+        if (requests.some((request) => STATUS_RELATED_KEYS.has(request.key))) {
           queryClient.invalidateQueries({ queryKey: ['status'] })
           try {
             window.localStorage.removeItem('status')

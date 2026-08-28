@@ -310,33 +310,39 @@ func UpdateModelPricing(changes []ModelPricingChange) error {
 // locking, validation and transaction path as the model-level API.
 func UpdateModelPricingOptions(updates map[string]string) error {
 	return mutateModelPricingOptions(func(_ *gorm.DB, values map[string]map[string]any) error {
-		names := make(map[string]bool)
-		for key, raw := range updates {
-			if !IsModelPricingOption(key) {
-				return fmt.Errorf("unsupported pricing field: %s", key)
-			}
-			var entries map[string]any
-			if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
-				return err
-			}
-			if entries == nil {
-				return fmt.Errorf("%s must be a JSON object", key)
-			}
-			for name := range values[key] {
-				names[name] = true
-			}
-			values[key] = entries
-			for name := range entries {
-				names[name] = true
-			}
-		}
-		for name := range names {
-			if err := ValidateModelPricing(name, modelPricingValues(values, name)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return replaceModelPricingOptions(values, updates)
 	})
+}
+
+// replaceModelPricingOptions validates the combined pricing state after all
+// replacements so mixed batches use the same rules as pricing-only writes.
+func replaceModelPricingOptions(values map[string]map[string]any, updates map[string]string) error {
+	names := make(map[string]bool)
+	for key, raw := range updates {
+		if !IsModelPricingOption(key) {
+			return fmt.Errorf("unsupported pricing field: %s", key)
+		}
+		var entries map[string]any
+		if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
+			return err
+		}
+		if entries == nil {
+			return fmt.Errorf("%s must be a JSON object", key)
+		}
+		for name := range values[key] {
+			names[name] = true
+		}
+		values[key] = entries
+		for name := range entries {
+			names[name] = true
+		}
+	}
+	for name := range names {
+		if err := ValidateModelPricing(name, modelPricingValues(values, name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {

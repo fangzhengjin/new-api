@@ -7523,6 +7523,7 @@
     "© 2025 Your Company. All rights reserved.": "© 2025 您的公司。保留所有權利。",
     "、": "、",
     "，": "，",
-    "，and ": "，並"
+    "，and ": "，並",
+    "A successful request extends the binding lifetime.": "成功請求會延長綁定存活時間。"
   }
 }

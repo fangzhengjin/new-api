@@ -7523,6 +7523,7 @@
     "© 2025 Your Company. All rights reserved.": "© 2025 Votre entreprise. Tous droits réservés.",
     "、": ", ",
     "，": ", ",
-    "，and ": " et "
+    "，and ": " et ",
+    "A successful request extends the binding lifetime.": "Une requête réussie prolonge la durée de vie de l'association."
   }
 }

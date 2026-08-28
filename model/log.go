@@ -322,75 +322,75 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int       `json:"channel_id"`
-	PromptTokens     int       `json:"prompt_tokens"`
-	CompletionTokens int       `json:"completion_tokens"`
-	ModelName        string    `json:"model_name"`
-	TokenName        string    `json:"token_name"`
-	Quota            int       `json:"quota"`
-	Content          string    `json:"content"`
-	TokenId          int       `json:"token_id"`
-	UseTimeSeconds   int       `json:"use_time_seconds"`
-	IsStream         bool      `json:"is_stream"`
-	Group            string    `json:"group"`
-	Other            *LogOther `json:"other"`
+	ChannelId        int `json:"channel_id"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	// QuotaDataTokenUsed is the normalized analytics total; zero preserves the legacy prompt-plus-completion fallback.
+	QuotaDataTokenUsed int       `json:"quota_data_token_used,omitempty"`
+	ModelName          string    `json:"model_name"`
+	TokenName          string    `json:"token_name"`
+	Quota              int       `json:"quota"`
+	Content            string    `json:"content"`
+	TokenId            int       `json:"token_id"`
+	UseTimeSeconds     int       `json:"use_time_seconds"`
+	IsStream           bool      `json:"is_stream"`
+	Group              string    `json:"group"`
+	Other              *LogOther `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
-	if !common.LogConsumeEnabled {
+	if !common.LogConsumeEnabled && !common.DataExportEnabled {
 		return
 	}
-	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
-	requestId := c.GetString(common.RequestIdKey)
-	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
-	otherStr := params.Other.JSONString()
-	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
+
+	if common.LogConsumeEnabled {
+		logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
+		needRecordIp := false
+		if settingMap, err := GetUserSetting(userId, false); err == nil {
+			needRecordIp = settingMap.RecordIpLog
+		}
+		log := &Log{
+			UserId:            userId,
+			Username:          username,
+			CreatedAt:         createdAt,
+			Type:              LogTypeConsume,
+			Content:           params.Content,
+			PromptTokens:      params.PromptTokens,
+			CompletionTokens:  params.CompletionTokens,
+			TokenName:         params.TokenName,
+			ModelName:         params.ModelName,
+			Quota:             params.Quota,
+			ChannelId:         params.ChannelId,
+			TokenId:           params.TokenId,
+			UseTime:           params.UseTimeSeconds,
+			IsStream:          params.IsStream,
+			Group:             params.Group,
+			RequestId:         c.GetString(common.RequestIdKey),
+			UpstreamRequestId: c.GetString(common.UpstreamRequestIdKey),
+			Other:             params.Other.JSONString(),
+		}
+		if needRecordIp {
+			log.Ip = c.ClientIP()
+		}
+		if err := createLog(log); err != nil {
+			logger.LogError(c, "failed to record log: "+err.Error())
 		}
 	}
-	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        createdAt,
-		Type:             LogTypeConsume,
-		Content:          params.Content,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		TokenName:        params.TokenName,
-		ModelName:        params.ModelName,
-		Quota:            params.Quota,
-		ChannelId:        params.ChannelId,
-		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
-		IsStream:         params.IsStream,
-		Group:            params.Group,
-		Ip: func() string {
-			if needRecordIp {
-				return c.ClientIP()
-			}
-			return ""
-		}(),
-		RequestId:         requestId,
-		UpstreamRequestId: upstreamRequestId,
-		Other:             otherStr,
-	}
-	err := createLog(log)
-	if err != nil {
-		logger.LogError(c, "failed to record log: "+err.Error())
-	}
+
 	if common.DataExportEnabled {
+		tokenUsed := params.QuotaDataTokenUsed
+		if tokenUsed == 0 {
+			tokenUsed = params.PromptTokens + params.CompletionTokens
+		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,
 			ModelName: params.ModelName,
 			Quota:     params.Quota,
 			CreatedAt: createdAt,
-			TokenUsed: params.PromptTokens + params.CompletionTokens,
+			TokenUsed: tokenUsed,
 			UseGroup:  params.Group,
 			TokenID:   params.TokenId,
 			ChannelID: params.ChannelId,
@@ -413,36 +413,42 @@ type RecordTaskBillingLogParams struct {
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
-	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
+	isConsume := params.LogType == LogTypeConsume
+	shouldRecordLog := !isConsume || common.LogConsumeEnabled
+	shouldExport := isConsume && common.DataExportEnabled
+	if !shouldRecordLog && !shouldExport {
 		return
 	}
 	username, _ := GetUsernameById(params.UserId, false)
-	tokenName := ""
-	if params.TokenId > 0 {
-		if token, err := GetTokenById(params.TokenId); err == nil {
-			tokenName = token.Name
+	createdAt := common.GetTimestamp()
+
+	if shouldRecordLog {
+		tokenName := ""
+		if params.TokenId > 0 {
+			if token, err := GetTokenById(params.TokenId); err == nil {
+				tokenName = token.Name
+			}
+		}
+		log := &Log{
+			UserId:    params.UserId,
+			Username:  username,
+			CreatedAt: createdAt,
+			Type:      params.LogType,
+			Content:   params.Content,
+			TokenName: tokenName,
+			ModelName: params.ModelName,
+			Quota:     params.Quota,
+			ChannelId: params.ChannelId,
+			TokenId:   params.TokenId,
+			Group:     params.Group,
+			Other:     params.Other.JSONString(),
+		}
+		if err := createLog(log); err != nil {
+			common.SysLog("failed to record task billing log: " + err.Error())
 		}
 	}
-	createdAt := common.GetTimestamp()
-	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     params.Other.JSONString(),
-	}
-	err := createLog(log)
-	if err != nil {
-		common.SysLog("failed to record task billing log: " + err.Error())
-	}
-	if params.LogType == LogTypeConsume && common.DataExportEnabled {
+
+	if shouldExport {
 		nodeName := params.NodeName
 		if nodeName == "" {
 			nodeName = common.NodeName
@@ -669,6 +675,44 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	stat.Rpm = rateStat.Rpm
 	stat.Tpm = rateStat.Tpm
+
+	// Legacy Anthropic logs store cache tokens outside prompt_tokens. Add only
+	// the missing portion so migrated and newly normalized rows are not doubled.
+	var anthropicLogs []struct {
+		PromptTokens int
+		Other        string
+	}
+	if err := rpmTpmQuery.
+		Select("prompt_tokens, other").
+		Where("other LIKE ?", `%"usage_semantic":"anthropic"%`).
+		Scan(&anthropicLogs).Error; err != nil {
+		common.SysError("failed to query anthropic log token details: " + err.Error())
+		return stat, errors.New("查询统计数据失败")
+	}
+	for _, log := range anthropicLogs {
+		var other struct {
+			UsageSemantic         string `json:"usage_semantic"`
+			InputTokensTotal      int    `json:"input_tokens_total"`
+			CacheTokens           int    `json:"cache_tokens"`
+			CacheWriteTokens      int    `json:"cache_write_tokens"`
+			CacheCreationTokens   int    `json:"cache_creation_tokens"`
+			CacheCreationTokens5m int    `json:"cache_creation_tokens_5m"`
+			CacheCreationTokens1h int    `json:"cache_creation_tokens_1h"`
+		}
+		if common.UnmarshalJsonStr(log.Other, &other) != nil || other.UsageSemantic != "anthropic" {
+			continue
+		}
+		if other.InputTokensTotal > 0 {
+			stat.Tpm += max(other.InputTokensTotal-log.PromptTokens, 0)
+			continue
+		}
+		cacheWriteTokens := max(
+			other.CacheWriteTokens,
+			other.CacheCreationTokens,
+			other.CacheCreationTokens5m+other.CacheCreationTokens1h,
+		)
+		stat.Tpm += max(other.CacheTokens, 0) + max(cacheWriteTokens, 0)
+	}
 
 	return stat, nil
 }

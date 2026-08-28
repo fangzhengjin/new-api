@@ -118,3 +118,22 @@ func CheckGroupRatio(jsonStr string) error {
 	}
 	return nil
 }
+
+// CheckGroupGroupRatio rejects a negative user-group × using-group ratio, the
+// same invariant CheckGroupRatio enforces for the plain group ratio. The value
+// multiplies the settled quota, so a negative one would invert the charge.
+func CheckGroupGroupRatio(jsonStr string) error {
+	checkGroupGroupRatio := make(map[string]map[string]float64)
+	err := json.Unmarshal([]byte(jsonStr), &checkGroupGroupRatio)
+	if err != nil {
+		return err
+	}
+	for userGroup, ratios := range checkGroupGroupRatio {
+		for usingGroup, ratio := range ratios {
+			if ratio < 0 {
+				return errors.New("group group ratio must be not less than 0: " + userGroup + " -> " + usingGroup)
+			}
+		}
+	}
+	return nil
+}

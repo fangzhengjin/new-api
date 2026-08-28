@@ -310,6 +310,7 @@ func TestAdaptorBuildModelListRequestUsesConfiguredRouteAuth(t *testing.T) {
 	assert.Equal(t, "fallback.example", parsedURL.Host)
 	assert.Equal(t, "/provider/models", parsedURL.Path)
 	assert.Equal(t, "token sk-test", header.Get("x-api-key"))
+	assert.Equal(t, "2023-06-01", header.Get("anthropic-version"))
 	assert.Empty(t, header.Get("Authorization"))
 }
 

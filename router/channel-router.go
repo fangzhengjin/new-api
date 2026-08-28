@@ -61,6 +61,10 @@ var channelPermissionRoutes = []permissionRoute{
 	{method: http.MethodPost, path: "/fix", permission: authz.ChannelOperate, handler: controller.FixChannelsAbilities},
 	{method: http.MethodGet, path: "/fetch_models/:id", permission: authz.ChannelOperate, handler: controller.FetchUpstreamModels},
 	{method: http.MethodPost, path: "/fetch_models", permission: authz.ChannelSensitiveWrite, handler: controller.FetchModels},
+	{method: http.MethodPost, path: "/discovery", permission: authz.ChannelOperate, handler: controller.DiscoverChannels},
+	{method: http.MethodPost, path: "/discovery/probe", permission: authz.ChannelOperate, handler: controller.ProbeChannelDiscovery},
+	{method: http.MethodPost, path: "/discovery/preview", permission: authz.ChannelWrite, handler: controller.PreviewChannelDiscovery},
+	{method: http.MethodPost, path: "/discovery/apply", permission: authz.ChannelSensitiveWrite, handler: controller.ApplyChannelDiscovery},
 	{method: http.MethodPost, path: "/:id/codex/refresh", permission: authz.ChannelSensitiveWrite, handler: controller.RefreshCodexChannelCredential},
 	{method: http.MethodGet, path: "/:id/codex/usage", permission: authz.ChannelRead, handler: controller.GetCodexChannelUsage},
 	{method: http.MethodGet, path: "/:id/codex/usage/reset-credits", permission: authz.ChannelRead, handler: controller.GetCodexChannelRateLimitResetCredits},
@@ -77,4 +81,7 @@ var channelPermissionRoutes = []permissionRoute{
 	{method: http.MethodPost, path: "/upstream_updates/apply_all", permission: authz.ChannelWrite, handler: controller.ApplyAllChannelUpstreamModelUpdates},
 	{method: http.MethodPost, path: "/upstream_updates/detect", permission: authz.ChannelOperate, handler: controller.DetectChannelUpstreamModelUpdates},
 	{method: http.MethodPost, path: "/upstream_updates/detect_all", permission: authz.ChannelOperate, handler: controller.DetectAllChannelUpstreamModelUpdates},
+	{method: http.MethodPost, path: "/normalization/scan", permission: authz.ChannelOperate, handler: controller.StartChannelNormalization},
+	{method: http.MethodGet, path: "/normalization/current", permission: authz.ChannelRead, handler: controller.GetCurrentChannelNormalization},
+	{method: http.MethodPost, path: "/normalization/apply", permission: authz.ChannelWrite, handler: controller.ApplyChannelNormalization},
 }

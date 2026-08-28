@@ -549,6 +549,43 @@ func (channel *Channel) GetModelMapping() string {
 	return *channel.ModelMapping
 }
 
+// ParseChannelModelMapping decodes and normalizes a channel mapping without
+// accepting malformed or empty entries.
+func ParseChannelModelMapping(channel *Channel) (map[string]string, error) {
+	mapping := map[string]string{}
+	raw := strings.TrimSpace(channel.GetModelMapping())
+	if raw == "" || raw == "null" {
+		return mapping, nil
+	}
+	if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
+		return nil, fmt.Errorf("channel %d has invalid model_mapping: %w", channel.Id, err)
+	}
+	for source, target := range mapping {
+		normalizedSource := strings.TrimSpace(source)
+		normalizedTarget := strings.TrimSpace(target)
+		if normalizedSource == "" || normalizedTarget == "" {
+			return nil, fmt.Errorf("channel %d has an empty model_mapping entry", channel.Id)
+		}
+		if normalizedSource != source {
+			delete(mapping, source)
+		}
+		mapping[normalizedSource] = normalizedTarget
+	}
+	return mapping, nil
+}
+
+// MarshalChannelModelMapping encodes a normalized mapping for persistence.
+func MarshalChannelModelMapping(mapping map[string]string) (string, error) {
+	if len(mapping) == 0 {
+		return "", nil
+	}
+	data, err := common.Marshal(mapping)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func (channel *Channel) GetStatusCodeMapping() string {
 	if channel.StatusCodeMapping == nil {
 		return ""

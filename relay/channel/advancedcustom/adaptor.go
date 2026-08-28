@@ -248,7 +248,11 @@ func (a *Adaptor) buildManagementRequest(info *relaycommon.RelayInfo, management
 	switch strings.TrimSpace(auth.Type) {
 	case dto.AdvancedCustomAuthTypeNone, dto.AdvancedCustomAuthTypeQuery:
 	case dto.AdvancedCustomAuthTypeHeader:
-		header.Set(strings.TrimSpace(auth.Name), applyAuthTemplate(auth.Value, info.ApiKey))
+		name := strings.TrimSpace(auth.Name)
+		header.Set(name, applyAuthTemplate(auth.Value, info.ApiKey))
+		if strings.EqualFold(name, "x-api-key") {
+			header.Set("anthropic-version", "2023-06-01")
+		}
 	default:
 		return "", nil, fmt.Errorf("invalid advanced custom auth type: %s", auth.Type)
 	}

@@ -1,7 +1,10 @@
 package service
 
 import (
+	"bytes"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -177,6 +180,14 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	if snap == nil {
 		return nil
 	}
+	return reserveTieredBillingEstimate(c, relayInfo, snap)
+}
+
+func reserveTieredBillingEstimate(c *gin.Context, relayInfo *relaycommon.RelayInfo, snap *billingexpr.BillingSnapshot) *types.NewAPIError {
+	// Channel tests still evaluate request-aware pricing for logs, but never reserve real quota.
+	if relayInfo.IsChannelTest {
+		return nil
+	}
 	if snap.GroupRatio == 0 {
 		// Paid-to-free keeps FreeModel as-is: FreeModel means "pre-consume was
 		// skipped", which is not true once a session exists, and settlement
@@ -196,6 +207,100 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	}
 	relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
 	return nil
+}
+
+// PrepareTieredBillingForUpstreamRequest freezes request-aware billing against
+// the exact body and headers about to be sent, then raises the reservation when
+// channel conversion or overrides made the estimate more expensive.
+func PrepareTieredBillingForUpstreamRequest(c *gin.Context, relayInfo *relaycommon.RelayInfo, req *http.Request) *types.NewAPIError {
+	if relayInfo == nil || relayInfo.TieredBillingSnapshot == nil || req == nil {
+		return nil
+	}
+	snap := relayInfo.TieredBillingSnapshot
+	// Whether the expression reads the outgoing request body or headers. Only
+	// then can channel conversion or channel overrides change the price, so only
+	// then is the sent body an input worth re-freezing. Usage facts such as
+	// u("units") are supplied by the caller at settlement time, not read from
+	// this request, so those expressions must not be evaluated here. A nil result
+	// means the expression could not be inspected; fall through and surface its
+	// error.
+	used := billingexpr.UsedVarsByHash(snap.ExprString, snap.ExprHash)
+	input := billingexpr.RequestInput{Headers: make(map[string]string, len(req.Header))}
+	for name := range req.Header {
+		input.Headers[name] = req.Header.Get(name)
+	}
+	if req.Host != "" {
+		input.Headers["Host"] = req.Host
+	} else if req.URL != nil {
+		input.Headers["Host"] = req.URL.Host
+	}
+	if used != nil && !used["param"] && !used["header"] {
+		// The price cannot change, so keep the captured request details as they
+		// are and skip re-evaluation. The final headers are still published
+		// because request-header auditing reads them from this input.
+		if previous := relayInfo.BillingRequestInput; previous != nil {
+			input.Body = previous.Body
+			input.ImageCount = previous.ImageCount
+		}
+		relayInfo.BillingRequestInput = &input
+		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(req.Header.Get("Content-Type")), "application/json") {
+		var err error
+		if req.GetBody != nil {
+			body, getBodyErr := req.GetBody()
+			if getBodyErr != nil {
+				return types.NewError(getBodyErr, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
+			}
+			input.Body, err = io.ReadAll(body)
+			_ = body.Close()
+		} else if req.Body != nil {
+			input.Body, err = io.ReadAll(req.Body)
+			_ = req.Body.Close()
+			req.Body = io.NopCloser(bytes.NewReader(input.Body))
+		}
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
+		}
+	}
+
+	cost, trace, err := billingexpr.RunExprByHashWithRequest(
+		snap.ExprString,
+		snap.ExprHash,
+		billingexpr.TokenParams{
+			P:   float64(snap.EstimatedPromptTokens),
+			C:   float64(snap.EstimatedCompletionTokens),
+			Len: float64(snap.EstimatedPromptTokens),
+		},
+		input,
+	)
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	snap.EstimatedQuotaBeforeGroup = cost / 1_000_000 * snap.QuotaPerUnit
+	// Group retries reuse the multiplied reservation (expr.md "reservation"
+	// section): re-freezing against the sent body must keep the multiplier for
+	// token-priced leaves, matching the initial pre-consume and the image
+	// quantity retry path. Request-priced leaves and multiplier-less legacy
+	// snapshots stay unmultiplied.
+	if trace.BillingUnit != billingexpr.BillingUnitRequest && snap.PreConsumeMultiplier != 0 {
+		snap.EstimatedQuotaBeforeGroup *= snap.PreConsumeMultiplier
+	}
+	snap.EstimatedQuotaAfterGroup, err = billingexpr.QuotaRoundStrict(snap.EstimatedQuotaBeforeGroup * snap.GroupRatio)
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	// The frozen body replaces the parameters the earlier estimate was built
+	// from, but it carries no billable quantity. Keep the validated count so a
+	// channel override cannot silently drop the quantity multiplier.
+	if relayInfo.BillingRequestInput != nil && relayInfo.BillingRequestInput.ImageCount != nil {
+		input.ImageCount = relayInfo.BillingRequestInput.ImageCount
+	} else if snap.EstimatedImageCount != nil {
+		input.ImageCount = snap.EstimatedImageCount
+	}
+	snap.EstimatedTier = trace.MatchedTier
+	relayInfo.BillingRequestInput = &input
+	return reserveTieredBillingEstimate(c, relayInfo, snap)
 }
 
 // TryTieredSettle checks if the request uses tiered_expr billing and, if so,

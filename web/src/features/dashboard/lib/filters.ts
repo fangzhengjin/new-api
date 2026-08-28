@@ -31,7 +31,11 @@ import type {
   DashboardFilters,
   ModelAnalyticsChartTab,
 } from '@/features/dashboard/types'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import {
+  getCalendarDateRange,
+  type CalendarRange,
+  type TimeGranularity,
+} from '@/lib/time'
 
 function isTimeGranularity(value: unknown): value is TimeGranularity {
   return value === 'hour' || value === 'day' || value === 'week'
@@ -55,8 +59,8 @@ function isModelAnalyticsChartTab(
   return value === 'trend' || value === 'proportion' || value === 'top'
 }
 
-function isTimeRangePresetDays(value: unknown): value is number {
-  return TIME_RANGE_PRESETS.some((preset) => preset.days === value)
+function isTimeRangePreset(value: unknown): value is CalendarRange {
+  return TIME_RANGE_PRESETS.some((preset) => preset.value === value)
 }
 
 export function cleanFilters<T extends Record<string, unknown>>(
@@ -113,9 +117,9 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
       modelAnalyticsChart: isModelAnalyticsChartTab(parsed.modelAnalyticsChart)
         ? parsed.modelAnalyticsChart
         : fallbackPreferences.modelAnalyticsChart,
-      defaultTimeRangeDays: isTimeRangePresetDays(parsed.defaultTimeRangeDays)
-        ? parsed.defaultTimeRangeDays
-        : fallbackPreferences.defaultTimeRangeDays,
+      defaultTimeRange: isTimeRangePreset(parsed.defaultTimeRange)
+        ? parsed.defaultTimeRange
+        : fallbackPreferences.defaultTimeRange,
       defaultTimeGranularity: isTimeGranularity(parsed.defaultTimeGranularity)
         ? parsed.defaultTimeGranularity
         : fallbackPreferences.defaultTimeGranularity,
@@ -135,15 +139,32 @@ export function saveChartPreferences(
   )
 }
 
-export function getDefaultDays(granularity?: TimeGranularity): number {
-  if (!granularity) return getSavedChartPreferences().defaultTimeRangeDays
+/**
+ * Returns the calendar range associated with a saved or selected granularity.
+ * @param granularity Optional granularity override.
+ * @returns The matching calendar range.
+ */
+export function getDefaultRange(granularity?: TimeGranularity): CalendarRange {
+  if (!granularity) return getSavedChartPreferences().defaultTimeRange
   return TIME_RANGE_BY_GRANULARITY[getSavedGranularity(granularity)]
+}
+
+/**
+ * Returns the internal fallback duration for a chart granularity.
+ * @param granularity Optional granularity override.
+ * @returns Fallback duration in days.
+ */
+export function getDefaultDays(granularity?: TimeGranularity): number {
+  const resolved = getSavedGranularity(granularity)
+  if (resolved === 'hour') return 1
+  if (resolved === 'day') return 7
+  return 30
 }
 
 export function buildDefaultDashboardFilters(
   preferences: DashboardChartPreferences = getSavedChartPreferences()
 ): DashboardFilters {
-  const { start, end } = getRollingDateRange(preferences.defaultTimeRangeDays)
+  const { start, end } = getCalendarDateRange(preferences.defaultTimeRange)
   return {
     ...EMPTY_DASHBOARD_FILTERS,
     start_timestamp: start,

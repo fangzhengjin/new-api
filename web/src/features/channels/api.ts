@@ -27,6 +27,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelConcurrencyResponse,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -162,6 +163,22 @@ export async function getChannelDefaultBaseURLs(): Promise<
     data: Partial<Record<number, string>>
   }>('/api/channel/default_base_urls')
   return requireServerSuccess(response.data).data
+}
+
+/**
+ * Get active request counts for the supplied channels
+ * @param ids - Channel IDs to query.
+ * @returns Availability and active request counts keyed by channel ID.
+ */
+export async function getChannelConcurrency(
+  ids: number[]
+): Promise<ChannelConcurrencyResponse> {
+  const res = await api.post(
+    '/api/channel/concurrency',
+    { ids },
+    channelActionConfig()
+  )
+  return res.data
 }
 
 /**

@@ -29,6 +29,7 @@ const consumeLog: UsageLog = {
   type: 2,
   content: '',
   username: 'alice',
+  display_name: 'Alice',
   token_name: 'prod',
   model_name: 'gpt-4o-mini',
   quota: 250000,

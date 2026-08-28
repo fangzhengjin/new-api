@@ -163,6 +163,7 @@ describe('quota adjustment log localization', () => {
         type: 1,
         content: 'English export fallback',
         username: 'quota-user',
+        display_name: '',
         token_name: '',
         model_name: '',
         quota: 0,

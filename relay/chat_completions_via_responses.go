@@ -141,6 +141,7 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 			return nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+	relaycommon.UpdateReasoningEffortForUpstreamJSON(info, jsonData)
 
 	body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 	if err != nil {

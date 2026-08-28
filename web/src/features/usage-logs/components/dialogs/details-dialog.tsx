@@ -77,6 +77,7 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  getReasoningEffortDisplay,
   getReasoningEffortVariant,
   renderAuditContent,
 } from '../../lib/format'
@@ -680,9 +681,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const retryTargets = getRetryTargetChain(other?.admin_info, t('Key'))
   const channelChain =
     retryTargets.length > 0 ? retryTargets.join(' → ') : undefined
-  const reasoningEffortVariant = getReasoningEffortVariant(
-    other?.reasoning_effort
-  )
+  const reasoningEffort =
+    isConsume || other?.reasoning_effort != null
+      ? getReasoningEffortDisplay(other?.reasoning_effort)
+      : null
 
   return (
     <Dialog
@@ -1149,16 +1151,37 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Reasoning effort */}
-        {other?.reasoning_effort && (
+        {reasoningEffort && (
           <DetailRow
             label={t('Reasoning Effort')}
             value={
-              <StatusBadge
-                label={other.reasoning_effort}
-                variant={reasoningEffortVariant}
-                size='sm'
-                copyable={false}
-              />
+              reasoningEffort.original !== undefined &&
+              reasoningEffort.original !== reasoningEffort.final ? (
+                <span className='inline-flex items-center gap-1'>
+                  <StatusBadge
+                    label={reasoningEffort.original}
+                    variant={getReasoningEffortVariant(
+                      reasoningEffort.original
+                    )}
+                    size='sm'
+                    copyable={false}
+                  />
+                  <span className='text-muted-foreground'>→</span>
+                  <StatusBadge
+                    label={reasoningEffort.final}
+                    variant={getReasoningEffortVariant(reasoningEffort.final)}
+                    size='sm'
+                    copyable={false}
+                  />
+                </span>
+              ) : (
+                <StatusBadge
+                  label={reasoningEffort.final}
+                  variant={getReasoningEffortVariant(reasoningEffort.final)}
+                  size='sm'
+                  copyable={false}
+                />
+              )
             }
           />
         )}

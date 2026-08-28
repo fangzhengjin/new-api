@@ -211,6 +211,32 @@ export function getRetryTargetChain(
     ? channels.map(String).filter((channel) => channel !== '')
     : []
 }
+
+export interface ReasoningEffortDisplay {
+  original?: string
+  final: string
+}
+
+function normalizeReasoningEffort(value?: string): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed || undefined
+}
+
+/** Normalize legacy and structured reasoning-effort log values for display. */
+export function getReasoningEffortDisplay(
+  value?: LogOtherData['reasoning_effort']
+): ReasoningEffortDisplay {
+  if (value && typeof value === 'object') {
+    return {
+      original: normalizeReasoningEffort(value.original) ?? 'none',
+      final: normalizeReasoningEffort(value.final) ?? 'none',
+    }
+  }
+  return {
+    final: normalizeReasoningEffort(value) ?? 'none',
+  }
+}
+
 export function getReasoningEffortVariant(
   effort: string | undefined
 ): StatusBadgeProps['variant'] {
@@ -229,7 +255,6 @@ export function getReasoningEffortVariant(
       return 'grey'
   }
 }
-
 /**
  * Get time color based on duration (in seconds)
  */

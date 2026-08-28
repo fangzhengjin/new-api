@@ -98,6 +98,51 @@ func GetChannelOps(c *gin.Context) {
 	})
 }
 
+// GetChannelConcurrency returns Redis-backed active and waiting request counts for up to 1000 channels.
+// Channel IDs are supplied in the JSON request body and counts are returned by channel ID.
+func GetChannelConcurrency(c *gin.Context) {
+	var request struct {
+		IDs []int `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(request.IDs) > 1000 {
+		common.ApiError(c, fmt.Errorf("too many channel ids"))
+		return
+	}
+
+	channelIDs := make([]int, 0, len(request.IDs))
+	seen := make(map[int]struct{}, len(request.IDs))
+	for _, channelID := range request.IDs {
+		if channelID <= 0 {
+			common.ApiError(c, fmt.Errorf("invalid channel id: %d", channelID))
+			return
+		}
+		if _, exists := seen[channelID]; exists {
+			continue
+		}
+		seen[channelID] = struct{}{}
+		channelIDs = append(channelIDs, channelID)
+	}
+
+	markAuditLogged(c)
+	counts, err := service.GetChannelConcurrencyCounts(c.Request.Context(), channelIDs)
+	if err != nil {
+		common.ApiSuccess(c, gin.H{
+			"available": false,
+			"counts":    map[int]int64{},
+		})
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"available": true,
+		"counts":    counts,
+	})
+}
+
 func GetAllChannels(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	channelData := make([]*model.Channel, 0)

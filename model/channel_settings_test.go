@@ -41,6 +41,19 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsRejectsInvalidConcurrency(t *testing.T) {
+	timeout := dto.MaxConcurrencyWaitTimeoutSeconds + 1
+	channel := &Channel{}
+	channel.SetSetting(dto.ChannelSettings{
+		MaxConcurrency:                3,
+		ConcurrencyWaitTimeoutSeconds: &timeout,
+	})
+
+	err := channel.ValidateSettings()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "concurrency_wait_timeout_seconds")
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

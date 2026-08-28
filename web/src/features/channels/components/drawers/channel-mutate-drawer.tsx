@@ -22,6 +22,7 @@ import {
   ArrowRight,
   ArrowLeft,
   AlertCircle,
+  Boxes,
   ChevronDown,
   ClipboardPaste,
   Loader2,
@@ -543,6 +544,7 @@ export function ChannelMutateDrawer({
   const currentHeaderOverride = formValues.header_override
   const currentProxy = formValues.proxy
   const currentHttpProtocol = formValues.http_protocol
+  const currentMaxConcurrency = formValues.max_concurrency
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1852,6 +1854,90 @@ export function ChannelMutateDrawer({
         )
       }}
     />
+  )
+
+  const concurrencyFields = (
+    <div
+      role='group'
+      aria-label={t('Concurrency Control')}
+      className={channelConfigurationBlockClassName(
+        configuration.blocks.extraSettings,
+        'flex flex-col gap-4 border-t pt-4'
+      )}
+    >
+      <SubHeading
+        title={t('Concurrency Control')}
+        icon={<Boxes className='h-3.5 w-3.5' />}
+        iconTone='warning'
+      />
+      <fieldset
+        disabled={sensitiveLocked}
+        className='space-y-4 disabled:opacity-60'
+      >
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <FormField
+            control={form.control}
+            name='max_concurrency'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Maximum concurrent requests')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={0}
+                    max={10000}
+                    step={1}
+                    {...field}
+                    onChange={(event) =>
+                      field.onChange(Number(event.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Maximum in-flight requests across all instances. Set to 0 for unlimited.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='concurrency_wait_timeout_seconds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Concurrency wait timeout (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={0}
+                    max={3600}
+                    step={1}
+                    disabled={sensitiveLocked || !currentMaxConcurrency}
+                    {...field}
+                    onChange={(event) =>
+                      field.onChange(Number(event.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'How long a request waits for a slot. Set to 0 to fail immediately.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Concurrency limits are shared across instances through Redis. Streaming requests hold a slot until the response ends.'
+          )}
+        </p>
+      </fieldset>
+    </div>
   )
 
   const routingFields = (
@@ -4220,6 +4306,7 @@ export function ChannelMutateDrawer({
                 {proxyFields}
                 {httpProtocolFields}
                 {httpShardsFields}
+                {concurrencyFields}
               </fieldset>
             </div>
             {upstreamModelDetectionFields}

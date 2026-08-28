@@ -83,6 +83,8 @@ const CONFIGURATION_BLOCKS = {
       'proxy',
       'http_protocol',
       'http2_connection_shards',
+      'max_concurrency',
+      'concurrency_wait_timeout_seconds',
       'disable_task_polling_sleep',
     ],
   },
@@ -174,6 +176,7 @@ export function getChannelConfigurationState(
       values.proxy?.trim() ||
       (values.http_protocol && values.http_protocol !== 'auto') ||
       (values.http2_connection_shards ?? 1) > 1 ||
+      (values.max_concurrency ?? 0) > 0 ||
       values.disable_task_polling_sleep
     ),
     upstreamModelDetection:

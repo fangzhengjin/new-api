@@ -20,7 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
-import { updateSystemOption } from '../api'
+import { updateSystemOption, updateSystemOptions } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
@@ -43,14 +43,18 @@ export function useUpdateOption() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
+    mutationFn: (request: UpdateOptionRequest | UpdateOptionRequest[]) =>
+      Array.isArray(request)
+        ? updateSystemOptions(request)
+        : updateSystemOption(request),
     onSuccess: (data, variables) => {
       if (data.success) {
         // Always refresh system-options
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
         // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.has(variables.key)) {
+        const requests = Array.isArray(variables) ? variables : [variables]
+        if (requests.some((request) => STATUS_RELATED_KEYS.has(request.key))) {
           queryClient.invalidateQueries({ queryKey: ['status'] })
           try {
             window.localStorage.removeItem('status')

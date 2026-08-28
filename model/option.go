@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -50,6 +52,7 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
+	common.OptionMap[operation_setting.RequestHeaderRulesOptionKey] = operation_setting.DefaultRequestHeaderRulesJSON()
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
@@ -199,11 +202,41 @@ func InitOptionMap() {
 
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
+	legacyIgnored, legacyBlocked := "", ""
+	hasLegacyIgnored, hasLegacyBlocked, hasRules := false, false, false
 	for _, option := range options {
+		switch option.Key {
+		case operation_setting.LegacyRequestHeaderIgnoredHeadersKey:
+			legacyIgnored, hasLegacyIgnored = option.Value, true
+			continue
+		case operation_setting.LegacyRequestHeaderBlockedHeadersKey:
+			legacyBlocked, hasLegacyBlocked = option.Value, true
+			continue
+		case operation_setting.RequestHeaderRulesOptionKey:
+			hasRules = true
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
+	}
+	if hasRules || (!hasLegacyIgnored && !hasLegacyBlocked) {
+		return
+	}
+	defaultIgnored, defaultBlocked := operation_setting.DefaultLegacyRequestHeaderRuleLists()
+	if !hasLegacyIgnored {
+		legacyIgnored = defaultIgnored
+	}
+	if !hasLegacyBlocked {
+		legacyBlocked = defaultBlocked
+	}
+	converted, err := operation_setting.ConvertLegacyRequestHeaderRules(legacyIgnored, legacyBlocked)
+	if err != nil {
+		common.SysLog("failed to convert legacy request header rules: " + err.Error())
+		return
+	}
+	if err = updateOptionMap(operation_setting.RequestHeaderRulesOptionKey, converted); err != nil {
+		common.SysLog("failed to load converted request header rules: " + err.Error())
 	}
 }
 
@@ -216,8 +249,48 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == operation_setting.ToolPriceOptionKey {
+	switch key {
+	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
+	case "GroupRatio":
+		return ratio_setting.CheckGroupRatio(value)
+	case "ModelRequestRateLimitGroup":
+		return setting.CheckModelRequestRateLimitGroup(value)
+	case "AutomaticDisableStatusCodes", "AutomaticRetryStatusCodes":
+		_, err := operation_setting.ParseHTTPStatusCodeRanges(value)
+		return err
+	case "Chats", "PayMethods":
+		var entries []map[string]string
+		return common.UnmarshalJsonStr(value, &entries)
+	case operation_setting.RequestHeaderRulesOptionKey:
+		return operation_setting.ValidateRequestHeaderRulesJSON(value)
+	case operation_setting.LegacyRequestHeaderIgnoredHeadersKey,
+		operation_setting.LegacyRequestHeaderBlockedHeadersKey:
+		return fmt.Errorf("配置项 %s 已合并到 %s", key, operation_setting.RequestHeaderRulesOptionKey)
+	case operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderSystemRulesOptionKey,
+		"RequestHeaderAuditCapacityBytes":
+		return fmt.Errorf("配置项 %s 为只读", key)
+	case "AutoGroups":
+		var groups []string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "codex.minimum_client_version", "codex.minimum_desktop_client_version",
+		"codex.request_header_fallback_version", "claude.minimum_client_version":
+		return model_setting.ValidateClientVersion(value)
+	case "codex.request_header_fallback_client":
+		return model_setting.ValidateCodexUserAgentClient(value)
+	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
+		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
+		return model_setting.ValidateCodexUserAgentComponent(value)
+	case "UserUsableGroups":
+		var groups map[string]string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "GroupGroupRatio":
+		var ratios map[string]map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
+	case "TopupGroupRatio", "ModelRatio", "CompletionRatio", "ModelPrice", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio":
+		var ratios map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
@@ -291,6 +364,14 @@ func updateOptionMap(key string, value string) (err error) {
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
 		return nil
+	}
+	if key == operation_setting.RequestHeaderRulesOptionKey ||
+		key == operation_setting.RequestHeaderRulesDefaultOptionKey ||
+		key == operation_setting.RequestHeaderSystemRulesOptionKey ||
+		key == "RequestHeaderAuditCapacityBytes" {
+		if err := validateOptionValue(key, value); err != nil {
+			return err
+		}
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()

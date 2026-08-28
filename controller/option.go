@@ -124,6 +124,20 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	options = append(options,
+		&model.Option{
+			Key:   operation_setting.RequestHeaderRulesDefaultOptionKey,
+			Value: operation_setting.DefaultRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
+			Value: operation_setting.SystemRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   "RequestHeaderAuditCapacityBytes",
+			Value: strconv.Itoa(operation_setting.RequestHeaderAuditCapacityBytes),
+		},
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -136,222 +150,266 @@ type OptionUpdateRequest struct {
 	Value any    `json:"value"`
 }
 
-func UpdateOption(c *gin.Context) {
-	var option OptionUpdateRequest
-	err := common.DecodeJson(c.Request.Body, &option)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "无效的参数",
-		})
-		return
-	}
-	switch option.Value.(type) {
+func normalizeOptionValue(value any) string {
+	switch value := value.(type) {
 	case bool:
-		option.Value = common.Interface2String(option.Value.(bool))
+		return common.Interface2String(value)
 	case float64:
-		option.Value = common.Interface2String(option.Value.(float64))
+		return common.Interface2String(value)
 	case int:
-		option.Value = common.Interface2String(option.Value.(int))
+		return common.Interface2String(value)
 	default:
-		option.Value = fmt.Sprintf("%v", option.Value)
+		return fmt.Sprintf("%v", value)
 	}
-	switch option.Key {
+}
+
+func optionValue(values map[string]string, key string, current string) string {
+	if value, ok := values[key]; ok {
+		return value
+	}
+	return current
+}
+
+func validateRatioOption(value string) error {
+	var ratios map[string]float64
+	return common.UnmarshalJsonStr(value, &ratios)
+}
+
+func validateOptionUpdate(c *gin.Context, key string, value string, values map[string]string) bool {
+	switch key {
 	case "QuotaForInviter", "QuotaForInvitee":
-		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
+		if isPositiveOptionValue(value) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
-			return
+			return false
 		}
 	default:
-		if isPaymentComplianceOptionKey(option.Key) {
+		if isPaymentComplianceOptionKey(key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
-			return
+			return false
 		}
 	}
-	if option.Key == "TaskPublicAddress" && option.Value.(string) != "" {
-		if err := service.ValidateTaskArtifactBaseURL(option.Value.(string)); err != nil {
-			common.ApiErrorMsg(c, err.Error())
-			return
+
+	var err error
+	switch key {
+	case "TaskPublicAddress":
+		if value != "" {
+			if err = service.ValidateTaskArtifactBaseURL(value); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return false
+			}
 		}
-	}
-	switch option.Key {
 	case "GitHubOAuthEnabled":
-		if option.Value == "true" && common.GitHubClientId == "" {
+		if value == "true" && optionValue(values, "GitHubClientId", common.GitHubClientId) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 GitHub OAuth，请先填入 GitHub Client Id 以及 GitHub Client Secret！",
 			})
-			return
+			return false
 		}
 	case "discord.enabled":
-		if option.Value == "true" && system_setting.GetDiscordSettings().ClientId == "" {
+		if value == "true" && optionValue(values, "discord.client_id", system_setting.GetDiscordSettings().ClientId) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 Discord OAuth，请先填入 Discord Client Id 以及 Discord Client Secret！",
 			})
-			return
+			return false
 		}
 	case "oidc.enabled":
-		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
+		if value == "true" && optionValue(values, "oidc.client_id", system_setting.GetOIDCSettings().ClientId) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 OIDC 登录，请先填入 OIDC Client Id 以及 OIDC Client Secret！",
 			})
-			return
+			return false
 		}
 	case "LinuxDOOAuthEnabled":
-		if option.Value == "true" && common.LinuxDOClientId == "" {
+		if value == "true" && optionValue(values, "LinuxDOClientId", common.LinuxDOClientId) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 LinuxDO OAuth，请先填入 LinuxDO Client Id 以及 LinuxDO Client Secret！",
 			})
-			return
+			return false
 		}
 	case "EmailDomainRestrictionEnabled":
-		if option.Value == "true" && len(common.EmailDomainWhitelist) == 0 {
+		if value == "true" && optionValue(values, "EmailDomainWhitelist", strings.Join(common.EmailDomainWhitelist, ",")) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用邮箱域名限制，请先填入限制的邮箱域名！",
 			})
-			return
+			return false
 		}
 	case "WeChatAuthEnabled":
-		if option.Value == "true" && common.WeChatServerAddress == "" {
+		if value == "true" && optionValue(values, "WeChatServerAddress", common.WeChatServerAddress) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用微信登录，请先填入微信登录相关配置信息！",
 			})
-			return
+			return false
 		}
 	case "TurnstileCheckEnabled":
-		if option.Value == "true" && common.TurnstileSiteKey == "" {
+		if value == "true" && optionValue(values, "TurnstileSiteKey", common.TurnstileSiteKey) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 Turnstile 校验，请先填入 Turnstile 校验相关配置信息！",
 			})
-
-			return
+			return false
 		}
 	case "TelegramOAuthEnabled":
-		if option.Value == "true" && common.TelegramBotToken == "" {
+		if value == "true" && optionValue(values, "TelegramBotToken", common.TelegramBotToken) == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 Telegram OAuth，请先填入 Telegram Bot Token！",
 			})
-			return
+			return false
 		}
 	case "theme.frontend":
-		if option.Value != "default" {
+		if value != "default" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "Classic 前端已移除，主题只能设置为 default",
 			})
-			return
+			return false
 		}
 	case "GroupRatio":
-		err = ratio_setting.CheckGroupRatio(option.Value.(string))
+		err = ratio_setting.CheckGroupRatio(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "gemini.safety_settings":
-		err = model_setting.ValidateGeminiSafetySettings(option.Value.(string))
+		err = model_setting.ValidateGeminiSafetySettings(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "claude.default_max_tokens":
-		err = model_setting.ValidateClaudeDefaultMaxTokens(option.Value.(string))
+		err = model_setting.ValidateClaudeDefaultMaxTokens(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
+		}
+	case "codex.minimum_client_version", "codex.minimum_desktop_client_version",
+		"codex.request_header_fallback_version", "claude.minimum_client_version",
+		"claude.request_header_fallback_version":
+		err = model_setting.ValidateClientVersion(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_client":
+		err = model_setting.ValidateCodexUserAgentClient(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
+		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
+		err = model_setting.ValidateCodexUserAgentComponent(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_model_patterns", "claude.request_header_model_patterns":
+		err = model_setting.ValidateClientIdentityModelPatterns(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return false
 		}
 	case operation_setting.ToolPriceOptionKey:
-		err = operation_setting.ValidateToolPricesJSON(option.Value.(string))
+		err = operation_setting.ValidateToolPricesJSON(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "ImageRatio":
-		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "图片倍率设置失败: " + err.Error(),
 			})
-			return
+			return false
 		}
 	case "AudioRatio":
-		err = ratio_setting.UpdateAudioRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "音频倍率设置失败: " + err.Error(),
 			})
-			return
+			return false
 		}
 	case "AudioCompletionRatio":
-		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "音频补全倍率设置失败: " + err.Error(),
 			})
-			return
+			return false
 		}
 	case "CreateCacheRatio":
-		err = ratio_setting.UpdateCreateCacheRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "缓存创建倍率设置失败: " + err.Error(),
 			})
-			return
+			return false
 		}
 	case "ModelRequestRateLimitGroup":
-		err = setting.CheckModelRequestRateLimitGroup(option.Value.(string))
+		err = setting.CheckModelRequestRateLimitGroup(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "AutomaticDisableStatusCodes":
-		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
+		_, err = operation_setting.ParseHTTPStatusCodeRanges(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "AutomaticRetryStatusCodes":
-		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
+		_, err = operation_setting.ParseHTTPStatusCodeRanges(value)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "billing_setting.billing_expr":
 		expressions := make(map[string]string)
-		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil {
+		if err = common.UnmarshalJsonStr(value, &expressions); err != nil {
 			common.ApiErrorMsg(c, "计费表达式配置必须是模型到表达式的 JSON 对象: "+err.Error())
-			return
+			return false
 		}
 		models := make([]string, 0, len(expressions))
 		for modelName := range expressions {
@@ -374,54 +432,147 @@ func UpdateOption(c *gin.Context) {
 			}
 			if err != nil {
 				common.ApiErrorMsg(c, fmt.Sprintf("模型 %s 的计费表达式无效: %v", modelName, err))
-				return
+				return false
 			}
 		}
 	case "console_setting.api_info":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "ApiInfo")
+		err = console_setting.ValidateConsoleSettings(value, "ApiInfo")
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "console_setting.announcements":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "Announcements")
+		err = console_setting.ValidateConsoleSettings(value, "Announcements")
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "console_setting.faq":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "FAQ")
+		err = console_setting.ValidateConsoleSettings(value, "FAQ")
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	case "console_setting.uptime_kuma_groups":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "UptimeKumaGroups")
+		err = console_setting.ValidateConsoleSettings(value, "UptimeKumaGroups")
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": err.Error(),
 			})
-			return
+			return false
 		}
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
-	if err != nil {
+	return true
+}
+
+// UpdateOption keeps the legacy single-option endpoint compatible while
+// sharing validation and persistence behavior with batch option updates.
+func UpdateOption(c *gin.Context) {
+	var option OptionUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &option); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "无效的参数",
+		})
+		return
+	}
+	if strings.TrimSpace(option.Key) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "设置项名称不能为空",
+		})
+		return
+	}
+	value := normalizeOptionValue(option.Value)
+	values := map[string]string{option.Key: value}
+	if !validateOptionUpdate(c, option.Key, value, values) {
+		return
+	}
+	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]interface{}{
 		"key": option.Key,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+// UpdateOptions validates a batch from c, persists it atomically, and writes the JSON result to c.
+func UpdateOptions(c *gin.Context) {
+	var request struct {
+		Options []OptionUpdateRequest `json:"options"`
+	}
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "无效的参数",
+		})
+		return
+	}
+	if len(request.Options) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "设置项不能为空",
+		})
+		return
+	}
+	if len(request.Options) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "一次最多更新100个设置项",
+		})
+		return
+	}
+
+	values := make(map[string]string, len(request.Options))
+	keys := make([]string, 0, len(request.Options))
+	for _, option := range request.Options {
+		if strings.TrimSpace(option.Key) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "设置项名称不能为空",
+			})
+			return
+		}
+		if _, exists := values[option.Key]; exists {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "重复的设置项: " + option.Key,
+			})
+			return
+		}
+		values[option.Key] = normalizeOptionValue(option.Value)
+		keys = append(keys, option.Key)
+	}
+	for _, option := range request.Options {
+		if !validateOptionUpdate(c, option.Key, values[option.Key], values) {
+			return
+		}
+	}
+
+	if err := model.UpdateOptionsBulk(values); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	sort.Strings(keys)
+	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
+	recordManageAudit(c, "option.update", map[string]interface{}{
+		"key": strings.Join(keys, ", "),
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

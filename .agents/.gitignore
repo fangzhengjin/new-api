@@ -1,0 +1,9 @@
+*
+!.gitignore
+!skills/
+!skills/**
+!mcp.json
+!github/
+!github/**
+!rules/
+!rules/**

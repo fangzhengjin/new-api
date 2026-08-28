@@ -130,6 +130,10 @@ func GetOptions(c *gin.Context) {
 			Value: operation_setting.DefaultRequestHeaderRulesJSON(),
 		},
 		&model.Option{
+			Key:   operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
+			Value: operation_setting.CDNRequestHeaderRuleGroupsJSON(),
+		},
+		&model.Option{
 			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
 			Value: operation_setting.SystemRequestHeaderRulesJSON(),
 		},

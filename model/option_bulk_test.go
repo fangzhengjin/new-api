@@ -60,6 +60,13 @@ func TestInitOptionMapConvertsLegacyRequestHeaderRulesWithoutWritingDatabase(t *
 	assert.Equal(t, []operation_setting.RequestHeaderRule{
 		{Name: "X-Noise-*", Record: false, Forward: false},
 		{Name: "X-Block-*", Record: true, Forward: false},
+		{Name: "CF-*", Record: false, Forward: false},
+		{Name: "EO-*", Record: false, Forward: false},
+		{Name: "Ali-*", Record: false, Forward: false},
+		{Name: "ESA-*", Record: false, Forward: false},
+		{Name: "TLS-Hash", Record: false, Forward: false},
+		{Name: "TLS-JA3", Record: false, Forward: false},
+		{Name: "TLS-JA4", Record: false, Forward: false},
 	}, rules)
 	assert.ErrorIs(t, db.First(&Option{}, "key = ?", operation_setting.RequestHeaderRulesOptionKey).Error, gorm.ErrRecordNotFound)
 }
@@ -70,5 +77,14 @@ func TestValidateOptionValueRejectsLegacyRequestHeaderRuleWrites(t *testing.T) {
 		operation_setting.LegacyRequestHeaderBlockedHeadersKey,
 	} {
 		require.Error(t, validateOptionValue(key, "X-Test"), key)
+	}
+}
+func TestValidateOptionValueRejectsReadOnlyDefaults(t *testing.T) {
+	for _, key := range []string{
+		operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
+		operation_setting.RequestHeaderSystemRulesOptionKey,
+	} {
+		require.Error(t, validateOptionValue(key, "changed"), key)
 	}
 }

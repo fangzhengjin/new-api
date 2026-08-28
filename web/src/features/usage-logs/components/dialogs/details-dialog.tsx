@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ArrowDown01Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import type { TFunction } from 'i18next'
 /*
 Copyright (C) 2023-2026 QuantumNous
@@ -50,11 +52,17 @@ import {
   Info,
   LogIn,
 } from 'lucide-react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
@@ -83,6 +91,7 @@ import {
 } from '../../lib/format'
 import {
   getLogTypeConfig,
+  isDisplayableLogType,
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
@@ -165,6 +174,115 @@ function DetailSection(props: {
         )}
       >
         {props.children}
+      </div>
+    </div>
+  )
+}
+
+function RequestHeaderTransition(props: {
+  name: string
+  incoming: string
+  outgoing?: string
+  hasOutgoing: boolean
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const [expandable, setExpandable] = useState(false)
+  const valuesRef = useRef<HTMLDivElement>(null)
+  const incoming = props.incoming || t('Not set')
+  const outgoing =
+    props.outgoing ||
+    (props.name === 'User-Agent'
+      ? t('Not explicitly set; handled by transport')
+      : t('Not set'))
+  const changed = props.hasOutgoing && props.incoming !== props.outgoing
+  const accessibilityLabel = changed
+    ? `${props.name}: ${incoming}, ${t('Changed to')} ${outgoing}`
+    : `${props.name}: ${incoming}`
+
+  useLayoutEffect(() => {
+    if (expanded || !valuesRef.current) return
+
+    const values = valuesRef.current
+    const measureOverflow = () => {
+      const hasOverflow = [...values.querySelectorAll('code')].some(
+        (value) => value.scrollHeight > value.clientHeight
+      )
+      setExpandable(hasOverflow)
+    }
+
+    measureOverflow()
+    const observer = new ResizeObserver(measureOverflow)
+    observer.observe(values)
+    return () => observer.disconnect()
+  }, [changed, expanded, incoming, outgoing])
+
+  return (
+    <div role='group' className='min-w-[30rem]' aria-label={accessibilityLabel}>
+      <div
+        ref={valuesRef}
+        className='grid grid-cols-[7.5rem_minmax(0,1fr)_1rem_minmax(0,1fr)_1.75rem] items-start gap-x-2'
+      >
+        <span className='text-muted-foreground min-w-0 pt-0.5 text-xs font-medium wrap-break-word'>
+          {props.name}
+        </span>
+        {changed ? (
+          <>
+            <code
+              aria-hidden='true'
+              className={cn(
+                'min-w-0 font-mono text-xs leading-5 wrap-break-word',
+                !expanded && 'line-clamp-2'
+              )}
+            >
+              {incoming}
+            </code>
+            <span
+              className='text-muted-foreground pt-0.5 text-center text-xs'
+              aria-hidden='true'
+            >
+              →
+            </span>
+            <code
+              aria-hidden='true'
+              className={cn(
+                'min-w-0 font-mono text-xs leading-5 wrap-break-word',
+                !expanded && 'line-clamp-2'
+              )}
+            >
+              {outgoing}
+            </code>
+          </>
+        ) : (
+          <code
+            aria-hidden='true'
+            className={cn(
+              'col-span-3 min-w-0 font-mono text-xs leading-5 wrap-break-word',
+              !expanded && 'line-clamp-2'
+            )}
+          >
+            {incoming}
+          </code>
+        )}
+        {expandable ? (
+          <Button
+            variant='ghost'
+            size='icon-sm'
+            className='self-start active:not-aria-[haspopup]:translate-y-0'
+            aria-label={`${props.name}: ${t('Details')}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            <HugeiconsIcon
+              icon={ArrowDown01Icon}
+              strokeWidth={2}
+              aria-hidden='true'
+              className={cn('transition-transform', expanded && 'rotate-180')}
+            />
+          </Button>
+        ) : (
+          <span aria-hidden='true' />
+        )}
       </div>
     </div>
   )
@@ -551,6 +669,7 @@ interface DetailsDialogProps {
 
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
+  const [requestHeadersExpanded, setRequestHeadersExpanded] = useState(false)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
@@ -561,6 +680,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isConsume = props.log.type === 2
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
+  const isRequestLog = isDisplayableLogType(props.log.type)
   const isSubscription = other?.billing_source === 'subscription'
   const isTieredBilling =
     isConsume &&
@@ -644,7 +764,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     .map((field) => t(CHANNEL_FIELD_LABELS[field] ?? field))
     .join(', ')
   const showManageAuditSection =
-    isManage && props.isAdmin && (operationText != null || auditRoute != null)
+    isManage && (operationText != null || auditRoute != null)
 
   // Login audit (type=7); visible to the log owner, not admin-only.
   const isLogin = props.log.type === 7
@@ -675,16 +795,78 @@ export function DetailsDialog(props: DetailsDialogProps) {
       : conversionChain.join(' -> ')
   const showConversion =
     props.isAdmin &&
+    isRequestLog &&
     props.log.type !== 6 &&
     (other?.request_path || conversionChain.length > 0)
 
   const retryTargets = getRetryTargetChain(other?.admin_info, t('Key'))
+  const requestHeadersAudit = props.isAdmin
+    ? other?.admin_info?.request_headers
+    : undefined
+  const legacyUserAgentAudit = props.isAdmin
+    ? other?.admin_info?.user_agent
+    : undefined
+  const incomingRequestHeaders =
+    requestHeadersAudit?.incoming ??
+    (legacyUserAgentAudit
+      ? { 'User-Agent': legacyUserAgentAudit.client }
+      : undefined)
+  const outgoingRequestHeaders =
+    requestHeadersAudit?.outgoing ??
+    (legacyUserAgentAudit?.upstream_after_fallback != null
+      ? { 'User-Agent': legacyUserAgentAudit.upstream_after_fallback }
+      : undefined)
+  const requestHeaderNames = [
+    ...new Set([
+      ...Object.keys(incomingRequestHeaders ?? {}),
+      ...Object.keys(outgoingRequestHeaders ?? {}),
+    ]),
+  ]
+    .filter((name) => name !== 'User-Agent')
+    .sort()
+  const hasUserAgentHeader =
+    Object.hasOwn(incomingRequestHeaders ?? {}, 'User-Agent') ||
+    Object.hasOwn(outgoingRequestHeaders ?? {}, 'User-Agent')
+  const incomingOmittedRequestHeaders = Array.isArray(
+    requestHeadersAudit?.omitted?.incoming
+  )
+    ? requestHeadersAudit.omitted.incoming
+    : []
+  const outgoingOmittedRequestHeaders = Array.isArray(
+    requestHeadersAudit?.omitted?.outgoing
+  )
+    ? requestHeadersAudit.omitted.outgoing
+    : []
+  const omittedRequestHeaders = [
+    ...incomingOmittedRequestHeaders.map((item) => ({
+      ...item,
+      direction: 'incoming' as const,
+    })),
+    ...outgoingOmittedRequestHeaders.map((item) => ({
+      ...item,
+      direction: 'outgoing' as const,
+    })),
+  ]
+  const showRequestHeaders =
+    incomingRequestHeaders != null ||
+    outgoingRequestHeaders != null ||
+    omittedRequestHeaders.length > 0
   const channelChain =
     retryTargets.length > 0 ? retryTargets.join(' → ') : undefined
   const reasoningEffort =
     isConsume || other?.reasoning_effort != null
       ? getReasoningEffortDisplay(other?.reasoning_effort)
       : null
+  const showBillingPath =
+    props.isAdmin &&
+    isRequestLog &&
+    !isConsume &&
+    !isRefund &&
+    other?.admin_info != null &&
+    (other.admin_info.usage_billing_path != null ||
+      typeof other.admin_info.local_count_tokens === 'boolean')
+  const showContent =
+    details !== '' && !((isManage || isLogin) && operationText != null)
 
   return (
     <Dialog
@@ -702,11 +884,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         </>
       }
       description={t('View the complete details for this log entry')}
-      contentClassName={cn(
-        'min-w-0 overflow-hidden',
-        'max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4',
-        isTieredBilling ? 'sm:max-w-4xl lg:max-w-5xl' : 'sm:max-w-lg'
-      )}
+      contentClassName='min-w-0 overflow-hidden max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4 sm:max-w-4xl lg:max-w-5xl'
       headerClassName='max-sm:gap-1'
       titleClassName='flex items-center gap-2 text-base'
       descriptionClassName='sr-only'
@@ -731,7 +909,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {props.isAdmin && props.log.channel > 0 && (
+          {isRequestLog && props.isAdmin && props.log.channel > 0 && (
             <DetailRow
               label={t('Channel')}
               value={
@@ -749,15 +927,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {channelChain && props.isAdmin && (
+          {isRequestLog && channelChain && props.isAdmin && (
             <DetailRow label={t('Retry Chain')} value={channelChain} mono />
           )}
 
-          {props.log.token_name && (
+          {isRequestLog && props.log.token_name && (
             <DetailRow label={t('Token')} value={props.log.token_name} mono />
           )}
 
-          {(props.log.group || other?.group) && (
+          {isRequestLog && (props.log.group || other?.group) && (
             <DetailRow
               label={t('Group')}
               value={props.log.group || other?.group || ''}
@@ -813,6 +991,41 @@ export function DetailsDialog(props: DetailsDialogProps) {
               }
             />
           )}
+
+          {reasoningEffort && (
+            <DetailRow
+              label={t('Reasoning Effort')}
+              value={
+                reasoningEffort.original !== undefined &&
+                reasoningEffort.original !== reasoningEffort.final ? (
+                  <span className='inline-flex items-center gap-1'>
+                    <StatusBadge
+                      label={reasoningEffort.original}
+                      variant={getReasoningEffortVariant(
+                        reasoningEffort.original
+                      )}
+                      size='sm'
+                      copyable={false}
+                    />
+                    <span className='text-muted-foreground'>→</span>
+                    <StatusBadge
+                      label={reasoningEffort.final}
+                      variant={getReasoningEffortVariant(reasoningEffort.final)}
+                      size='sm'
+                      copyable={false}
+                    />
+                  </span>
+                ) : (
+                  <StatusBadge
+                    label={reasoningEffort.final}
+                    variant={getReasoningEffortVariant(reasoningEffort.final)}
+                    size='sm'
+                    copyable={false}
+                  />
+                )
+              }
+            />
+          )}
         </div>
 
         {/* Request conversion (admin only, not for refund) */}
@@ -852,6 +1065,93 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             </div>
+          </DetailSection>
+        )}
+
+        {/* Model mapping */}
+        {other?.is_model_mapped && other?.upstream_model_name && (
+          <DetailSection label={t('Model Mapping')}>
+            <DetailRow
+              label={t('Request Model')}
+              value={props.log.model_name}
+              mono
+            />
+            <DetailRow
+              label={t('Actual Model')}
+              value={other.upstream_model_name}
+              mono
+            />
+          </DetailSection>
+        )}
+
+        {/* Request header audit (admin only) */}
+        {showRequestHeaders && (
+          <DetailSection label={t('Request Headers')}>
+            {hasUserAgentHeader && (
+              <div className='min-w-0 overflow-x-auto overflow-y-hidden'>
+                <RequestHeaderTransition
+                  name='User-Agent'
+                  incoming={incomingRequestHeaders?.['User-Agent'] ?? ''}
+                  outgoing={outgoingRequestHeaders?.['User-Agent']}
+                  hasOutgoing={outgoingRequestHeaders != null}
+                />
+              </div>
+            )}
+            {requestHeaderNames.length > 0 && (
+              <Collapsible
+                className='min-w-0'
+                open={requestHeadersExpanded}
+                onOpenChange={setRequestHeadersExpanded}
+              >
+                <div className='flex justify-end'>
+                  <CollapsibleTrigger className='text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex h-8 items-center rounded-sm px-2 text-xs underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:outline-none'>
+                    {t(requestHeadersExpanded ? 'Collapse' : 'Expand')}
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent className='border-border mt-1 min-w-0 border-t pt-2'>
+                  <div className='flex min-w-0 flex-col gap-2.5 overflow-x-auto overflow-y-hidden'>
+                    {requestHeaderNames.map((name) => (
+                      <RequestHeaderTransition
+                        key={name}
+                        name={name}
+                        incoming={incomingRequestHeaders?.[name] ?? ''}
+                        outgoing={outgoingRequestHeaders?.[name]}
+                        hasOutgoing={outgoingRequestHeaders != null}
+                      />
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+            {omittedRequestHeaders.length > 0 && (
+              <div className='border-border mt-2 space-y-1.5 border-t pt-2'>
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'The following headers were not recorded because the audit capacity was reached.'
+                  )}
+                </p>
+                <ul className='space-y-1'>
+                  {omittedRequestHeaders.map((item) => (
+                    <li
+                      key={`${item.direction}-${item.name}`}
+                      className='flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs'
+                    >
+                      <span className='text-muted-foreground'>
+                        {item.direction === 'incoming'
+                          ? t('Incoming')
+                          : t('Outgoing')}
+                      </span>
+                      <code className='min-w-0 wrap-break-word'>
+                        {item.name}
+                      </code>
+                      <span className='text-muted-foreground tabular-nums'>
+                        {t('{{count}} bytes', { count: item.byte_length })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </DetailSection>
         )}
 
@@ -902,7 +1202,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Violation fee info */}
-        {isViolation && other && (
+        {isConsume && isViolation && other && (
           <DetailSection
             icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
             label={t('Violation Fee')}
@@ -1048,7 +1348,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
           />
         )}
 
-        {/* Operation audit info (type=3, admin only) */}
+        {/* Operation text is user-visible; operator and route fields stay admin-only. */}
         {showManageAuditSection && (
           <DetailSection
             icon={<ShieldCheck className='size-3.5' aria-hidden='true' />}
@@ -1150,42 +1450,6 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
-        {/* Reasoning effort */}
-        {reasoningEffort && (
-          <DetailRow
-            label={t('Reasoning Effort')}
-            value={
-              reasoningEffort.original !== undefined &&
-              reasoningEffort.original !== reasoningEffort.final ? (
-                <span className='inline-flex items-center gap-1'>
-                  <StatusBadge
-                    label={reasoningEffort.original}
-                    variant={getReasoningEffortVariant(
-                      reasoningEffort.original
-                    )}
-                    size='sm'
-                    copyable={false}
-                  />
-                  <span className='text-muted-foreground'>→</span>
-                  <StatusBadge
-                    label={reasoningEffort.final}
-                    variant={getReasoningEffortVariant(reasoningEffort.final)}
-                    size='sm'
-                    copyable={false}
-                  />
-                </span>
-              ) : (
-                <StatusBadge
-                  label={reasoningEffort.final}
-                  variant={getReasoningEffortVariant(reasoningEffort.final)}
-                  size='sm'
-                  copyable={false}
-                />
-              )
-            }
-          />
-        )}
-
         {/* System prompt override */}
         {other?.is_system_prompt_overwritten && (
           <DetailRow
@@ -1201,24 +1465,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
           />
         )}
 
-        {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
-          <DetailSection label={t('Model Mapping')}>
-            <DetailRow
-              label={t('Request Model')}
-              value={props.log.model_name}
-              mono
-            />
-            <DetailRow
-              label={t('Actual Model')}
-              value={other.upstream_model_name}
-              mono
-            />
-          </DetailSection>
-        )}
-
         {/* Token breakdown (for consume/error types with token data) */}
-        {isDisplayableType(props.log.type) && other && (
+        {isRequestLog && other && (
           <TokenBreakdown log={props.log} other={other} />
         )}
 
@@ -1247,26 +1495,23 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Admin billing mode indicator for non-consume */}
-        {props.isAdmin &&
-          !isConsume &&
-          props.log.type !== 6 &&
-          other?.admin_info && (
-            <DetailRow
-              label={t('Billing Path')}
-              value={
-                <span className='flex items-center gap-1'>
-                  {isUsageBillingPathLocal(other.admin_info) ? (
-                    <Monitor className='size-3 text-blue-500' />
-                  ) : (
-                    <Cloud className='size-3 text-emerald-500' />
-                  )}
-                  <span className='text-xs'>
-                    {getUsageBillingPathLabel(t, other.admin_info)}
-                  </span>
+        {showBillingPath && other?.admin_info && (
+          <DetailRow
+            label={t('Billing Path')}
+            value={
+              <span className='flex items-center gap-1'>
+                {isUsageBillingPathLocal(other.admin_info) ? (
+                  <Monitor className='size-3 text-blue-500' />
+                ) : (
+                  <Cloud className='size-3 text-emerald-500' />
+                )}
+                <span className='text-xs'>
+                  {getUsageBillingPathLabel(t, other.admin_info)}
                 </span>
-              }
-            />
-          )}
+              </span>
+            }
+          />
+        )}
 
         {/* Stream status details */}
         {other?.stream_status && other.stream_status.status !== 'ok' && (
@@ -1388,7 +1633,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Content */}
-        {details && (
+        {showContent && (
           <div className='space-y-1.5'>
             <Label className='text-xs font-semibold'>{t('Content')}</Label>
             <div className='bg-muted/30 relative min-w-0 overflow-hidden rounded-md border p-2.5'>
@@ -1415,8 +1660,4 @@ export function DetailsDialog(props: DetailsDialogProps) {
       </div>
     </Dialog>
   )
-}
-
-function isDisplayableType(type: number): boolean {
-  return [0, 2, 5, 6].includes(type)
 }

@@ -98,6 +98,11 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <LogSettingsSection
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
+        defaultRules={settings.RequestHeaderRules}
+        builtInRules={settings.RequestHeaderRulesDefault}
+        cdnRuleGroups={settings.RequestHeaderCDNRuleGroups}
+        systemRules={settings.RequestHeaderSystemRules}
+        capacityBytes={settings.RequestHeaderAuditCapacityBytes}
       />
     ),
   },

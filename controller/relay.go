@@ -130,6 +130,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			http.StatusBadRequest,
 			types.ErrOptionWithSkipRetry(),
 		)
+		recordRelayErrorLog(c, newAPIError, nil, nil)
 		return
 	}
 
@@ -666,6 +667,10 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError, relayInfo *rela
 		modelName := c.GetString("original_model")
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
+		channelId := c.GetInt("channel_id")
+		if channelError != nil {
+			channelId = channelError.ChannelId
+		}
 		other := model.NewLogOther()
 		if c.Request != nil && c.Request.URL != nil {
 			other.SetPublic("request_path", c.Request.URL.Path)
@@ -680,9 +685,8 @@ func recordRelayErrorLog(c *gin.Context, err *types.NewAPIError, relayInfo *rela
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
-
 }
 
 func RelayMidjourney(c *gin.Context) {

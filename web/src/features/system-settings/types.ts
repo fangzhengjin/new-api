@@ -201,12 +201,30 @@ export type ModelSettings = {
   'gemini.thinking_adapter_budget_tokens_percentage': number
   'gemini.function_call_thought_signature_enabled': boolean
   'gemini.remove_function_response_id_enabled': boolean
+  'codex.client_version_check_enabled': boolean
+  'codex.minimum_client_version': string
+  'codex.desktop_client_version_check_enabled': boolean
+  'codex.minimum_desktop_client_version': string
   'codex.request_header_fallback_enabled': boolean
+  'codex.request_header_fallback_client': string
+  'codex.request_header_fallback_version': string
+  'codex.request_header_fallback_os': string
+  'codex.request_header_fallback_os_version': string
+  'codex.request_header_fallback_architecture': string
+  'codex.request_header_fallback_terminal': string
+  'codex.request_header_model_patterns': string
   'codex.error_response_mappings': string
+  'codex.default_settings'?: string
+  'claude.client_version_check_enabled': boolean
+  'claude.minimum_client_version': string
+  'claude.request_header_fallback_enabled': boolean
+  'claude.request_header_fallback_version': string
+  'claude.request_header_model_patterns': string
   'claude.model_headers_settings': string
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
   'claude.thinking_adapter_budget_tokens_percentage': number
+  'claude.default_settings'?: string
   'grok.violation_deduction_enabled': boolean
   'grok.violation_deduction_amount': number
   ModelPrice: string
@@ -357,6 +375,11 @@ export type OperationsSettings = {
   WorkerValidKey: string
   WorkerAllowHttpImageRequestEnabled: boolean
   LogConsumeEnabled: boolean
+  RequestHeaderRules: string
+  RequestHeaderRulesDefault: string
+  RequestHeaderCDNRuleGroups: string
+  RequestHeaderSystemRules: string
+  RequestHeaderAuditCapacityBytes: number
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number

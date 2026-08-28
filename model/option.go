@@ -268,6 +268,7 @@ func validateOptionValue(key string, value string) error {
 		operation_setting.LegacyRequestHeaderBlockedHeadersKey:
 		return fmt.Errorf("配置项 %s 已合并到 %s", key, operation_setting.RequestHeaderRulesOptionKey)
 	case operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
 		operation_setting.RequestHeaderSystemRulesOptionKey,
 		"RequestHeaderAuditCapacityBytes":
 		return fmt.Errorf("配置项 %s 为只读", key)
@@ -369,6 +370,7 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	if key == operation_setting.RequestHeaderRulesOptionKey ||
 		key == operation_setting.RequestHeaderRulesDefaultOptionKey ||
+		key == operation_setting.RequestHeaderCDNRuleGroupsOptionKey ||
 		key == operation_setting.RequestHeaderSystemRulesOptionKey ||
 		key == "RequestHeaderAuditCapacityBytes" {
 		if err := validateOptionValue(key, value); err != nil {

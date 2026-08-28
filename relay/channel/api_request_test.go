@@ -4,9 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -29,6 +32,140 @@ func TestNewTaskAPIRequestInheritsClientCancellation(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, upstream.Context().Err(), context.Canceled)
+}
+
+type wssAuditAdaptor struct {
+	Adaptor
+	url  string
+	host string
+}
+
+func (a wssAuditAdaptor) GetRequestURL(*relaycommon.RelayInfo) (string, error) {
+	return a.url, nil
+}
+
+func (a wssAuditAdaptor) SetupRequestHeader(_ *gin.Context, header *http.Header, _ *relaycommon.RelayInfo) error {
+	header.Set("Authorization", "Bearer upstream-secret")
+	header.Set("X-Audit-Trace", "trace-123")
+	header.Set("X-Blocked", "removed")
+	if a.host != "" {
+		header.Set("Host", a.host)
+	}
+	return nil
+}
+
+func setRequestHeaderRulesForTest(t *testing.T, rules []operation_setting.RequestHeaderRule) {
+	t.Helper()
+	common2.OptionMapRWMutex.Lock()
+	if common2.OptionMap == nil {
+		common2.OptionMap = make(map[string]string)
+	}
+	previousRules, hadPreviousRules := common2.OptionMap[operation_setting.RequestHeaderRulesOptionKey]
+	encodedRules, err := common2.Marshal(rules)
+	require.NoError(t, err)
+	common2.OptionMap[operation_setting.RequestHeaderRulesOptionKey] = string(encodedRules)
+	common2.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		common2.OptionMapRWMutex.Lock()
+		defer common2.OptionMapRWMutex.Unlock()
+		if hadPreviousRules {
+			common2.OptionMap[operation_setting.RequestHeaderRulesOptionKey] = previousRules
+		} else {
+			delete(common2.OptionMap, operation_setting.RequestHeaderRulesOptionKey)
+		}
+	})
+}
+
+func tieredHeaderTestInfo(format types.RelayFormat) *relaycommon.RelayInfo {
+	const expr = `tier("base", p)`
+	return &relaycommon.RelayInfo{
+		IsChannelTest: true,
+		RelayFormat:   format,
+		ChannelMeta:   &relaycommon.ChannelMeta{},
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode: "tiered_expr", ExprString: expr, ExprHash: billingexpr.ExprHashString(expr),
+			GroupRatio: 1, EstimatedPromptTokens: 1, QuotaPerUnit: 1_000_000,
+		},
+	}
+}
+
+func TestDoWssRequestCapturesFinalForwardedHeaders(t *testing.T) {
+	setRequestHeaderRulesForTest(t, []operation_setting.RequestHeaderRule{{Name: "X-Blocked", Record: true, Forward: false}})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "upgrade rejected", http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	info := tieredHeaderTestInfo(types.RelayFormatOpenAIRealtime)
+	_, err := DoWssRequest(wssAuditAdaptor{url: "ws" + strings.TrimPrefix(server.URL, "http")}, context, info, nil)
+	require.Error(t, err)
+
+	other := model.NewLogOther()
+	service.AppendRequestHeadersAdminInfo(context, other)
+	adminInfo := other.Snapshot()["admin_info"].(map[string]interface{})
+	requestHeaders := adminInfo["request_headers"].(map[string]interface{})
+	outgoing := requestHeaders["outgoing"].(map[string]string)
+	require.Equal(t, "trace-123", outgoing["X-Audit-Trace"])
+	require.NotContains(t, outgoing, "X-Blocked")
+	require.NotContains(t, outgoing, "Authorization")
+	require.Equal(t, "trace-123", info.BillingRequestInput.Headers["X-Audit-Trace"])
+	require.NotContains(t, info.BillingRequestInput.Headers, "X-Blocked")
+	require.Equal(t, strings.TrimPrefix(server.URL, "http://"), info.BillingRequestInput.Headers["Host"])
+}
+
+func TestDoWssRequestBillsExplicitHostOverride(t *testing.T) {
+	setRequestHeaderRulesForTest(t, []operation_setting.RequestHeaderRule{{Name: "Host", Record: true, Forward: true}})
+	receivedHost := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		receivedHost <- request.Host
+		http.Error(w, "upgrade rejected", http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	info := tieredHeaderTestInfo(types.RelayFormatOpenAIRealtime)
+	_, err := DoWssRequest(wssAuditAdaptor{
+		url: "ws" + strings.TrimPrefix(server.URL, "http"), host: "billing.example",
+	}, context, info, nil)
+	require.Error(t, err)
+	require.Equal(t, "billing.example", <-receivedHost)
+	require.Equal(t, "billing.example", info.BillingRequestInput.Headers["Host"])
+}
+
+func TestDoRequestBillsFinalForwardedHeaders(t *testing.T) {
+	setRequestHeaderRulesForTest(t, []operation_setting.RequestHeaderRule{{Name: "X-Blocked", Forward: false}})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		require.Empty(t, request.Header.Get("X-Blocked"))
+		require.Empty(t, request.Header.Get("Connection"))
+		require.Empty(t, request.Header.Get("X-Hop-Only"))
+		require.Equal(t, "kept", request.Header.Get("X-Final"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{}`))
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Blocked", "removed")
+	request.Header.Set("Connection", "X-Hop-Only")
+	request.Header.Set("X-Hop-Only", "removed")
+	request.Header.Set("X-Final", "kept")
+	info := tieredHeaderTestInfo(types.RelayFormatOpenAI)
+
+	response, err := doRequest(context, request, info)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, "kept", info.BillingRequestInput.Headers["X-Final"])
+	require.NotContains(t, info.BillingRequestInput.Headers, "X-Blocked")
+	require.NotContains(t, info.BillingRequestInput.Headers, "Connection")
+	require.NotContains(t, info.BillingRequestInput.Headers, "X-Hop-Only")
+	require.Equal(t, request.URL.Host, info.BillingRequestInput.Headers["Host"])
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
@@ -132,7 +269,7 @@ func TestProcessHeaderOverride_RuntimeOverrideIsFinalHeaderMap(t *testing.T) {
 	require.False(t, exists)
 }
 
-func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
+func TestProcessHeaderOverride_PassthroughSkipsTransportAndChannelOwnedHeaders(t *testing.T) {
 	t.Parallel()
 
 	gin.SetMode(gin.TestMode)
@@ -140,7 +277,21 @@ func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	ctx.Request.Header.Set("X-Trace-Id", "trace-123")
-	ctx.Request.Header.Set("Accept-Encoding", "gzip")
+	skipped := []string{
+		"Accept-Encoding",
+		"Connection",
+		"Content-Length",
+		"Sec-WebSocket-Key",
+		"api-key",
+		"OpenAI-Organization",
+		"OpenAI-Project",
+		"chatgpt-account-id",
+		"x-goog-user-project",
+		"Sec-WebSocket-Protocol",
+	}
+	for _, name := range skipped {
+		ctx.Request.Header.Set(name, "client-value")
+	}
 
 	info := &relaycommon.RelayInfo{
 		IsChannelTest: false,
@@ -155,8 +306,10 @@ func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "trace-123", headers["x-trace-id"])
 
-	_, hasAcceptEncoding := headers["accept-encoding"]
-	require.False(t, hasAcceptEncoding)
+	for _, name := range skipped {
+		_, exists := headers[strings.ToLower(name)]
+		require.False(t, exists, name)
+	}
 }
 
 func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.T) {
@@ -237,12 +390,24 @@ func TestPassCodexClientHeadersPreservesOfficialIdentity(t *testing.T) {
 			ctx.Request.Header.Set("X-OAI-Attestation", "official-attestation")
 			ctx.Request.Header.Set("X-OpenAI-Internal-Codex-Responses-Lite", "true")
 			ctx.Request.Header.Set("Authorization", "Bearer client-secret")
+			ctx.Request.Header.Set("api-key", "client-api-key")
+			ctx.Request.Header.Set("OpenAI-Organization", "client-organization")
+			ctx.Request.Header.Set("OpenAI-Project", "client-project")
+			ctx.Request.Header.Set("chatgpt-account-id", "client-account")
+			ctx.Request.Header.Set("x-goog-user-project", "client-google-project")
+			ctx.Request.Header.Set("Sec-WebSocket-Protocol", "realtime, openai-insecure-api-key.client-secret")
 
 			upstream := http.Header{
 				"Authorization": {"Bearer upstream-secret"},
 				"Originator":    {"adapter-originator"},
 				"User-Agent":    {"adapter/1.0"},
 			}
+			upstream.Set("api-key", "upstream-api-key")
+			upstream.Set("OpenAI-Organization", "upstream-organization")
+			upstream.Set("OpenAI-Project", "upstream-project")
+			upstream.Set("chatgpt-account-id", "upstream-account")
+			upstream.Set("x-goog-user-project", "upstream-google-project")
+			upstream.Set("Sec-WebSocket-Protocol", "realtime, openai-insecure-api-key.upstream-secret")
 			info := &relaycommon.RelayInfo{
 				RelayFormat: types.RelayFormatOpenAIResponses,
 				ChannelMeta: &relaycommon.ChannelMeta{
@@ -270,6 +435,12 @@ func TestPassCodexClientHeadersPreservesOfficialIdentity(t *testing.T) {
 			require.Equal(t, "official-session", upstream.Get("Thread-Id"))
 			require.Equal(t, "official-session", upstream.Get("X-Client-Request-Id"))
 			require.Equal(t, "Bearer upstream-secret", upstream.Get("Authorization"))
+			require.Equal(t, "upstream-api-key", upstream.Get("api-key"))
+			require.Equal(t, "upstream-organization", upstream.Get("OpenAI-Organization"))
+			require.Equal(t, "upstream-project", upstream.Get("OpenAI-Project"))
+			require.Equal(t, "upstream-account", upstream.Get("chatgpt-account-id"))
+			require.Equal(t, "upstream-google-project", upstream.Get("x-goog-user-project"))
+			require.Equal(t, "realtime, openai-insecure-api-key.upstream-secret", upstream.Get("Sec-WebSocket-Protocol"))
 		})
 	}
 }
@@ -726,8 +897,9 @@ func TestDoRequestAppliesCodexRequestHeaderFallbackBeforeTransport(t *testing.T)
 	require.Equal(t, "custom-cli/9.8.7 (Mac OS 26.5.2; arm64) ghostty/1.3.1 (custom-cli; 9.8.7)", headers.Get("User-Agent"))
 	require.Equal(t, "custom-cli", headers.Get("Originator"))
 	require.NotEmpty(t, headers.Get("Session-Id"))
-	adminInfo := map[string]interface{}{}
-	service.AppendRequestHeadersAdminInfo(c, adminInfo)
+	other := model.NewLogOther()
+	service.AppendRequestHeadersAdminInfo(c, other)
+	adminInfo := other.Snapshot()["admin_info"].(map[string]interface{})
 	requestHeaders := adminInfo["request_headers"].(map[string]interface{})
 	auditedHeaders := requestHeaders["outgoing"].(map[string]string)
 	require.Equal(t, headers.Get("User-Agent"), auditedHeaders["User-Agent"])
@@ -740,7 +912,6 @@ func TestDoRequestRemovesBlockedHeadersBeforeAuditAndTransport(t *testing.T) {
 	}
 	previousRules, hadPreviousRules := common2.OptionMap[operation_setting.RequestHeaderRulesOptionKey]
 	encodedRules, err := common2.Marshal([]operation_setting.RequestHeaderRule{
-		{Name: "X-Stainless-*", Record: true, Forward: false},
 		{Name: "Host", Record: true, Forward: false},
 	})
 	require.NoError(t, err)
@@ -773,6 +944,8 @@ func TestDoRequestRemovesBlockedHeadersBeforeAuditAndTransport(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, server.URL, http.NoBody)
 	require.NoError(t, err)
 	req.Host = "spoofed.example"
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Stainless-Runtime", "node")
 	req.Header.Set("X-Trace-Id", "trace-123")
 
@@ -783,13 +956,18 @@ func TestDoRequestRemovesBlockedHeadersBeforeAuditAndTransport(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	upstream := <-received
+	require.Empty(t, upstream.header.Get("Cache-Control"))
+	require.Equal(t, "application/json", upstream.header.Get("Content-Type"))
 	require.Empty(t, upstream.header.Get("X-Stainless-Runtime"))
 	require.Equal(t, "trace-123", upstream.header.Get("X-Trace-Id"))
 	require.NotEqual(t, "spoofed.example", upstream.host)
-	adminInfo := map[string]interface{}{}
-	service.AppendRequestHeadersAdminInfo(c, adminInfo)
+	other := model.NewLogOther()
+	service.AppendRequestHeadersAdminInfo(c, other)
+	adminInfo := other.Snapshot()["admin_info"].(map[string]interface{})
 	requestHeaders := adminInfo["request_headers"].(map[string]interface{})
 	auditedHeaders := requestHeaders["outgoing"].(map[string]string)
+	require.NotContains(t, auditedHeaders, "Cache-Control")
+	require.NotContains(t, auditedHeaders, "Content-Type")
 	require.NotContains(t, auditedHeaders, "X-Stainless-Runtime")
 	require.Equal(t, "trace-123", auditedHeaders["X-Trace-Id"])
 }

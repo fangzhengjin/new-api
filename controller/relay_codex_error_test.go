@@ -101,7 +101,7 @@ func TestWriteCodexMappedErrorResponsePreservesLocalErrors(t *testing.T) {
 	context.Request.Header.Set("User-Agent", "codex-tui/0.152.1")
 	localError := types.NewErrorWithStatusCode(
 		assert.AnError,
-		types.ErrorCodeRateLimitAccountTotal,
+		types.ErrorCodeBadResponseStatusCode,
 		http.StatusTooManyRequests,
 	)
 	localError.SetMessage("rate limit")

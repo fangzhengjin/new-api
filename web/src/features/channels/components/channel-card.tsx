@@ -24,8 +24,13 @@ import { GroupBadge } from '@/components/group-badge'
 import { StatusBadgeTypeContext } from '@/components/status-badge'
 
 import { CHANNEL_STATUS } from '../constants'
-import { isTagAggregateRow, parseGroupsList } from '../lib'
+import {
+  isTagAggregateRow,
+  parseChannelSettings,
+  parseGroupsList,
+} from '../lib'
 import type { Channel } from '../types'
+import { ChannelConcurrencyValue } from './channel-concurrency-value'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 
@@ -42,9 +47,11 @@ const SENSITIVE_MASK = '••••'
 function ChannelCardComponent({
   row,
   isSelected,
+  showConcurrency,
 }: {
   row: Row<Channel>
   isSelected: boolean
+  showConcurrency: boolean
 }) {
   const { t } = useTranslation()
   const { sensitiveVisible } = useChannels()
@@ -60,6 +67,7 @@ function ChannelCardComponent({
   }
 
   const groups = parseGroupsList(row.original.group ?? '')
+  const settings = parseChannelSettings(row.original.setting)
 
   const selectCell = renderCell('select')
   const typeCell = renderCell('type')
@@ -145,6 +153,17 @@ function ChannelCardComponent({
                   {testCell ?? <span className='text-muted-foreground'>-</span>}
                 </dd>
               </div>
+              {!isTagRow && showConcurrency && (
+                <div className='row-span-2 grid min-w-0 grid-rows-subgrid'>
+                  <dt className={labelClass}>{t('Concurrency')}</dt>
+                  <dd className='min-w-0 text-sm'>
+                    <ChannelConcurrencyValue
+                      channelId={row.original.id}
+                      limit={settings.max_concurrency ?? 0}
+                    />
+                  </dd>
+                </div>
+              )}
             </dl>
           </div>
         </StatusBadgeTypeContext.Provider>

@@ -532,6 +532,44 @@ func UpdateModelPricingOptions(updates map[string]string) error {
 	})
 }
 
+// replaceModelPricingOptions validates a set of option replacements against
+// the locked pricing snapshot before the caller commits other option rows.
+func replaceModelPricingOptions(values map[string]map[string]any, updates map[string]string) error {
+	previous := maps.Clone(values)
+	names := make(map[string]bool)
+	for key, raw := range updates {
+		if !IsModelPricingOption(key) {
+			return fmt.Errorf("unsupported pricing field: %s", key)
+		}
+		var entries map[string]any
+		if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
+			return err
+		}
+		if entries == nil {
+			return fmt.Errorf("%s must be a JSON object", key)
+		}
+		for _, entriesForKey := range []map[string]any{values[key], entries} {
+			for name := range entriesForKey {
+				if key == billing_setting.PluginBillingExprOption {
+					_, model, ok := billing_setting.SplitPluginBillingExprKey(name)
+					if !ok {
+						return fmt.Errorf("invalid plugin billing expression key: %s", name)
+					}
+					name = model
+				}
+				names[name] = true
+			}
+		}
+		values[key] = entries
+	}
+	for name := range names {
+		if err := validateModelPricing(name, modelPricingValues(values, name), modelPricingValues(previous, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {
 	modelPricingMutationMu.Lock()
 	defer modelPricingMutationMu.Unlock()

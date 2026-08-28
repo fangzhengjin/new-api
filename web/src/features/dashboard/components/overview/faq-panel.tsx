@@ -54,7 +54,7 @@ export function FAQPanel() {
       height='h-80'
       contentClassName='p-0'
     >
-      <ScrollArea className='h-80'>
+      <ScrollArea autoHide className='h-80'>
         <Accordion className='w-full px-4 sm:px-5'>
           {list.map((item: FAQItem, idx: number) => {
             const key = item.id ?? `faq-${idx}`

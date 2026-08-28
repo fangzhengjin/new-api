@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -262,6 +263,17 @@ func validateOptionValue(key string, value string) error {
 	case "Chats", "PayMethods":
 		var entries []map[string]string
 		return common.UnmarshalJsonStr(value, &entries)
+	case "console_setting.overview_panel_order":
+		return console_setting.ValidateOverviewPanelOrder(value)
+	case "CompanyQuotaModeEnabled", "quota_setting.enable_free_model_pre_consume",
+		"channel_affinity_setting.renew_ttl_on_success",
+		"codex.client_version_check_enabled", "codex.desktop_client_version_check_enabled",
+		"codex.request_header_fallback_enabled", "claude.client_version_check_enabled",
+		"claude.request_header_fallback_enabled":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("配置项 %s 必须为 true 或 false", key)
+		}
+		return nil
 	case operation_setting.RequestHeaderRulesOptionKey:
 		return operation_setting.ValidateRequestHeaderRulesJSON(value)
 	case operation_setting.LegacyRequestHeaderIgnoredHeadersKey,

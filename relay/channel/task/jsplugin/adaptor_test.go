@@ -1191,7 +1191,7 @@ func mappingOrderSubmitBody(t *testing.T, origin, mapping string) []byte {
 	}
 	c.Set("task_request", map[string]any{"prompt": "p"})
 	info.UpstreamModelName = info.OriginModelName
-	require.NoError(t, helper.ModelMappedHelper(c, info, nil))
+	require.NoError(t, helper.TaskModelMappedHelper(c, info, nil))
 	require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
 	body, err := adaptor.BuildRequestBody(c, info)
 	require.NoError(t, err)

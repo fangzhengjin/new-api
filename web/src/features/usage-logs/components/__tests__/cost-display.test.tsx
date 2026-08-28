@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import type React from 'react'
@@ -31,6 +31,7 @@ import {
 
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
+import { LOG_TYPE_ENUM } from '../../constants'
 import { LogCostDisplay } from '../log-cost-display'
 
 function renderCost(
@@ -42,9 +43,12 @@ function renderCost(
 describe('log cost display', () => {
   beforeAll(() => {
     i18next.addResourceBundle('en', 'translation', {
+      'Deducted by subscription': 'Deducted by subscription',
       Subscription: 'Subscription',
       Wallet: 'Wallet',
       'Includes tool-call surcharge': 'Includes tool-call surcharge',
+      'Request failed, no fee was charged':
+        'Request failed, no fee was charged',
     })
   })
 
@@ -65,7 +69,8 @@ describe('log cost display', () => {
   ])(
     'shows subscription deduction $consumed without hover, falling back only when absent',
     ({ consumed, expected }) => {
-      renderCost({
+      const rendered = renderCost({
+        logType: LOG_TYPE_ENUM.CONSUME,
         quota: 5000,
         other: {
           billing_source: 'subscription',
@@ -74,7 +79,7 @@ describe('log cost display', () => {
         showBillingSource: true,
       })
 
-      expect(screen.getByText(expected)).toBeVisible()
+      expect(rendered.container.textContent).toContain(expected)
       expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
       expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
@@ -82,46 +87,49 @@ describe('log cost display', () => {
   )
 
   test('shows wallet cost and source icon without using subscription metadata', () => {
-    renderCost({
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 5000,
       other: { billing_source: 'wallet', subscription_consumed: 12500 },
       showBillingSource: true,
     })
 
-    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.01')
     expect(screen.getByRole('img', { name: 'Wallet' })).toBeVisible()
     expect(screen.queryByText('Wallet')).not.toBeInTheDocument()
     expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
   })
 
   test('hides the wallet icon when subscriptions are unavailable', () => {
-    renderCost({
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 5000,
       other: { billing_source: 'wallet' },
       showBillingSource: false,
     })
 
-    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.01')
     expect(screen.queryByText('Wallet')).not.toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
   test('keeps the subscription icon on a subscription-billed log when billing sources are hidden', () => {
-    renderCost({
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 5000,
       other: { billing_source: 'subscription', subscription_consumed: 12500 },
       showBillingSource: false,
     })
 
-    expect(screen.getByText('$0.025')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.025')
     expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
     expect(screen.queryByRole('img', { name: 'Wallet' })).not.toBeInTheDocument()
   })
 
   test('keeps legacy cost visible without inventing a funding source', () => {
-    renderCost({ quota: 5000, other: null })
+    const rendered = renderCost({ logType: LOG_TYPE_ENUM.CONSUME, quota: 5000, other: null })
 
-    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.01')
     expect(screen.queryByText('Wallet')).not.toBeInTheDocument()
     expect(screen.queryByText('Subscription')).not.toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
@@ -129,18 +137,21 @@ describe('log cost display', () => {
 
   test('keeps a large amount unabridged in a single-line cost bubble', () => {
     const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 2147483647,
       other: { billing_source: 'subscription' },
       showBillingSource: true,
     })
 
-    const amount = screen.getByText('$4,294.9673')
-    expect(amount).toBeVisible()
-    expect(amount).toHaveClass('whitespace-nowrap')
-    expect(amount.closest('[data-slot="status-badge"]')).toHaveClass(
+    expect(rendered.container.textContent).toContain('$4,294.9673')
+    const badge = rendered.container.querySelector(
+      '[data-cost-tone="subscription"]'
+    )
+    expect(badge).toHaveClass(
       'border',
       'rounded-md',
-      'tabular-nums'
+      'tabular-nums',
+      'whitespace-nowrap'
     )
     expect(rendered.container.firstElementChild).toHaveClass('inline-flex')
     expect(rendered.container.firstElementChild).not.toHaveClass('flex-col')
@@ -155,6 +166,7 @@ describe('log cost display', () => {
     async ({ source, label }) => {
       const user = userEvent.setup()
       renderCost({
+        logType: LOG_TYPE_ENUM.CONSUME,
         quota: 5000,
         other: { billing_source: source },
         showBillingSource: true,
@@ -169,21 +181,26 @@ describe('log cost display', () => {
       await waitFor(() =>
         expect(screen.queryByText(label)).not.toBeInTheDocument()
       )
-      await user.tab()
+      act(() => marker.focus())
       expect(marker).toHaveFocus()
       expect(await screen.findByText(label)).toBeVisible()
     }
   )
 
   test('keeps the regular cost visible and adds an accessible surcharge marker', () => {
-    renderCost({
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 12500,
       other: {
         tool_surcharges: [{ name: 'lookup_customer', count: 1, price: 5 }],
       },
     })
 
-    expect(screen.getByText('$0.025')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.025')
+    const costBadge = rendered.container.querySelector(
+      '[data-cost-tone="metered"]'
+    )
+    expect(costBadge).not.toHaveAttribute('title')
     const marker = screen.getByRole('img', {
       name: 'Includes tool-call surcharge',
     })
@@ -191,8 +208,70 @@ describe('log cost display', () => {
     expect(marker).toHaveAttribute('tabindex', '0')
   })
 
-  test('shows subscription cost and source alongside the legacy surcharge marker', () => {
+  test('opens the subscription tooltip on hover while keeping the amount visible', async () => {
+    const user = userEvent.setup()
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
+      quota: 5000,
+      other: {
+        billing_source: 'subscription',
+        web_search: true,
+        web_search_call_count: 1,
+        web_search_price: 10,
+      },
+    })
+
+    expect(rendered.container.textContent).toContain('$0.01')
+    const costBadge = screen.getByLabelText(
+      `Deducted by subscription: $0.01`
+    )
+    expect(costBadge).toHaveAttribute('data-cost-tone', 'subscription')
+    expect(costBadge).toHaveAttribute('tabindex', '0')
+    expect(
+      screen.getByRole('img', { name: 'Includes tool-call surcharge' })
+    ).toHaveAttribute('data-tool-surcharge-indicator', 'true')
+
+    await user.hover(costBadge)
+
+    expect(await screen.findByText('Deducted by subscription')).toBeVisible()
+  })
+
+  test('opens the subscription tooltip on click without hover or focus', async () => {
     renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
+      quota: 5000,
+      other: { billing_source: 'subscription' },
+    })
+
+    screen.getByLabelText(`Deducted by subscription: $0.01`).click()
+
+    expect(await screen.findByText('Deducted by subscription')).toBeVisible()
+  })
+
+  test('opens the failed-request tooltip from the keyboard', async () => {
+    const user = userEvent.setup()
+    renderCost({
+      logType: LOG_TYPE_ENUM.ERROR,
+      quota: 0,
+      other: null,
+    })
+
+    const costBadge = screen.getByLabelText(
+      `Request failed, no fee was charged: $0`
+    )
+    expect(costBadge).toHaveAttribute('data-cost-tone', 'error')
+
+    await user.tab()
+
+    expect(costBadge).toHaveFocus()
+    expect(
+      await screen.findByText('Request failed, no fee was charged')
+    ).toBeVisible()
+  })
+
+  test('shows subscription cost and source alongside the legacy surcharge marker', () => {
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 5000,
       other: {
         billing_source: 'subscription',
@@ -203,7 +282,7 @@ describe('log cost display', () => {
       showBillingSource: true,
     })
 
-    expect(screen.getByText('$0.01')).toBeVisible()
+    expect(rendered.container.textContent).toContain('$0.01')
     expect(screen.getByRole('img', { name: 'Subscription' })).toBeVisible()
     expect(
       screen.getByRole('img', { name: 'Includes tool-call surcharge' })

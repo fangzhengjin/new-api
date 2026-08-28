@@ -4844,6 +4844,7 @@
     "Request decision flow": "Схема решений по запросу",
     "Request error occurred": "Произошла ошибка запроса",
     "Request failed": "Запрос не выполнен",
+    "Request failed, no fee was charged": "Запрос не выполнен, плата не списана",
     "Request flow": "Поток запросов",
     "Request Header Field": "Поле заголовка запроса",
     "Request Header Override": "Переопределение заголовков запроса",

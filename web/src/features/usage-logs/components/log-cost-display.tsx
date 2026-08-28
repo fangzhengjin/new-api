@@ -22,6 +22,7 @@ import {
   Wrench01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -33,14 +34,40 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatLogQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
+import { LOG_TYPE_ENUM } from '../constants'
 import { hasToolSurcharge } from '../lib/format'
 import type { LogOtherData } from '../types'
 
 interface LogCostDisplayProps {
+  logType: number
   quota: number
   other: LogOtherData | null
   showBillingSource?: boolean
+}
+
+const costToneConfig = {
+  metered: {
+    badge: 'border-border/80 bg-muted/60',
+    variant: 'neutral',
+  },
+  subscription: {
+    badge: 'border-success/35 bg-success/10',
+    variant: 'success',
+  },
+  error: {
+    badge: 'border-destructive/35 bg-destructive/10',
+    variant: 'danger',
+  },
+} as const
+
+type CostTone = keyof typeof costToneConfig
+
+function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
+  const match = value.match(/^([^0-9+\-.,\s]+)(.+)$/)
+  if (!match) return { prefix: '', amount: value }
+  return { prefix: match[1], amount: match[2] }
 }
 
 function ToolSurchargeMarker() {
@@ -78,6 +105,42 @@ function ToolSurchargeMarker() {
   )
 }
 
+function QuotaBadge(props: { label?: string; tone: CostTone; value: string }) {
+  const [tooltipOpen, setTooltipOpen] = useState(false)
+  const quotaDisplay = splitQuotaDisplay(props.value)
+  const toneConfig = costToneConfig[props.tone]
+  const badge = (
+    <StatusBadge
+      variant={toneConfig.variant}
+      size='lg'
+      showDot
+      copyable={false}
+      className={cn(
+        'min-w-24 justify-start rounded-md border [font-family:var(--font-body)] text-foreground tabular-nums focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        toneConfig.badge
+      )}
+      data-cost-tone={props.tone}
+      aria-label={props.label ? `${props.label}: ${props.value}` : undefined}
+      tabIndex={props.label ? 0 : undefined}
+      onClick={props.label ? () => setTooltipOpen(true) : undefined}
+    >
+      <span className='inline-flex items-baseline gap-1'>
+        {quotaDisplay.prefix ? <span>{quotaDisplay.prefix}</span> : null}
+        <span>{quotaDisplay.amount}</span>
+      </span>
+    </StatusBadge>
+  )
+
+  if (!props.label) return badge
+
+  return (
+    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+      <TooltipTrigger closeOnClick={false} render={badge} />
+      <TooltipContent>{props.label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function LogCostDisplay(props: LogCostDisplayProps) {
   const { t } = useTranslation()
   const isSubscription = props.other?.billing_source === 'subscription'
@@ -85,55 +148,62 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
   const quota = isSubscription
     ? (props.other?.subscription_consumed ?? props.quota)
     : props.quota
-  let source: string | undefined
+  let tone: CostTone = 'metered'
+  let label: string | undefined
+
+  if (props.logType === LOG_TYPE_ENUM.ERROR) {
+    tone = 'error'
+    label = t('Request failed, no fee was charged')
+  } else if (isSubscription) {
+    tone = 'subscription'
+    label = t('Deducted by subscription')
+  }
 
   // A log billed to a subscription always names its funding source: that
   // subscription may have expired since, and the viewer may hold no active
   // plan today. Only the wallet marker is contextual and follows
   // showBillingSource.
-  if (isSubscription) {
-    source = t('Subscription')
-  } else if (
-    props.showBillingSource &&
-    props.other?.billing_source === 'wallet'
-  ) {
-    source = t('Wallet')
+  const source = isSubscription
+    ? t('Subscription')
+    : props.showBillingSource && props.other?.billing_source === 'wallet'
+      ? t('Wallet')
+      : undefined
+
+  const formattedQuota = formatLogQuota(quota)
+  const quotaBadge = (
+    <QuotaBadge label={label} tone={tone} value={formattedQuota} />
+  )
+
+  if (!label && !showToolSurcharge && !source) {
+    return <div className='flex flex-col gap-0.5'>{quotaBadge}</div>
   }
 
   return (
     <TooltipProvider>
-      <div className='inline-flex w-fit items-center gap-1.5'>
-        <StatusBadge
-          type='badge'
-          variant='neutral'
-          size='lg'
-          copyable={false}
-          className='border-border/80 bg-muted/60 text-foreground rounded-md border font-semibold tabular-nums'
-        >
-          {source ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className='inline-flex shrink-0 cursor-help'
-                    role='img'
-                    aria-label={source}
-                    tabIndex={0}
-                  >
-                    <HugeiconsIcon
-                      icon={isSubscription ? CrownIcon : Wallet01Icon}
-                      className='size-3.5'
-                      strokeWidth={2}
-                      aria-hidden='true'
-                    />
-                  </span>
-                }
-              />
-              <TooltipContent>{source}</TooltipContent>
-            </Tooltip>
-          ) : null}
-          <span className='whitespace-nowrap'>{formatLogQuota(quota)}</span>
-        </StatusBadge>
+      <div className='inline-flex items-center gap-1.5'>
+        {quotaBadge}
+        {source ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className='inline-flex shrink-0 cursor-help'
+                  role='img'
+                  aria-label={source}
+                  tabIndex={0}
+                >
+                  <HugeiconsIcon
+                    icon={isSubscription ? CrownIcon : Wallet01Icon}
+                    className='size-3.5'
+                    strokeWidth={2}
+                    aria-hidden='true'
+                  />
+                </span>
+              }
+            />
+            <TooltipContent>{source}</TooltipContent>
+          </Tooltip>
+        ) : null}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
       </div>
     </TooltipProvider>

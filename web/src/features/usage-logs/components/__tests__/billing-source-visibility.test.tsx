@@ -116,7 +116,9 @@ async function renderLogs(props: {
       </UsageLogsProvider>
     </QueryClientProvider>
   )
-  await screen.findAllByText('$0.01')
+  await waitFor(() =>
+    expect(document.body.textContent).toContain('$0.01')
+  )
   await waitFor(() => expect(client.isFetching()).toBe(0))
   return client
 }

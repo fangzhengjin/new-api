@@ -4008,6 +4008,7 @@
     "Request Count": "請求計數",
     "Request error occurred": "請求發生錯誤",
     "Request failed": "請求失敗",
+    "Request failed, no fee was charged": "請求失敗，未產生費用",
     "Request flow": "請求流",
     "Request Header Field": "請求頭欄位",
     "Request Header Override": "請求頭覆蓋",

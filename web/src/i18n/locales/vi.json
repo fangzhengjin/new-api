@@ -4008,6 +4008,7 @@
     "Request Count": "Number of requests",
     "Request error occurred": "Đã xảy ra lỗi yêu cầu",
     "Request failed": "Yêu cầu thất bại",
+    "Request failed, no fee was charged": "Yêu cầu thất bại, không phát sinh chi phí",
     "Request flow": "Luồng yêu cầu",
     "Request Header Field": "Trường header yêu cầu",
     "Request Header Override": "Ghi đè header yêu cầu",

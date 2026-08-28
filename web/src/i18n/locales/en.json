@@ -4008,6 +4008,7 @@
     "Request Count": "Request Count",
     "Request error occurred": "Request error occurred",
     "Request failed": "Request failed",
+    "Request failed, no fee was charged": "Request failed, no fee was charged",
     "Request flow": "Request flow",
     "Request Header Field": "Request Header Field",
     "Request Header Override": "Request Header Override",

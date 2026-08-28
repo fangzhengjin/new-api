@@ -16,13 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import type React from 'react'
 import { beforeAll, describe, expect, test } from 'vitest'
 
 import { formatLogQuota } from '@/lib/format'
 
+import { LOG_TYPE_ENUM } from '../../constants'
 import { LogCostDisplay } from '../log-cost-display'
 
 function renderCost(
@@ -38,14 +40,16 @@ function normalizedText(value: string | null): string {
 describe('log cost display', () => {
   beforeAll(() => {
     i18next.addResourceBundle('en', 'translation', {
-      Subscription: 'Subscription',
       'Deducted by subscription': 'Deducted by subscription',
       'Includes tool-call surcharge': 'Includes tool-call surcharge',
+      'Request failed, no fee was charged':
+        'Request failed, no fee was charged',
     })
   })
 
   test('keeps the regular cost visible and adds an accessible surcharge marker', () => {
     const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 12500,
       other: {
         tool_surcharges: [{ name: 'lookup_customer', count: 1, price: 5 }],
@@ -57,6 +61,10 @@ describe('log cost display', () => {
         normalizedText(formatLogQuota(12500))
       )
     ).toBe(true)
+    const costBadge = rendered.container.querySelector(
+      '[data-cost-tone="metered"]'
+    )
+    expect(costBadge).not.toHaveAttribute('title')
     const marker = screen.getByRole('img', {
       name: 'Includes tool-call surcharge',
     })
@@ -64,8 +72,10 @@ describe('log cost display', () => {
     expect(marker).toHaveAttribute('tabindex', '0')
   })
 
-  test('preserves the subscription badge and adds the same legacy surcharge marker', () => {
-    renderCost({
+  test('opens the subscription tooltip on hover while keeping the amount visible', async () => {
+    const user = userEvent.setup()
+    const rendered = renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
       quota: 5000,
       other: {
         billing_source: 'subscription',
@@ -75,9 +85,59 @@ describe('log cost display', () => {
       },
     })
 
-    expect(screen.getByText('Subscription')).toBeInTheDocument()
+    const formattedQuota = formatLogQuota(5000)
+    expect(
+      normalizedText(rendered.container.textContent).includes(
+        normalizedText(formattedQuota)
+      )
+    ).toBe(true)
+    const costBadge = screen.getByLabelText(
+      `Deducted by subscription: ${formattedQuota}`
+    )
+    expect(costBadge).toHaveAttribute('data-cost-tone', 'subscription')
+    expect(costBadge).toHaveAttribute('tabindex', '0')
     expect(
       screen.getByRole('img', { name: 'Includes tool-call surcharge' })
     ).toHaveAttribute('data-tool-surcharge-indicator', 'true')
+
+    await user.hover(costBadge)
+
+    expect(await screen.findByText('Deducted by subscription')).toBeVisible()
+  })
+
+  test('opens the subscription tooltip on click without hover or focus', async () => {
+    renderCost({
+      logType: LOG_TYPE_ENUM.CONSUME,
+      quota: 5000,
+      other: { billing_source: 'subscription' },
+    })
+
+    fireEvent.click(
+      screen.getByLabelText(`Deducted by subscription: ${formatLogQuota(5000)}`)
+    )
+
+    expect(await screen.findByText('Deducted by subscription')).toBeVisible()
+  })
+
+  test('opens the failed-request tooltip from the keyboard', async () => {
+    const user = userEvent.setup()
+    renderCost({
+      logType: LOG_TYPE_ENUM.ERROR,
+      quota: 0,
+      other: null,
+    })
+
+    const formattedQuota = formatLogQuota(0)
+    const costBadge = screen.getByLabelText(
+      `Request failed, no fee was charged: ${formattedQuota}`
+    )
+    expect(costBadge).toHaveAttribute('data-cost-tone', 'error')
+
+    await user.tab()
+
+    expect(costBadge).toHaveFocus()
+    expect(
+      await screen.findByText('Request failed, no fee was charged')
+    ).toBeVisible()
   })
 })

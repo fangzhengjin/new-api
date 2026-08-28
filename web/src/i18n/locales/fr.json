@@ -4008,6 +4008,7 @@
     "Request Count": "Nombre de requêtes",
     "Request error occurred": "Une erreur de requête est survenue",
     "Request failed": "Échec de la requête",
+    "Request failed, no fee was charged": "La requête a échoué, aucuns frais n’ont été facturés",
     "Request flow": "Flux de requête",
     "Request Header Field": "Champ d'en-tête de requête",
     "Request Header Override": "Remplacement des en-têtes de requête",

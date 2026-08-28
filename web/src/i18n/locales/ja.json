@@ -4008,6 +4008,7 @@
     "Request Count": "リクエスト数",
     "Request error occurred": "リクエストエラーが発生しました",
     "Request failed": "リクエスト失敗",
+    "Request failed, no fee was charged": "リクエストに失敗し、料金は発生していません",
     "Request flow": "リクエストフロー",
     "Request Header Field": "リクエストヘッダーフィールド",
     "Request Header Override": "リクエストヘッダー上書き",

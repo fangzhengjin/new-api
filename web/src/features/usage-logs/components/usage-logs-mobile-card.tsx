@@ -40,7 +40,11 @@ import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { getLogTokenSummary, parseLogOther } from '../lib/format'
+import {
+  getDistinctUserDisplayName,
+  getLogTokenSummary,
+  parseLogOther,
+} from '../lib/format'
 import { TASK_MOBILE_SUMMARY_FIELDS } from '../lib/task-mobile-layout'
 import {
   getLogTypeConfig,
@@ -239,6 +243,7 @@ function MobileUserField({ log }: { log: UsageLog }) {
     useUsageLogsContext()
 
   if (!log.username) return null
+  const displayName = sensitiveVisible ? getDistinctUserDisplayName(log) : ''
 
   return (
     <button
@@ -263,9 +268,16 @@ function MobileUserField({ log }: { log: UsageLog }) {
           {sensitiveVisible ? getUserAvatarFallback(log.username) : '•'}
         </AvatarFallback>
       </Avatar>
-      <span className='text-foreground min-w-0 truncate text-sm'>
-        {sensitiveVisible ? log.username : '••••'}
-      </span>
+      <div className='flex min-w-0 flex-col gap-0.5'>
+        <span className='text-foreground truncate text-sm'>
+          {sensitiveVisible ? log.username : '••••'}
+        </span>
+        {displayName ? (
+          <span className='text-muted-foreground/70 truncate text-xs'>
+            {displayName}
+          </span>
+        ) : null}
+      </div>
     </button>
   )
 }

@@ -182,12 +182,10 @@ function BillingBreakdown(props: {
       value: t('Dynamic Pricing'),
     })
     if (tieredSummary) {
-      if (tieredSummary.tier.label) {
-        rows.push({
-          label: t('Matched Tier'),
-          value: tieredSummary.tier.label,
-        })
-      }
+      rows.push({
+        label: t('Matched Tier'),
+        value: tieredSummary.tier.label || other.matched_tier || t('No matching results'),
+      })
       for (const entry of tieredSummary.priceEntries) {
         rows.push({
           label: t(entry.shortLabel),

@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"io"
 	"math"
 	"math/rand"
+	"net/http"
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
@@ -363,6 +366,65 @@ func TestPrepareTieredBillingForSelectedGroupUpdatesReservation(t *testing.T) {
 	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
 	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+}
+
+func TestPrepareTieredBillingForUpstreamRequestChannelTestDoesNotStartBilling(t *testing.T) {
+	const expr = `tier("base", p) * (param("service_tier") == "fast" ? 2 : 1)`
+	relayInfo := makeRelayInfo(expr, 1, 1_000_000, 0)
+	relayInfo.IsChannelTest = true
+	req, err := http.NewRequest(http.MethodPost, "https://api.example.test/v1/responses", bytes.NewBufferString(`{"service_tier":"fast"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	require.Nil(t, PrepareTieredBillingForUpstreamRequest(nil, relayInfo, req))
+	require.NotNil(t, relayInfo.BillingRequestInput)
+	assert.JSONEq(t, `{"service_tier":"fast"}`, string(relayInfo.BillingRequestInput.Body))
+	assert.Equal(t, 1_000_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+	assert.Nil(t, relayInfo.Billing)
+	assert.Equal(t, 500_000, relayInfo.FinalPreConsumedQuota)
+}
+
+func TestPrepareTieredBillingForUpstreamRequestUsesFinalBody(t *testing.T) {
+	const expr = `tier("base", p) * (param("service_tier") == "fast" ? 2 : 1)`
+	billing := &recordingBillingSettler{preConsumedQuota: 500_000}
+	relayInfo := &relaycommon.RelayInfo{
+		Billing:               billing,
+		FinalPreConsumedQuota: 500_000,
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			ExprString:                expr,
+			ExprHash:                  billingexpr.ExprHashString(expr),
+			GroupRatio:                1,
+			EstimatedPromptTokens:     1_000_000,
+			EstimatedQuotaBeforeGroup: 500_000,
+			EstimatedQuotaAfterGroup:  500_000,
+			EstimatedTier:             "base",
+			QuotaPerUnit:              500_000,
+		},
+		PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.example.test/v1/responses", bytes.NewBufferString(`{"service_tier":"fast"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	require.Nil(t, PrepareTieredBillingForUpstreamRequest(nil, relayInfo, req))
+	require.NotNil(t, relayInfo.BillingRequestInput)
+	assert.JSONEq(t, `{"service_tier":"fast"}`, string(relayInfo.BillingRequestInput.Body))
+	assert.Equal(t, []int{1_000_000}, billing.reserveTargets)
+
+	ok, _, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{P: 1_000_000})
+	require.True(t, ok)
+	require.NotNil(t, result)
+	require.Len(t, result.RequestRules, 1)
+	assert.True(t, result.RequestRules[0].Matched)
+
+	requestWithoutReplay := req.Clone(req.Context())
+	requestWithoutReplay.Body = io.NopCloser(bytes.NewBufferString(`{"service_tier":"standard"}`))
+	requestWithoutReplay.GetBody = nil
+	require.Nil(t, PrepareTieredBillingForUpstreamRequest(nil, relayInfo, requestWithoutReplay))
+	forwardedBody, err := io.ReadAll(requestWithoutReplay.Body)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"service_tier":"standard"}`, string(forwardedBody))
 }
 
 func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *testing.T) {

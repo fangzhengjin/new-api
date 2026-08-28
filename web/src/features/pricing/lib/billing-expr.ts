@@ -209,7 +209,8 @@ export const COMMON_TIMEZONES: { value: string; label: string }[] = [
   { value: 'Australia/Sydney', label: 'UTC+10 Sydney (Australia/Sydney)' },
 ]
 
-const NUMERIC_LITERAL_REGEX = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/
+const NUMERIC_LITERAL_PATTERN = '-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?'
+const NUMERIC_LITERAL_REGEX = new RegExp(`^${NUMERIC_LITERAL_PATTERN}$`)
 
 export type ParamHeaderCondition = {
   source: 'param' | 'header'
@@ -295,11 +296,14 @@ function mapTokenTier(
 
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
-  const compiled = compileBillingExpression(exprStr)
+  // Callers may hand over a full stored expression, whose request-rule suffix is
+  // not part of the tier chain; split it off first like parseTaskTiersFromExpr does.
+  const { billingExpr } = splitBillingExprAndRequestRules(exprStr)
+  const compiled = compileBillingExpression(billingExpr)
   if (compiled.status !== 'ready') return []
   const canonical = readTokenTierChain(compiled.ast)
   if (canonical) return canonical.map(mapTokenTier)
-  return readTimeTokenPricing(exprStr)?.tiers.map(mapTokenTier) ?? []
+  return readTimeTokenPricing(billingExpr)?.tiers.map(mapTokenTier) ?? []
 }
 
 /** Current-time selection is exclusively for summaries; detail and log callers retain all rows. */
@@ -345,15 +349,33 @@ function splitTopLevelAnd(expr: string): string[] {
   return splitExpressionAtTopLevel(expr, '&&')
 }
 
+function parseQuotedStringLiteral(raw: string): string | null {
+  try {
+    const value: unknown = JSON.parse(raw.trim())
+    if (typeof value !== 'string' || value !== value.trim()) return null
+    return value
+  } catch {
+    return null
+  }
+}
+
 function parseExprLiteral(raw: string): string | null {
   const text = raw.trim()
   if (text === 'true' || text === 'false') return text
   if (NUMERIC_LITERAL_REGEX.test(text)) return text
-  try {
-    return JSON.parse(text) as string
-  } catch {
-    return null
+
+  const value = parseQuotedStringLiteral(text)
+  if (value !== null) {
+    if (
+      value === 'true' ||
+      value === 'false' ||
+      NUMERIC_LITERAL_REGEX.test(value)
+    ) {
+      return null
+    }
+    return value
   }
+  return null
 }
 
 // Time function value domains. Values outside these ranges are invalid for
@@ -474,7 +496,10 @@ function tryParseRequestCondition(expr: string): RequestCondition | null {
 
   m = expr.match(/^(param|header)\("([^"]+)"\) == (.+)$/)
   if (m) {
-    const parsedValue = parseExprLiteral(m[3])
+    const parsedValue =
+      m[1] === SOURCE_HEADER
+        ? parseQuotedStringLiteral(m[3])
+        : parseExprLiteral(m[3])
     if (parsedValue === null) return null
     return {
       source: m[1] as 'param' | 'header',
@@ -818,7 +843,11 @@ function buildRequestConditionExpr(cond: RequestCondition): string {
     }
     case MATCH_EQ:
     default:
-      return `${sourceExpr} == ${buildExprLiteral(normalized.mode, normalized.value)}`
+      return `${sourceExpr} == ${
+        normalized.source === SOURCE_HEADER
+          ? JSON.stringify(normalized.value.trim())
+          : buildExprLiteral(normalized.mode, normalized.value)
+      }`
   }
 }
 

@@ -199,6 +199,7 @@
     "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.": "Une clé d’accès créée pour www.example.com ne fonctionne pas sur example.com. Gardez l’ancien site accessible pour permettre aux utilisateurs de s’y authentifier.",
     "A security operation is already in progress.": "Une opération de sécurité est déjà en cours.",
     "A selected model no longer exists. Reload the model list.": "Un modèle sélectionné n’existe plus. Rechargez la liste.",
+    "A successful request extends the binding lifetime.": "Une requête réussie prolonge la durée de vie de l'association.",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "Un jeton qui n’expire jamais reste valide jusqu’à sa révocation. Définissez une date d’expiration si possible.",
     "A vendor with this name already exists.": "Un fournisseur porte déjà ce nom.",
     "About": "À propos",

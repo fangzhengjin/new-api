@@ -199,6 +199,7 @@
     "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.": "www.example.com で作成したパスキーは example.com では使用できません。ユーザーが引き続き認証できるよう、以前のウェブサイトを維持してください。",
     "A security operation is already in progress.": "セキュリティ操作を実行中です。",
     "A selected model no longer exists. Reload the model list.": "選択したモデルは既に削除されています。一覧を再読み込みしてください。",
+    "A successful request extends the binding lifetime.": "リクエスト成功時にバインディングの有効期間を延長します。",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "無期限のトークンは取り消すまで有効です。可能な限り有効期限を設定してください。",
     "A vendor with this name already exists.": "この名前のプロバイダーは既に存在します。",
     "About": "このサービスについて",

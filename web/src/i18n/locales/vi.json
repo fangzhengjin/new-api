@@ -199,6 +199,7 @@
     "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.": "Khóa truy cập tạo cho www.example.com không thể dùng trên example.com. Hãy duy trì trang web cũ để người dùng vẫn có thể xác minh tại đó.",
     "A security operation is already in progress.": "Một thao tác bảo mật đang được thực hiện.",
     "A selected model no longer exists. Reload the model list.": "Một mô hình đã chọn không còn tồn tại. Hãy tải lại danh sách.",
+    "A successful request extends the binding lifetime.": "Yêu cầu thành công sẽ kéo dài thời gian sống của liên kết.",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "Token không hết hạn sẽ còn hiệu lực cho đến khi bạn thu hồi. Nên đặt thời hạn khi có thể.",
     "A vendor with this name already exists.": "Nhà cung cấp có tên này đã tồn tại.",
     "About": "Giới thiệu",

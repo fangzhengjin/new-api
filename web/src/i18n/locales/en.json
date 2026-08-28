@@ -199,6 +199,7 @@
     "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.": "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.",
     "A security operation is already in progress.": "A security operation is already in progress.",
     "A selected model no longer exists. Reload the model list.": "A selected model no longer exists. Reload the model list.",
+    "A successful request extends the binding lifetime.": "A successful request extends the binding lifetime.",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "A token that never expires stays valid until you revoke it. Set an expiration date when possible.",
     "A vendor with this name already exists.": "A vendor with this name already exists.",
     "About": "About",

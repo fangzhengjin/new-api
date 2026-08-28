@@ -282,6 +282,8 @@ func validateOptionValue(key string, value string) error {
 	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
 		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
 		return model_setting.ValidateCodexUserAgentComponent(value)
+	case "codex.error_response_mappings":
+		return model_setting.ValidateCodexErrorResponseMappings(value)
 	case "UserUsableGroups":
 		var groups map[string]string
 		return common.UnmarshalJsonStr(value, &groups)

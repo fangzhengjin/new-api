@@ -98,7 +98,9 @@ type NewAPIError struct {
 	errorType      ErrorType
 	errorCode      ErrorCode
 	StatusCode     int
-	Metadata       json.RawMessage
+	// UpstreamStatusCode is the original HTTP status parsed from an upstream response.
+	UpstreamStatusCode int
+	Metadata           json.RawMessage
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

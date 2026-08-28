@@ -333,6 +333,12 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 			common.ApiError(c, err)
 			return false
 		}
+	case "codex.error_response_mappings":
+		err = model_setting.ValidateCodexErrorResponseMappings(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return false
+		}
 	case operation_setting.ToolPriceOptionKey:
 		err = operation_setting.ValidateToolPricesJSON(value)
 		if err != nil {

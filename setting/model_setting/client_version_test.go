@@ -58,6 +58,31 @@ func TestCheckClientVersion(t *testing.T) {
 	}
 }
 
+func TestIsCodexUserAgent(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		userAgent string
+		expected  bool
+	}{
+		{name: "Codex TUI", userAgent: "codex-tui/0.152.1", expected: true},
+		{name: "legacy Rust CLI", userAgent: "codex_cli_rs/0.146.0 (Darwin 25.0.0; arm64)", expected: true},
+		{name: "legacy hyphenated CLI", userAgent: "CODEX-CLI/0.146.0", expected: true},
+		{name: "Desktop", userAgent: "Codex Desktop/0.148.0-alpha.9 (Windows 10.0.26200; x86_64) unknown (Codex Desktop; 26.810.52044)", expected: true},
+		{name: "unrecognized product containing codex", userAgent: "my-codex-client/1.0.0", expected: false},
+		{name: "missing version", userAgent: "codex-tui", expected: false},
+		{name: "Claude", userAgent: "claude-cli/2.1.233", expected: false},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.expected, IsCodexUserAgent(test.userAgent))
+		})
+	}
+}
+
 func TestCheckClientVersionCodexPoliciesAreIndependent(t *testing.T) {
 	codex := GetCodexSettings()
 	original := *codex

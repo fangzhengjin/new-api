@@ -64,6 +64,19 @@ func TestResetStatusCode(t *testing.T) {
 	}
 }
 
+func TestRelayErrorHandlerPreservesUpstreamStatusAcrossMapping(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"rate limit","type":"rate_limit_error","code":"rate_limit_exceeded"}}`)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	ResetStatusCode(newAPIError, `{"429":503}`)
+
+	require.Equal(t, http.StatusServiceUnavailable, newAPIError.StatusCode)
+	require.Equal(t, http.StatusTooManyRequests, newAPIError.UpstreamStatusCode)
+}
+
 func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 	withDebugEnabled(t, false)
 
@@ -88,6 +101,7 @@ func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 	newAPIError := RelayErrorHandler(context.Background(), resp, false)
 
 	require.NotNil(t, newAPIError)
+	require.Equal(t, http.StatusInternalServerError, newAPIError.UpstreamStatusCode)
 	require.Equal(t, "bad response status code 500", newAPIError.Error())
 	require.Contains(t, logBuffer.String(), "[truncated")
 	require.Contains(t, logBuffer.String(), fmt.Sprintf("original_length=%d", len(body)))

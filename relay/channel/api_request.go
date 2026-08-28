@@ -12,18 +12,25 @@ import (
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
+	rootconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"golang.org/x/net/http/httpguts"
 )
+
+const codexFallbackTurnIDContextKey = "codex_fallback_turn_id"
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
 // a ReplayableBody. Callers must pass the original body because NewRequest
@@ -148,6 +155,65 @@ func shouldSkipPassthroughHeader(name string) bool {
 		return true
 	}
 	return false
+}
+
+func removeNonForwardedRequestHeaders(header http.Header, rules []operation_setting.RequestHeaderRule) {
+	for name := range header {
+		if !operation_setting.ResolveRequestHeaderPolicy(name, rules).Forward {
+			header.Del(name)
+		}
+	}
+}
+
+func isCodexUserAgent(userAgent string) bool {
+	userAgent = strings.ToLower(strings.TrimSpace(userAgent))
+	return strings.HasPrefix(userAgent, "codex desktop/") ||
+		strings.HasPrefix(userAgent, "codex-tui/") ||
+		strings.HasPrefix(userAgent, "codex_cli_rs/") ||
+		strings.HasPrefix(userAgent, "codex-cli/")
+}
+
+func isCodexContextHeader(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	switch name {
+	case "session-id", "session_id", "thread-id", "thread_id", "x-client-request-id",
+		"x-oai-attestation", "x-openai-memgen-request", "x-openai-subagent",
+		"x-responsesapi-include-timing-metrics":
+		return true
+	}
+	return strings.HasPrefix(name, "x-codex-") ||
+		strings.HasPrefix(name, "x-openai-internal-codex-")
+}
+
+func passCodexClientHeaders(c *gin.Context, upstream http.Header, info *common.RelayInfo) {
+	if c == nil || c.Request == nil || upstream == nil || info == nil {
+		return
+	}
+	format := info.GetFinalRequestRelayFormat()
+	if format != types.RelayFormatOpenAI &&
+		format != types.RelayFormatOpenAIResponses &&
+		format != types.RelayFormatOpenAIResponsesCompaction &&
+		format != types.RelayFormatOpenAIAlphaSearch {
+		return
+	}
+
+	officialClient := isCodexUserAgent(c.Request.UserAgent())
+	if !officialClient {
+		settings := model_setting.GetCodexSettings()
+		if info.ChannelMeta == nil ||
+			(format != types.RelayFormatOpenAIResponses && format != types.RelayFormatOpenAIResponsesCompaction) ||
+			!settings.RequestHeaderFallbackEnabled ||
+			!model_setting.MatchesClientIdentityModel(settings.RequestHeaderModelPatterns, info.ChannelMeta.UpstreamModelName) {
+			return
+		}
+	}
+
+	for name, values := range c.Request.Header {
+		if shouldSkipPassthroughHeader(name) || (!officialClient && !isCodexContextHeader(name)) {
+			continue
+		}
+		upstream[name] = append([]string(nil), values...)
+	}
 }
 
 func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string) (string, bool, error) {
@@ -310,6 +376,313 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+func deleteManagedIdentityHeaders(header http.Header, exact []string, prefixes []string) {
+	for name := range header {
+		lowerName := strings.ToLower(name)
+		for _, candidate := range exact {
+			if strings.EqualFold(name, candidate) {
+				header.Del(name)
+				break
+			}
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(lowerName, prefix) {
+				header.Del(name)
+				break
+			}
+		}
+	}
+}
+
+func clearClaudeClientIdentity(header http.Header) {
+	deleteManagedIdentityHeaders(
+		header,
+		[]string{"X-App", "X-Client-App"},
+		[]string{"anthropic-", "x-anthropic-", "x-claude-", "x-stainless-"},
+	)
+}
+
+func clearCodexClientIdentity(header http.Header) {
+	deleteManagedIdentityHeaders(
+		header,
+		[]string{"Originator", "Version", "Session-Id", "Session_id", "Thread-Id", "Thread_id", "X-Client-Request-Id"},
+		[]string{"x-codex-", "x-openai-internal-codex-", "x-oai-attestation"},
+	)
+}
+
+func isCodexIdentityFormat(format types.RelayFormat) bool {
+	return format == types.RelayFormatOpenAI ||
+		format == types.RelayFormatOpenAIImage ||
+		format == types.RelayFormatOpenAIAudio ||
+		format == types.RelayFormatEmbedding ||
+		format == types.RelayFormatOpenAIResponses ||
+		format == types.RelayFormatOpenAIResponsesCompaction ||
+		format == types.RelayFormatOpenAIAlphaSearch
+}
+
+// NormalizeClientIdentityHeaders applies the configured target client identity
+// from the final request format and mapped upstream model for this attempt.
+func NormalizeClientIdentityHeaders(c *gin.Context, req *http.Request, info *common.RelayInfo) {
+	if req == nil || info == nil || info.ChannelMeta == nil {
+		return
+	}
+
+	format := info.GetFinalRequestRelayFormat()
+	upstreamModel := info.ChannelMeta.UpstreamModelName
+	if isCodexIdentityFormat(format) {
+		settings := model_setting.GetCodexSettings()
+		if !settings.RequestHeaderFallbackEnabled ||
+			!model_setting.MatchesClientIdentityModel(settings.RequestHeaderModelPatterns, upstreamModel) {
+			return
+		}
+		if info.RelayFormat == types.RelayFormatClaude {
+			clearClaudeClientIdentity(req.Header)
+		}
+		applyCodexClientIdentity(c, req, info, format, settings)
+		return
+	}
+
+	if format != types.RelayFormatClaude {
+		return
+	}
+	settings := model_setting.GetClaudeSettings()
+	if !settings.RequestHeaderFallbackEnabled ||
+		!model_setting.MatchesClientIdentityModel(settings.RequestHeaderModelPatterns, upstreamModel) {
+		return
+	}
+	if isCodexIdentityFormat(info.RelayFormat) {
+		clearCodexClientIdentity(req.Header)
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(req.Header.Get("User-Agent"))), "claude-cli/") {
+		version := strings.TrimSpace(settings.RequestHeaderFallbackVersion)
+		if model_setting.ValidateClientVersion(version) != nil {
+			version = model_setting.DefaultClaudeCodeVersion
+		}
+		req.Header.Set("User-Agent", fmt.Sprintf("claude-cli/%s (external, cli)", version))
+		req.Header.Set("X-App", "cli")
+	} else if strings.TrimSpace(req.Header.Get("X-App")) == "" {
+		req.Header.Set("X-App", "cli")
+	}
+}
+
+func applyCodexClientIdentity(c *gin.Context, req *http.Request, info *common.RelayInfo, format types.RelayFormat, settings *model_setting.CodexSettings) {
+	userAgentOnly := format == types.RelayFormatOpenAI ||
+		format == types.RelayFormatOpenAIImage ||
+		format == types.RelayFormatOpenAIAudio ||
+		format == types.RelayFormatEmbedding
+	responsesIdentity := format == types.RelayFormatOpenAIResponses ||
+		format == types.RelayFormatOpenAIResponsesCompaction
+	alphaSearchIdentity := format == types.RelayFormatOpenAIAlphaSearch
+
+	clientVersion := strings.TrimSpace(settings.RequestHeaderFallbackVersion)
+	if clientVersion == "" {
+		clientVersion = model_setting.DefaultCodexClientVersion
+	}
+	componentOrDefault := func(value, fallback string) string {
+		value = strings.TrimSpace(value)
+		if model_setting.ValidateCodexUserAgentComponent(value) != nil {
+			return fallback
+		}
+		return value
+	}
+	client := strings.TrimSpace(settings.RequestHeaderFallbackClient)
+	if model_setting.ValidateCodexUserAgentClient(client) != nil {
+		client = model_setting.DefaultCodexUserAgentClient
+	}
+	operatingSystem := componentOrDefault(settings.RequestHeaderFallbackOS, model_setting.DefaultCodexUserAgentOS)
+	osVersion := componentOrDefault(settings.RequestHeaderFallbackOSVersion, model_setting.DefaultCodexUserAgentOSVersion)
+	architecture := componentOrDefault(settings.RequestHeaderFallbackArchitecture, model_setting.DefaultCodexUserAgentArchitecture)
+	terminal := componentOrDefault(settings.RequestHeaderFallbackTerminal, model_setting.DefaultCodexUserAgentTerminal)
+	userAgent := fmt.Sprintf(
+		"%s/%s (%s %s; %s) %s (%s; %s)",
+		client,
+		clientVersion,
+		operatingSystem,
+		osVersion,
+		architecture,
+		terminal,
+		client,
+		clientVersion,
+	)
+
+	incomingUserAgent := ""
+	if c != nil && c.Request != nil {
+		incomingUserAgent = strings.TrimSpace(c.Request.UserAgent())
+	}
+	if isCodexUserAgent(incomingUserAgent) {
+		req.Header.Set("User-Agent", incomingUserAgent)
+	} else if !isCodexUserAgent(req.Header.Get("User-Agent")) {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	if alphaSearchIdentity && strings.TrimSpace(req.Header.Get("Originator")) == "" {
+		req.Header.Set("Originator", client)
+	}
+	// Only Responses formats carry Codex turn and session semantics.
+	if userAgentOnly || alphaSearchIdentity || !responsesIdentity {
+		return
+	}
+
+	firstHeader := func(names ...string) string {
+		for _, name := range names {
+			if value := strings.TrimSpace(req.Header.Get(name)); value != "" && httpguts.ValidHeaderFieldValue(value) {
+				return value
+			}
+		}
+		return ""
+	}
+	setIfMissingOrInvalid := func(name, value string) {
+		current := strings.TrimSpace(req.Header.Get(name))
+		if current == "" || !httpguts.ValidHeaderFieldValue(current) {
+			req.Header.Set(name, value)
+		}
+	}
+
+	rawTurnMetadata := strings.TrimSpace(req.Header.Get("X-Codex-Turn-Metadata"))
+	turnMetadata := map[string]any{}
+	turnMetadataValid := rawTurnMetadata != "" && common2.Unmarshal([]byte(rawTurnMetadata), &turnMetadata) == nil && turnMetadata != nil
+	metadataString := func(name string) string {
+		if !turnMetadataValid {
+			return ""
+		}
+		value, ok := turnMetadata[name].(string)
+		if !ok || !httpguts.ValidHeaderFieldValue(value) {
+			return ""
+		}
+		return strings.TrimSpace(value)
+	}
+
+	// Reuse each supplied identity field before deriving or generating it so
+	// fallback headers preserve the client's upstream session context.
+	sessionID := firstHeader("Session-Id", "Session_id")
+	if sessionID == "" {
+		sessionID = metadataString("session_id")
+	}
+	if sessionID == "" {
+		sessionID = firstHeader("Thread-Id", "Thread_id", "X-Client-Request-Id")
+	}
+	if sessionID == "" {
+		var promptCacheKey string
+		switch request := info.Request.(type) {
+		case *dto.GeneralOpenAIRequest:
+			promptCacheKey = strings.TrimSpace(request.PromptCacheKey)
+		case *dto.OpenAIResponsesRequest:
+			_ = common2.Unmarshal(request.PromptCacheKey, &promptCacheKey)
+		case *dto.OpenAIResponsesCompactionRequest:
+			_ = common2.Unmarshal(request.PromptCacheKey, &promptCacheKey)
+		}
+		if promptCacheKey != "" {
+			if parsed, err := uuid.Parse(promptCacheKey); err == nil {
+				sessionID = parsed.String()
+			} else {
+				sessionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(promptCacheKey)).String()
+			}
+		} else {
+			requestID := ""
+			if c != nil {
+				requestID = strings.TrimSpace(c.GetString(common2.RequestIdKey))
+			}
+			if requestID != "" {
+				// Retries share one inbound request ID, so deriving the fallback session
+				// from it preserves upstream affinity without creating more state.
+				sessionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(requestID)).String()
+			} else {
+				sessionID = newCodexUUIDV7()
+			}
+		}
+	}
+
+	threadID := firstHeader("Thread-Id", "Thread_id")
+	if threadID == "" {
+		threadID = metadataString("thread_id")
+	}
+	if threadID == "" {
+		threadID = sessionID
+	}
+	installationID := firstHeader("X-Codex-Installation-Id")
+	if installationID == "" {
+		installationID = metadataString("installation_id")
+	}
+	if installationID == "" {
+		channelIdentity := fmt.Sprintf("codex-installation:channel:%d", info.GetChannelID())
+		installationID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(common2.GenerateHMAC(channelIdentity))).String()
+	}
+	windowID := firstHeader("X-Codex-Window-Id")
+	if windowID == "" {
+		windowID = metadataString("window_id")
+	}
+	if windowID == "" {
+		windowID = threadID + ":0"
+	}
+	turnID := metadataString("turn_id")
+	if c != nil {
+		if turnID == "" {
+			turnID = strings.TrimSpace(c.GetString(codexFallbackTurnIDContextKey))
+		}
+	}
+	if turnID == "" {
+		turnID = newCodexUUIDV7()
+		if c != nil {
+			c.Set(codexFallbackTurnIDContextKey, turnID)
+		}
+	}
+	requestKind := "turn"
+	if format == types.RelayFormatOpenAIResponsesCompaction {
+		requestKind = "compaction"
+	}
+	metadataChanged := !turnMetadataValid
+	if !turnMetadataValid {
+		turnMetadata = map[string]any{
+			"thread_source": "user",
+			"sandbox":       "none",
+			"sandbox_mode":  "danger-full-access",
+		}
+	}
+	setMetadataString := func(name, value string) {
+		current, ok := turnMetadata[name].(string)
+		if !ok || strings.TrimSpace(current) != value {
+			turnMetadata[name] = value
+			metadataChanged = true
+		}
+	}
+	setMetadataString("installation_id", installationID)
+	setMetadataString("session_id", sessionID)
+	setMetadataString("thread_id", threadID)
+	setMetadataString("turn_id", turnID)
+	setMetadataString("window_id", windowID)
+	setMetadataString("request_kind", requestKind)
+	if metadataString("sandbox") == "" {
+		turnMetadata["sandbox"] = "none"
+		metadataChanged = true
+	}
+	if startedAt, ok := turnMetadata["turn_started_at_unix_ms"].(float64); !ok || startedAt <= 0 {
+		turnMetadata["turn_started_at_unix_ms"] = time.Now().UnixMilli()
+		metadataChanged = true
+	}
+
+	setIfMissingOrInvalid("Originator", client)
+	setIfMissingOrInvalid("Session-Id", sessionID)
+	setIfMissingOrInvalid("Thread-Id", threadID)
+	setIfMissingOrInvalid("X-Client-Request-Id", threadID)
+	setIfMissingOrInvalid("X-Codex-Window-Id", windowID)
+	// X-Codex-Turn-State is server-issued sticky state and must never be forged.
+	if metadataChanged {
+		encodedMetadata, err := common2.Marshal(turnMetadata)
+		if err != nil {
+			logger.LogError(c, "marshal Codex turn metadata failed: "+err.Error())
+			return
+		}
+		req.Header.Set("X-Codex-Turn-Metadata", string(encodedMetadata))
+	}
+}
+
+func newCodexUUIDV7() string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return uuid.NewString()
+	}
+	return id.String()
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
@@ -326,6 +699,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	passCodexClientHeaders(c, req.Header, info)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -358,6 +732,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	passCodexClientHeaders(c, req.Header, info)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -382,6 +757,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	passCodexClientHeaders(c, targetHeader, info)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -488,8 +864,15 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	common2.SetContextKey(c, rootconstant.ContextKeyUpstreamRequestHeadersAudit, map[string]string(nil))
 	if billingErr := service.PrepareTieredBillingForUpstreamRequest(c, info, req); billingErr != nil {
 		return nil, billingErr
+	}
+	NormalizeClientIdentityHeaders(c, req, info)
+	rules := operation_setting.GetRequestHeaderRules()
+	removeNonForwardedRequestHeaders(req.Header, rules)
+	if !operation_setting.ResolveRequestHeaderPolicy("Host", rules).Forward {
+		req.Host = ""
 	}
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
@@ -532,6 +915,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	service.CaptureUpstreamRequestHeadersAudit(c, req.Header)
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -587,6 +971,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	passCodexClientHeaders(c, req.Header, info)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)

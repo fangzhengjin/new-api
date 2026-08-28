@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,6 +18,38 @@ import (
 
 func commonPointer[T any](value T) *T {
 	return &value
+}
+
+func TestCommonClaudeHeadersOperationPassesNativeClientHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request.Header.Set("User-Agent", "claude-cli/2.1.234 (external, cli)")
+	request.Header.Set("X-Claude-Code-Session-Id", "session-1")
+	request.Header.Set("X-Stainless-Helper-Method", "stream")
+	request.Header.Set("Authorization", "Bearer client-secret")
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = request
+
+	upstream := http.Header{}
+	CommonClaudeHeadersOperation(ctx, &upstream, &relaycommon.RelayInfo{})
+
+	assert.Equal(t, request.UserAgent(), upstream.Get("User-Agent"))
+	assert.Equal(t, "session-1", upstream.Get("X-Claude-Code-Session-Id"))
+	assert.Equal(t, "stream", upstream.Get("X-Stainless-Helper-Method"))
+	assert.Empty(t, upstream.Get("Authorization"))
+}
+
+func TestCommonClaudeHeadersOperationDoesNotPassConvertedClientHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request.Header.Set("User-Agent", "claude-cli/2.1.234 (external, cli)")
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = request
+
+	upstream := http.Header{}
+	CommonClaudeHeadersOperation(ctx, &upstream, &relaycommon.RelayInfo{})
+
+	assert.Empty(t, upstream.Get("User-Agent"))
 }
 
 func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {

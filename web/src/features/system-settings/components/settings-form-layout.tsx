@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ComponentProps, ReactNode } from 'react'
+import { useId, type ComponentProps, type ReactNode } from 'react'
 
 import { FormItem } from '@/components/ui/form'
 import { Label } from '@/components/ui/label'
@@ -36,6 +36,13 @@ type SettingsSwitchItemProps = ComponentProps<typeof FormItem>
 type SettingsSwitchRowProps = ComponentProps<'div'>
 type SettingsControlGroupProps = ComponentProps<'div'>
 type SettingsControlChildrenProps = ComponentProps<'div'>
+type SettingsFormSectionProps = {
+  title: ReactNode
+  description?: ReactNode
+  action?: ReactNode
+  children?: ReactNode
+  className?: string
+}
 type SettingsSwitchFieldProps = SettingsSwitchRowProps & {
   checked: boolean
   onCheckedChange: (checked: boolean) => void
@@ -165,6 +172,34 @@ export function SettingsControlChildren({
       className={cn('border-border/70 ml-2 min-w-0 border-l pl-3', className)}
       {...props}
     />
+  )
+}
+
+/** Groups one settings responsibility under a consistent section heading. */
+export function SettingsFormSection(props: SettingsFormSectionProps) {
+  const titleId = useId()
+
+  return (
+    <section
+      aria-labelledby={titleId}
+      data-settings-form-span='full'
+      className={cn('min-w-0 space-y-6', props.className)}
+    >
+      <div className='flex min-w-0 items-start justify-between gap-4'>
+        <div className='min-w-0'>
+          <h3 id={titleId} className='text-base font-semibold'>
+            {props.title}
+          </h3>
+          {props.description ? (
+            <p className='text-muted-foreground mt-1 text-sm'>
+              {props.description}
+            </p>
+          ) : null}
+        </div>
+        {props.action ? <div className='shrink-0'>{props.action}</div> : null}
+      </div>
+      {props.children}
+    </section>
   )
 }
 

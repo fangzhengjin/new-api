@@ -55,6 +55,7 @@ function makeLog(other: LogOtherData): UsageLog {
     type: 2,
     content: '',
     username: 'user',
+    display_name: '',
     token_name: 'token',
     model_name: 'wan2.5-i2v-preview',
     quota: 5000,

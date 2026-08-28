@@ -31,6 +31,15 @@ import { buildQuotaAuditOperation } from './quota-audit-operation'
 
 export { normalizeTierLabel }
 
+/** Returns the current display name only when it adds information beyond the logged username. */
+export function getDistinctUserDisplayName(
+  log: Pick<UsageLog, 'username' | 'display_name'>
+): string {
+  return log.display_name && log.display_name !== log.username
+    ? log.display_name
+    : ''
+}
+
 const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
   set: 'Set',
   delete: 'Delete',

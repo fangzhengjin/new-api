@@ -63,6 +63,7 @@ type Log struct {
 	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
 	Content           string `json:"content"`
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
+	DisplayName       string `json:"display_name,omitempty" gorm:"-"`
 	TokenName         string `json:"token_name" gorm:"index;default:''"`
 	ModelName         string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota             int    `json:"quota" gorm:"default:0"`
@@ -519,9 +520,13 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 
 	channelIds := types.NewSet[int]()
+	userIds := types.NewSet[int]()
 	for _, log := range logs {
 		if log.ChannelId != 0 {
 			channelIds.Add(log.ChannelId)
+		}
+		if log.UserId != 0 {
+			userIds.Add(log.UserId)
 		}
 	}
 
@@ -555,6 +560,25 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		}
 		for i := range logs {
 			logs[i].ChannelName = channelMap[logs[i].ChannelId]
+		}
+	}
+
+	if userIds.Len() > 0 {
+		// Logs may use a separate database, so enrich current display names from
+		// the main database after pagination instead of joining across databases.
+		var users []struct {
+			Id          int    `gorm:"column:id"`
+			DisplayName string `gorm:"column:display_name"`
+		}
+		if err = DB.Model(&User{}).Select("id, display_name").Where("id IN ?", userIds.Items()).Find(&users).Error; err != nil {
+			return logs, total, err
+		}
+		userDisplayNameMap := make(map[int]string, len(users))
+		for _, user := range users {
+			userDisplayNameMap[user.Id] = user.DisplayName
+		}
+		for i := range logs {
+			logs[i].DisplayName = userDisplayNameMap[logs[i].UserId]
 		}
 	}
 

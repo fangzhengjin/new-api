@@ -32,7 +32,11 @@ import dayjs from '@/lib/dayjs'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
-import { formatModelName, parseLogOther } from '../lib/format'
+import {
+  formatModelName,
+  getDistinctUserDisplayName,
+  parseLogOther,
+} from '../lib/format'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
@@ -236,6 +240,18 @@ export function CommonLogMobileCard<TData>(props: {
                   icon={KeyRound}
                   className='border-border/60 bg-muted/30 text-foreground max-w-full rounded-md border px-1.5 py-0.5 text-sm'
                 />
+              )
+            } else if (id === 'user') {
+              const displayName = getDistinctUserDisplayName(log)
+              fieldContent = displayName ? (
+                <span className='flex min-w-0 flex-col gap-0.5'>
+                  <span className='truncate'>{field.value}</span>
+                  <span className='text-muted-foreground/70 truncate text-xs'>
+                    {displayName}
+                  </span>
+                </span>
+              ) : (
+                <span className='truncate'>{field.value}</span>
               )
             }
             return (

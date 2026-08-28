@@ -240,7 +240,7 @@ func ApplyChannelNormalizations(taskID string, expectedTaskResult string, update
 			}
 
 			models := applyModelMutation(channel.GetModels(), mutation)
-			mapping, err := parseChannelModelMapping(&channel)
+			mapping, err := ParseChannelModelMapping(&channel)
 			if err != nil {
 				return err
 			}
@@ -267,7 +267,7 @@ func ApplyChannelNormalizations(taskID string, expectedTaskResult string, update
 			}
 
 			modelsText := strings.Join(models, ",")
-			mappingText, err := marshalChannelModelMapping(mapping)
+			mappingText, err := MarshalChannelModelMapping(mapping)
 			if err != nil {
 				return err
 			}
@@ -331,40 +331,6 @@ func applyModelMutation(current []string, mutation ChannelNormalizationMutation)
 		sort.Strings(models)
 	}
 	return models
-}
-
-func parseChannelModelMapping(channel *Channel) (map[string]string, error) {
-	mapping := map[string]string{}
-	raw := strings.TrimSpace(pointerString(channel.ModelMapping))
-	if raw == "" || raw == "null" {
-		return mapping, nil
-	}
-	if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
-		return nil, fmt.Errorf("channel %d has invalid model_mapping: %w", channel.Id, err)
-	}
-	for source, target := range mapping {
-		normalizedSource := strings.TrimSpace(source)
-		normalizedTarget := strings.TrimSpace(target)
-		if normalizedSource == "" || normalizedTarget == "" {
-			return nil, fmt.Errorf("channel %d has an empty model_mapping entry", channel.Id)
-		}
-		if normalizedSource != source {
-			delete(mapping, source)
-		}
-		mapping[normalizedSource] = normalizedTarget
-	}
-	return mapping, nil
-}
-
-func marshalChannelModelMapping(mapping map[string]string) (string, error) {
-	if len(mapping) == 0 {
-		return "", nil
-	}
-	data, err := common.Marshal(mapping)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 func pointerString(value *string) string {

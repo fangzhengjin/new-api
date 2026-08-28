@@ -8,8 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -123,6 +125,64 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	codexDefaults, err := common.Marshal(model_setting.GetDefaultCodexSettings())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default Codex settings: %w", err))
+		return
+	}
+	claudeDefaults, err := common.Marshal(model_setting.GetDefaultClaudeSettings())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default Claude settings: %w", err))
+		return
+	}
+	chatDefaults, err := common.Marshal(setting.GetDefaultChats())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default chat presets: %w", err))
+		return
+	}
+	requestLimitErrorTemplateDefaults, err := common.Marshal(setting.GetDefaultRequestLimitErrorTemplates())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default request limit error templates: %w", err))
+		return
+	}
+	options = append(options,
+		&model.Option{
+			Key:   operation_setting.RequestHeaderRulesDefaultOptionKey,
+			Value: operation_setting.DefaultRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
+			Value: operation_setting.CDNRequestHeaderRuleGroupsJSON(),
+		},
+		&model.Option{
+			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
+			Value: operation_setting.SystemRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   model_setting.CodexSettingsDefaultOptionKey,
+			Value: string(codexDefaults),
+		},
+		&model.Option{
+			Key:   model_setting.ClaudeSettingsDefaultOptionKey,
+			Value: string(claudeDefaults),
+		},
+		&model.Option{
+			Key:   setting.ChatsDefaultOptionKey,
+			Value: string(chatDefaults),
+		},
+		&model.Option{
+			Key:   setting.ChatMenuCollapseThresholdDefaultOptionKey,
+			Value: strconv.Itoa(setting.DefaultChatMenuCollapseThreshold),
+		},
+		&model.Option{
+			Key:   setting.RequestLimitErrorTemplateDefaultsOptionKey,
+			Value: string(requestLimitErrorTemplateDefaults),
+		},
+		&model.Option{
+			Key:   "RequestHeaderAuditCapacityBytes",
+			Value: strconv.Itoa(operation_setting.RequestHeaderAuditCapacityBytes),
+		},
+	)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -144,7 +204,7 @@ func UpdatePasskeyDomains(c *gin.Context) {
 		RemovalConfirmation string  `json:"removal_confirmation"`
 	}
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.RPID == nil || request.LegacyRPIDs == nil || request.Origins == nil {
-		common.ApiErrorT(c, "Invalid parameters")
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	change, err := model.UpdatePasskeyDomainOptions(map[string]string{
@@ -179,162 +239,291 @@ func writePasskeyDomainSettingsError(c *gin.Context, err error) {
 	common.ApiError(c, err)
 }
 
-func UpdateOption(c *gin.Context) {
-	var option OptionUpdateRequest
-	err := common.DecodeJson(c.Request.Body, &option)
-	if err != nil {
-		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
-		return
-	}
-	switch option.Value.(type) {
+func normalizeOptionValue(value any) string {
+	switch value := value.(type) {
 	case bool:
-		option.Value = common.Interface2String(option.Value.(bool))
+		return common.Interface2String(value)
 	case float64:
-		option.Value = common.Interface2String(option.Value.(float64))
+		return common.Interface2String(value)
 	case int:
-		option.Value = common.Interface2String(option.Value.(int))
+		return common.Interface2String(value)
 	default:
-		option.Value = fmt.Sprintf("%v", option.Value)
+		return fmt.Sprintf("%v", value)
 	}
-	switch option.Key {
+}
+
+func optionValue(values map[string]string, key string, current string) string {
+	if value, ok := values[key]; ok {
+		return value
+	}
+	return current
+}
+
+func validateRatioOption(value string) error {
+	var ratios map[string]float64
+	return common.UnmarshalJsonStr(value, &ratios)
+}
+
+func validateOptionUpdate(c *gin.Context, key string, value string, values map[string]string) bool {
+	switch key {
+	case "InfiniteCanvasEnabled", "InfiniteCanvasLaunchURL", "ChatsLegacyBackup":
+		common.ApiErrorMsg(c, "该设置项已停用，请在聊天预设中配置")
+		return false
 	case "QuotaForInviter", "QuotaForInvitee":
-		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
-			common.ApiErrorT(c, "Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")
-			return
+		if isPositiveOptionValue(value) && !operation_setting.IsPaymentComplianceConfirmed() {
+			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return false
+		}
+	case model.CycleQuotaManagementOptionKey:
+		if value != "true" && value != "false" {
+			common.ApiErrorMsg(c, "周期额度管理开关值不正确")
+			return false
 		}
 	default:
-		if isPaymentComplianceOptionKey(option.Key) {
-			common.ApiErrorT(c, "Compliance confirmation fields cannot be changed through the general settings API")
-			return
+		if isPaymentComplianceOptionKey(key) {
+			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return false
 		}
 	}
-	if option.Key == "TaskPublicAddress" && option.Value.(string) != "" {
-		if err := service.ValidateTaskArtifactBaseURL(option.Value.(string)); err != nil {
-			common.ApiError(c, err)
-			return
+
+	var err error
+	switch key {
+	case "TaskPublicAddress":
+		if value != "" {
+			if err = service.ValidateTaskArtifactBaseURL(value); err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return false
+			}
 		}
-	}
-	switch option.Key {
 	case "GitHubOAuthEnabled":
-		if option.Value == "true" && common.GitHubClientId == "" {
+		if value == "true" && optionValue(values, "GitHubClientId", common.GitHubClientId) == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "GitHub OAuth"})
-			return
+			return false
 		}
 	case "discord.enabled":
-		if option.Value == "true" && system_setting.GetDiscordSettings().ClientId == "" {
+		if value == "true" && optionValue(values, "discord.client_id", system_setting.GetDiscordSettings().ClientId) == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "Discord OAuth"})
-			return
+			return false
 		}
 	case "oidc.enabled":
-		if option.Value == "true" && system_setting.GetOIDCSettings().ClientId == "" {
+		if value == "true" && optionValue(values, "oidc.client_id", system_setting.GetOIDCSettings().ClientId) == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "OIDC"})
-			return
+			return false
 		}
 	case "LinuxDOOAuthEnabled":
-		if option.Value == "true" && common.LinuxDOClientId == "" {
+		if value == "true" && optionValue(values, "LinuxDOClientId", common.LinuxDOClientId) == "" {
 			common.ApiErrorT(c, "Cannot enable {{provider}}. Enter the {{provider}} Client ID and Client Secret first.", map[string]any{"provider": "LinuxDO OAuth"})
-			return
+			return false
 		}
 	case "EmailDomainRestrictionEnabled":
-		if option.Value == "true" && len(common.EmailDomainWhitelist) == 0 {
+		if value == "true" && optionValue(values, "EmailDomainWhitelist", strings.Join(common.EmailDomainWhitelist, ",")) == "" {
 			common.ApiErrorT(c, "Cannot enable the email domain restriction. Enter the allowed email domains first.")
-			return
+			return false
 		}
 	case "WeChatAuthEnabled":
-		if option.Value == "true" && common.WeChatServerAddress == "" {
+		if value == "true" && optionValue(values, "WeChatServerAddress", common.WeChatServerAddress) == "" {
 			common.ApiErrorT(c, "Cannot enable WeChat login. Enter the WeChat login settings first.")
-			return
+			return false
 		}
 	case "TurnstileCheckEnabled":
-		if option.Value == "true" && common.TurnstileSiteKey == "" {
+		if value == "true" && optionValue(values, "TurnstileSiteKey", common.TurnstileSiteKey) == "" {
 			common.ApiErrorT(c, "Cannot enable Turnstile verification. Enter the Turnstile settings first.")
-			return
+			return false
 		}
 	case "TelegramOAuthEnabled":
-		if option.Value == "true" && !system_setting.GetTelegramSettings().IsConfigured() {
+		telegram := *system_setting.GetTelegramSettings()
+		telegram.ClientID = optionValue(values, "telegram.client_id", telegram.ClientID)
+		telegram.ClientSecret = optionValue(values, "telegram.client_secret", telegram.ClientSecret)
+		if value == "true" && !telegram.IsConfigured() {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"code":    "TELEGRAM_OAUTH_NOT_CONFIGURED",
 				"message": "Telegram OAuth is not configured or enabled. Please contact your administrator.",
 			})
-			return
+			return false
 		}
 	case "theme.frontend":
-		if option.Value != "default" {
+		if value != "default" {
 			common.ApiErrorT(c, "The Classic frontend has been removed. The theme can only be set to default")
-			return
+			return false
 		}
 	case "GroupRatio":
-		err = ratio_setting.CheckGroupRatio(option.Value.(string))
+		err = ratio_setting.CheckGroupRatio(value)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "gemini.safety_settings":
-		err = model_setting.ValidateGeminiSafetySettings(option.Value.(string))
+		err = model_setting.ValidateGeminiSafetySettings(value)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "claude.default_max_tokens":
-		err = model_setting.ValidateClaudeDefaultMaxTokens(option.Value.(string))
+		err = model_setting.ValidateClaudeDefaultMaxTokens(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.minimum_client_version", "codex.minimum_desktop_client_version",
+		"codex.request_header_fallback_version", "claude.minimum_client_version",
+		"claude.request_header_fallback_version":
+		err = model_setting.ValidateClientVersion(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_client":
+		err = model_setting.ValidateCodexUserAgentClient(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
+		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
+		err = model_setting.ValidateCodexUserAgentComponent(value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "codex.request_header_model_patterns", "claude.request_header_model_patterns":
+		err = model_setting.ValidateClientIdentityModelPatterns(value)
 		if err != nil {
 			common.ApiError(c, err)
-			return
+			return false
+		}
+	case "codex.error_response_mappings":
+		err = model_setting.ValidateCodexErrorResponseMappings(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return false
 		}
 	case operation_setting.ToolPriceOptionKey:
-		err = operation_setting.ValidateToolPricesJSON(option.Value.(string))
+		err = operation_setting.ValidateToolPricesJSON(value)
 		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
+		}
+	case "quota_setting.settlement_lead_minutes":
+		minutes, parseErr := strconv.Atoi(value)
+		if parseErr != nil || minutes < 3 || minutes > 60 {
+			common.ApiErrorMsg(c, "结算提前时间必须为3至60分钟")
+			return false
+		}
+		var cycles []model.QuotaCycle
+		if err = model.DB.Select("cycle_start_at", "cycle_end_at").Where("status <> ?", model.QuotaCycleStatusClosed).Find(&cycles).Error; err != nil {
 			common.ApiError(c, err)
-			return
+			return false
+		}
+		for _, cycle := range cycles {
+			if cycle.CycleEndAt-cycle.CycleStartAt <= int64(minutes*60) {
+				common.ApiErrorMsg(c, "结算提前时间必须小于所有未关闭周期的时长")
+				return false
+			}
+		}
+	case "quota_setting.settlement_prompt":
+		if strings.TrimSpace(value) == "" || utf8.RuneCountInString(value) > 200 {
+			common.ApiErrorMsg(c, "结算提示语不能为空且不得超过200个字符")
+			return false
+		}
+	case "quota_setting.temporary_quota_projects":
+		var projects map[string]bool
+		if err = common.UnmarshalJsonStr(value, &projects); err != nil || projects == nil {
+			common.ApiErrorMsg(c, "临时额度项目必须是项目名称到可选状态的 JSON 对象")
+			return false
+		}
+		if len(projects) > 100 {
+			common.ApiErrorMsg(c, "临时额度项目不能超过100个")
+			return false
+		}
+		for name := range projects {
+			if name != strings.TrimSpace(name) || name == "" || utf8.RuneCountInString(name) > 100 {
+				common.ApiErrorMsg(c, "项目名称不能为空、不能包含首尾空格且不得超过100个字符")
+				return false
+			}
+		}
+	case "ChatMenuCollapseThreshold":
+		if _, err = setting.ValidateChatMenuCollapseThreshold(value); err != nil {
+			common.ApiError(c, err)
+			return false
 		}
 	case "ImageRatio":
-		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
-			common.ApiErrorT(c, "Failed to set the image ratio: {{error}}", map[string]any{"error": err.Error()})
-			return
+			common.ApiError(c, err)
+			return false
 		}
 	case "AudioRatio":
-		err = ratio_setting.UpdateAudioRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
-			common.ApiErrorT(c, "Failed to set the audio ratio: {{error}}", map[string]any{"error": err.Error()})
-			return
+			common.ApiError(c, err)
+			return false
 		}
 	case "AudioCompletionRatio":
-		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
-			common.ApiErrorT(c, "Failed to set the audio completion ratio: {{error}}", map[string]any{"error": err.Error()})
-			return
+			common.ApiError(c, err)
+			return false
 		}
 	case "CreateCacheRatio":
-		err = ratio_setting.UpdateCreateCacheRatioByJSONString(option.Value.(string))
+		err = validateRatioOption(value)
 		if err != nil {
-			common.ApiErrorT(c, "Failed to set the cache creation ratio: {{error}}", map[string]any{"error": err.Error()})
-			return
+			common.ApiError(c, err)
+			return false
 		}
 	case "ModelRequestRateLimitGroup":
-		err = setting.CheckModelRequestRateLimitGroup(option.Value.(string))
+		err = setting.CheckModelRequestRateLimitGroup(value)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "AutomaticDisableStatusCodes":
-		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
+		_, err = operation_setting.ParseHTTPStatusCodeRanges(value)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "AutomaticRetryStatusCodes":
-		_, err = operation_setting.ParseHTTPStatusCodeRanges(option.Value.(string))
+		_, err = operation_setting.ParseHTTPStatusCodeRanges(value)
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "billing_setting.billing_expr":
 		expressions := make(map[string]string)
-		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil {
-			common.ApiErrorT(c, "Billing expressions must be a JSON object mapping models to expressions: {{error}}", map[string]any{"error": err.Error()})
-			return
+		if err = common.UnmarshalJsonStr(value, &expressions); err != nil {
+			common.ApiErrorMsg(c, "计费表达式配置必须是模型到表达式的 JSON 对象: "+err.Error())
+			return false
 		}
 		models := make([]string, 0, len(expressions))
 		for modelName := range expressions {
@@ -354,56 +543,88 @@ func UpdateOption(c *gin.Context) {
 				billing_setting.PluginBillingExprOption: variants,
 			})
 			if err != nil {
-				common.ApiErrorT(c, "Invalid billing expression for model {{model}}: {{error}}", map[string]any{"model": modelName, "error": err.Error()})
-				return
+				common.ApiErrorMsg(c, fmt.Sprintf("模型 %s 的计费表达式无效: %v", modelName, err))
+				return false
 			}
 		}
 	case billing_setting.PluginBillingExprOption:
 		var expressions map[string]string
-		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil || expressions == nil {
+		if err = common.UnmarshalJsonStr(value, &expressions); err != nil || expressions == nil {
 			common.ApiErrorMsg(c, "plugin billing expressions must be a JSON object")
-			return
+			return false
 		}
 		for key, expression := range expressions {
 			plugin, name, valid := billing_setting.SplitPluginBillingExprKey(key)
 			if !valid {
 				common.ApiErrorMsg(c, "invalid plugin billing expression key: "+key)
-				return
+				return false
 			}
 			if err = model.ValidateModelPricing(name, model.PricingValues{
 				billing_setting.PluginBillingExprOption: map[string]any{plugin: expression},
 			}); err != nil {
-				common.ApiError(c, err)
-				return
+				common.ApiErrorMsg(c, err.Error())
+				return false
 			}
 		}
 	case "console_setting.api_info":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "ApiInfo")
+		err = console_setting.ValidateConsoleSettings(value, "ApiInfo")
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "console_setting.announcements":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "Announcements")
+		err = console_setting.ValidateConsoleSettings(value, "Announcements")
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "console_setting.faq":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "FAQ")
+		err = console_setting.ValidateConsoleSettings(value, "FAQ")
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	case "console_setting.uptime_kuma_groups":
-		err = console_setting.ValidateConsoleSettings(option.Value.(string), "UptimeKumaGroups")
+		err = console_setting.ValidateConsoleSettings(value, "UptimeKumaGroups")
 		if err != nil {
-			common.ApiError(c, err)
-			return
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return false
 		}
 	}
+	return true
+}
+
+// UpdateOption validates a single option update and persists it through the
+// same validation chain used by every option write path.
+func UpdateOption(c *gin.Context) {
+	var option OptionUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &option); err != nil {
+		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
+		return
+	}
+	if strings.TrimSpace(option.Key) == "" {
+		common.ApiErrorT(c, "Option key cannot be empty")
+		return
+	}
+	value := normalizeOptionValue(option.Value)
+	values := map[string]string{option.Key: value}
+	if !validateOptionUpdate(c, option.Key, value, values) {
+		return
+	}
 	if model.IsPasskeyDomainOption(option.Key) {
-		change, updateErr := model.UpdatePasskeyDomainOptions(map[string]string{option.Key: option.Value.(string)}, false, "")
+		change, updateErr := model.UpdatePasskeyDomainOptions(map[string]string{option.Key: value}, false, "")
 		if updateErr != nil {
 			writePasskeyDomainSettingsError(c, updateErr)
 			recordPasskeyDomainAudit(c, change, false, updateErr)
@@ -413,8 +634,7 @@ func UpdateOption(c *gin.Context) {
 		common.ApiSuccess(c, change)
 		return
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
-	if err != nil {
+	if err := model.UpdateOptionsBulk(values); err != nil {
 		if errors.Is(err, system_setting.ErrPasskeyRPIDInvalid) {
 			writeSecurityOperationError(c, err)
 		} else {

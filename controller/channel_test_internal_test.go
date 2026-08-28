@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -268,6 +269,48 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 	require.Equal(t, 1500, quota)
 	require.NotNil(t, result)
 	require.Equal(t, "stream", result.MatchedTier)
+}
+
+func TestChannelTestTokenUsedFollowsUsageSemantic(t *testing.T) {
+	info := &relaycommon.RelayInfo{FinalRequestRelayFormat: relaytypes.RelayFormatClaude}
+	usage := &dto.Usage{
+		PromptTokens:     70,
+		CompletionTokens: 7,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         30,
+			CachedCreationTokens: 20,
+		},
+	}
+
+	require.Equal(t, 127, channelTestTokenUsed(info, usage))
+
+	usage.UsageSemantic = dto.BillingUsageSemanticOpenAI
+	usage.PromptTokens = 120
+	require.Equal(t, 127, channelTestTokenUsed(info, usage))
+}
+
+func TestBuildTestLogOtherPreservesAnthropicTokenDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		FinalRequestRelayFormat: relaytypes.RelayFormatClaude,
+		ChannelMeta:             &relaycommon.ChannelMeta{},
+	}
+	usage := &dto.Usage{
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         30,
+			CachedCreationTokens: 20,
+		},
+		ClaudeCacheCreation5mTokens: 12,
+		ClaudeCacheCreation1hTokens: 8,
+	}
+
+	other := buildTestLogOther(ctx, info, types.PriceData{}, usage, nil).Snapshot()
+
+	require.Equal(t, dto.BillingUsageSemanticAnthropic, other["usage_semantic"])
+	require.Equal(t, 20, other["cache_write_tokens"])
+	require.Equal(t, 12, other["cache_creation_tokens_5m"])
+	require.Equal(t, 8, other["cache_creation_tokens_1h"])
 }
 
 func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {

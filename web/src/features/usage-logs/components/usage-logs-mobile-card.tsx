@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { parseLogOther } from '../lib/format'
+import { getLogTokenSummary, parseLogOther } from '../lib/format'
 import { TASK_MOBILE_SUMMARY_FIELDS } from '../lib/task-mobile-layout'
 import {
   getLogTypeConfig,
@@ -188,15 +188,15 @@ function MobileLogTimeStatus({
   )
 }
 
-/** Mobile-only Tokens block: always show cache ↓/↑ when present (no label). */
+/** Mobile-only Tokens block: show total input/output and included cache usage. */
 function MobileTokensField({ log }: { log: UsageLog }) {
   const { t } = useTranslation()
 
   if (!isDisplayableLogType(log.type)) return null
 
-  const promptTokens = log.prompt_tokens || 0
-  const completionTokens = log.completion_tokens || 0
-  if (promptTokens === 0 && completionTokens === 0) {
+  const other = parseLogOther(log.other)
+  const tokenSummary = getLogTokenSummary(log, other)
+  if (tokenSummary.inputTotal === 0 && tokenSummary.outputTotal === 0) {
     return (
       <div className='bg-muted/20 min-w-0 rounded-md px-2 py-1.5'>
         <span className='text-muted-foreground text-xs'>-</span>
@@ -204,31 +204,23 @@ function MobileTokensField({ log }: { log: UsageLog }) {
     )
   }
 
-  const other = parseLogOther(log.other)
-  const cacheReadTokens = other?.cache_tokens || 0
-  const cacheWrite5m = other?.cache_creation_tokens_5m || 0
-  const cacheWrite1h = other?.cache_creation_tokens_1h || 0
-  const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
-  const cacheWriteTokens = hasSplitCache
-    ? cacheWrite5m + cacheWrite1h
-    : other?.cache_creation_tokens || 0
-  const showCache = cacheReadTokens > 0 || cacheWriteTokens > 0
+  const showCache = tokenSummary.cacheRead > 0 || tokenSummary.cacheWrite > 0
 
   return (
     <div className='bg-muted/20 min-w-0 rounded-md px-2 py-1.5'>
       <div className='flex flex-col gap-0.5'>
         <span className='font-mono text-xs font-medium tabular-nums'>
-          {promptTokens.toLocaleString()} / {completionTokens.toLocaleString()}
+          {tokenSummary.inputTotal.toLocaleString()} /{' '}
+          {tokenSummary.outputTotal.toLocaleString()}
         </span>
         {showCache ? (
           <div className='text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-none'>
-            {cacheReadTokens > 0 && (
-              <span>
-                {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
-              </span>
+            <span>{t('Cache')}</span>
+            {tokenSummary.cacheRead > 0 && (
+              <span>↓ {tokenSummary.cacheRead.toLocaleString()}</span>
             )}
-            {cacheWriteTokens > 0 && (
-              <span>↑ {cacheWriteTokens.toLocaleString()}</span>
+            {tokenSummary.cacheWrite > 0 && (
+              <span>↑ {tokenSummary.cacheWrite.toLocaleString()}</span>
             )}
           </div>
         ) : (

@@ -11,7 +11,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ModelMappedHelper applies one channel model mapping to the relay request.
+// It reads the mapping from c, updates info and the optional request, and returns any parsing error.
 func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request) error {
+	return modelMappedHelper(c, info, request, false)
+}
+
+// TaskModelMappedHelper follows a channel mapping chain so task aliases reach the model declared by the selected plugin.
+func TaskModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request) error {
+	return modelMappedHelper(c, info, request, true)
+}
+
+func modelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request, followChain bool) error {
 	if info.ChannelMeta == nil {
 		info.ChannelMeta = &relaycommon.ChannelMeta{}
 	}
@@ -25,40 +36,29 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
 
-		// 支持链式模型重定向，最终使用链尾的模型
-		currentModel := info.OriginModelName
-		visitedModels := map[string]bool{
-			currentModel: true,
-		}
+		mappedModel := info.OriginModelName
+		visited := map[string]struct{}{mappedModel: {}}
 		for {
-			mappedModel, exists := modelMap[currentModel]
-			baseModel := hostreasoning.BaseModelName(currentModel)
-			if (!exists || mappedModel == "") && baseModel != currentModel {
-				mappedModel, exists = modelMap[baseModel]
+			nextModel, exists := modelMap[mappedModel]
+			baseModel := hostreasoning.BaseModelName(mappedModel)
+			if (!exists || nextModel == "") && baseModel != mappedModel {
+				nextModel, exists = modelMap[baseModel]
 			}
-			if exists && mappedModel != "" {
-				// 模型重定向循环检测，避免无限循环
-				if visitedModels[mappedModel] {
-					if mappedModel == currentModel {
-						if currentModel == info.OriginModelName {
-							info.IsModelMapped = false
-							return nil
-						}
-
-						info.IsModelMapped = true
-						break
-					}
-					return errors.New("model_mapping_contains_cycle")
-				}
-				visitedModels[mappedModel] = true
-				currentModel = mappedModel
-				info.IsModelMapped = true
-			} else {
+			if !exists || nextModel == "" || nextModel == mappedModel {
 				break
 			}
+			if _, seen := visited[nextModel]; seen {
+				return errors.New("model_mapping_contains_cycle")
+			}
+			mappedModel = nextModel
+			if !followChain {
+				break
+			}
+			visited[mappedModel] = struct{}{}
 		}
+		info.IsModelMapped = mappedModel != info.OriginModelName
 		if info.IsModelMapped {
-			info.UpstreamModelName = currentModel
+			info.UpstreamModelName = mappedModel
 		}
 	}
 

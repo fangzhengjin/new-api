@@ -145,6 +145,7 @@ func ValidateRequestChatUnsupportedFields(req *dto.OpenAIResponsesRequest) error
 
 func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponsesRequest) ([]dto.Message, error) {
 	messages := make([]dto.Message, 0)
+	systemRole := (&dto.GeneralOpenAIRequest{Model: req.Model}).GetSystemRoleName()
 	if rawJSONPresent(req.Instructions) {
 		instructions, err := responsesJSONString(req.Instructions)
 		if err != nil {
@@ -182,7 +183,7 @@ func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponse
 				messages = append(messages, dto.Message{Role: "user", Content: pendingMedia})
 				pendingMedia = nil
 			}
-			nextMessages, media, err := responsesInputItemToChatMessages(ctx, item, messages)
+			nextMessages, media, err := responsesInputItemToChatMessages(ctx, item, messages, systemRole)
 			if err != nil {
 				return nil, err
 			}
@@ -201,7 +202,7 @@ func responsesRequestMessagesToChat(ctx context.Context, req *dto.OpenAIResponse
 // responsesInputItemToChatMessages appends the Chat messages for one Responses input item.
 // The second result carries media content parts hoisted out of a tool output item,
 // already in Chat shape; the caller decides where that user message lands.
-func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, messages []dto.Message) ([]dto.Message, []any, error) {
+func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, messages []dto.Message, systemRole string) ([]dto.Message, []any, error) {
 	itemType := strings.TrimSpace(kitutil.Interface2String(item["type"]))
 	switch itemType {
 	case responsesInputTypeFunctionCall:
@@ -225,6 +226,8 @@ func responsesInputItemToChatMessages(ctx context.Context, item map[string]any, 
 	role := strings.TrimSpace(kitutil.Interface2String(item["role"]))
 	if role == "" {
 		role = "user"
+	} else if role == "developer" {
+		role = systemRole
 	}
 	content, err := responsesInputContentToChatContent(ctx, item["content"])
 	if err != nil {

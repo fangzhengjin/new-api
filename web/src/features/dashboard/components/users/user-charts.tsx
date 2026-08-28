@@ -32,7 +32,7 @@ import {
   TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
 import {
-  getDefaultDays,
+  getDefaultRange,
   saveGranularity,
   processUserChartData,
 } from '@/features/dashboard/lib'
@@ -41,7 +41,11 @@ import type {
   UserChartsFilters,
 } from '@/features/dashboard/types'
 import { requireServerSuccess } from '@/lib/server-error-message'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import {
+  getCalendarDateRange,
+  type CalendarRange,
+  type TimeGranularity,
+} from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 
 let themeManagerPromise: Promise<
@@ -81,14 +85,14 @@ export function UserCharts(props: UserChartsProps) {
   >(null)
 
   // The selection is owned by the dashboard parent so it persists across
-  // sub-section switches; the rolling window is derived from the chosen range.
+  // sub-section switches; the calendar range is derived from the chosen range.
   const timeGranularity = props.filters.timeGranularity
   const selectedRange = props.filters.selectedRange
   const topUserLimit = props.filters.topUserLimit
   const onFiltersChange = props.onFiltersChange
 
   const timeRange = useMemo(() => {
-    const { start, end } = getRollingDateRange(selectedRange)
+    const { start, end } = getCalendarDateRange(selectedRange)
     return {
       start_timestamp: Math.floor(start.getTime() / 1000),
       end_timestamp: Math.floor(end.getTime() / 1000),
@@ -96,8 +100,8 @@ export function UserCharts(props: UserChartsProps) {
   }, [selectedRange])
 
   const handleRangeChange = useCallback(
-    (days: number) => {
-      onFiltersChange({ ...props.filters, selectedRange: days })
+    (range: CalendarRange) => {
+      onFiltersChange({ ...props.filters, selectedRange: range })
     },
     [onFiltersChange, props.filters]
   )
@@ -108,7 +112,7 @@ export function UserCharts(props: UserChartsProps) {
       onFiltersChange({
         ...props.filters,
         timeGranularity: g,
-        selectedRange: getDefaultDays(g),
+        selectedRange: getDefaultRange(g),
       })
     },
     [onFiltersChange, props.filters]
@@ -160,15 +164,15 @@ export function UserCharts(props: UserChartsProps) {
     <div className='space-y-3'>
       <div className='flex items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2'>
         <Tabs
-          value={String(selectedRange)}
-          onValueChange={(value) => handleRangeChange(Number(value))}
+          value={selectedRange}
+          onValueChange={(value) => handleRangeChange(value as CalendarRange)}
           className='shrink-0'
         >
           <TabsList>
             {TIME_RANGE_PRESETS.map((preset) => (
               <TabsTrigger
-                key={preset.days}
-                value={String(preset.days)}
+                key={preset.value}
+                value={preset.value}
                 className='px-2.5 text-xs'
               >
                 {t(preset.label)}

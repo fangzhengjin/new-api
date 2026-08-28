@@ -167,6 +167,50 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+/** Format structured retry attempts, falling back to historical channel-only logs. */
+export function getRetryTargetChain(
+  adminInfo: LogOtherData['admin_info'],
+  keyLabel: string
+): string[] {
+  const targets = adminInfo?.retry_targets
+  if (Array.isArray(targets)) {
+    const labels: string[] = []
+    for (const target of targets) {
+      if (!Number.isInteger(target?.channel_id) || target.channel_id <= 0) {
+        continue
+      }
+      const keyIndex = target.multi_key_index
+      let label =
+        typeof keyIndex === 'number' &&
+        Number.isInteger(keyIndex) &&
+        keyIndex >= 0
+          ? `#${target.channel_id} / ${keyLabel} ${keyIndex}`
+          : `#${target.channel_id}`
+      const statusCode = target.status_code
+      const error = typeof target.error === 'string' ? target.error.trim() : ''
+      if (
+        typeof statusCode === 'number' &&
+        Number.isInteger(statusCode) &&
+        statusCode >= 100 &&
+        statusCode <= 599
+      ) {
+        label += ` · ${statusCode}${error ? `: ${error}` : ''}`
+      } else if (error) {
+        label += ` · ${error}`
+      }
+      labels.push(label)
+    }
+    if (labels.length > 0) {
+      if (adminInfo?.retry_targets_truncated === true) labels.push('…')
+      return labels
+    }
+  }
+
+  const channels = adminInfo?.use_channel
+  return Array.isArray(channels)
+    ? channels.map(String).filter((channel) => channel !== '')
+    : []
+}
 export function getReasoningEffortVariant(
   effort: string | undefined
 ): StatusBadgeProps['variant'] {

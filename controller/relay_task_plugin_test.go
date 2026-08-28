@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -225,6 +226,116 @@ func TestExecuteTaskSubmissionPersistsPinnedPluginProvenance(t *testing.T) {
 	require.NotNil(t, stored.PrivateData.Execution.TaskPlugin.Author)
 	assert.Equal(t, "Community Author", stored.PrivateData.Execution.TaskPlugin.Author.Name)
 	assert.Equal(t, "upstream-private", stored.PrivateData.UpstreamTaskID)
+}
+
+func TestExecuteTaskSubmissionCoalescesRetryErrorLogs(t *testing.T) {
+	originalRetryTimes := common.RetryTimes
+	originalRetryRanges := operation_setting.AutomaticRetryStatusCodeRanges
+	originalDisableRanges := operation_setting.AutomaticDisableStatusCodeRanges
+	originalErrorLogEnabled := constant.ErrorLogEnabled
+	originalLogConsumeEnabled := common.LogConsumeEnabled
+	originalAutomaticDisableEnabled := common.AutomaticDisableChannelEnabled
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	originalRedisEnabled := common.RedisEnabled
+	t.Cleanup(func() {
+		common.RetryTimes = originalRetryTimes
+		operation_setting.AutomaticRetryStatusCodeRanges = originalRetryRanges
+		operation_setting.AutomaticDisableStatusCodeRanges = originalDisableRanges
+		constant.ErrorLogEnabled = originalErrorLogEnabled
+		common.LogConsumeEnabled = originalLogConsumeEnabled
+		common.AutomaticDisableChannelEnabled = originalAutomaticDisableEnabled
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+		common.RedisEnabled = originalRedisEnabled
+	})
+	common.RetryTimes = 1
+	operation_setting.AutomaticRetryStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: http.StatusTooManyRequests, End: http.StatusTooManyRequests}}
+	operation_setting.AutomaticDisableStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: http.StatusTooManyRequests, End: http.StatusTooManyRequests}}
+	constant.ErrorLogEnabled = true
+	common.LogConsumeEnabled = false
+	common.AutomaticDisableChannelEnabled = true
+	common.MemoryCacheEnabled = false
+	common.RedisEnabled = false
+
+	for _, tt := range []struct {
+		name          string
+		finalSuccess  bool
+		wantErrorLogs int64
+	}{
+		{name: "success after retry", finalSuccess: true},
+		{name: "final failure", wantErrorLogs: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			events := make([]string, 0, 4)
+			database := setupTaskSubmissionDatabase(t, true, &events)
+			require.NoError(t, database.AutoMigrate(&model.Log{}, &model.Channel{}, &model.Ability{}))
+			originalLogDB := model.LOG_DB
+			model.LOG_DB = database
+			t.Cleanup(func() { model.LOG_DB = originalLogDB })
+
+			autoBan := 1
+			channel := &model.Channel{
+				Type:    constant.ChannelTypeTaskPlugin,
+				Name:    "plugin",
+				Key:     "key-a\nkey-b",
+				AutoBan: &autoBan,
+				ChannelInfo: model.ChannelInfo{
+					IsMultiKey:   true,
+					MultiKeySize: 2,
+					MultiKeyMode: constant.MultiKeyModeRandom,
+				},
+			}
+			require.NoError(t, database.Create(channel).Error)
+			billing := &taskSubmissionTestBilling{events: &events}
+			c := taskSubmissionTestContext()
+			info := taskSubmissionRelayInfo(billing)
+			info.LockedChannel = channel
+			attempts := 0
+			keyIndexes := make([]int, 0, 2)
+
+			outcome, taskErr := executeTaskSubmissionWith(c, info, func(_ *gin.Context, relayInfo *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				attempts++
+				keyIndexes = append(keyIndexes, relayInfo.ChannelMultiKeyIndex)
+				if tt.finalSuccess && attempts == 2 {
+					return &relay.TaskSubmitResult{UpstreamTaskID: "upstream-private", Platform: constant.TaskPlatform("plugin")}, nil
+				}
+				return nil, &dto.TaskError{Error: errors.New("api_key:secret rate limited"), StatusCode: http.StatusTooManyRequests}
+			})
+
+			assert.Equal(t, 2, attempts)
+			require.Len(t, keyIndexes, 2)
+			assert.NotEqual(t, keyIndexes[0], keyIndexes[1])
+			require.Len(t, info.RetryTargets, 2)
+			assert.Equal(t, http.StatusTooManyRequests, info.RetryTargets[0].StatusCode)
+			assert.NotContains(t, info.RetryTargets[0].Error, "secret")
+			var storedChannel model.Channel
+			require.NoError(t, database.First(&storedChannel, channel.Id).Error)
+			assert.Equal(t, common.ChannelStatusAutoDisabled, storedChannel.ChannelInfo.MultiKeyStatusList[keyIndexes[0]])
+			if tt.finalSuccess {
+				require.Nil(t, taskErr)
+				require.NotNil(t, outcome)
+				assert.NotEqual(t, common.ChannelStatusAutoDisabled, storedChannel.ChannelInfo.MultiKeyStatusList[keyIndexes[1]])
+			} else {
+				assert.Nil(t, outcome)
+				require.NotNil(t, taskErr)
+			}
+
+			var errorLogCount int64
+			require.NoError(t, database.Model(&model.Log{}).Where("type = ?", model.LogTypeError).Count(&errorLogCount).Error)
+			assert.Equal(t, tt.wantErrorLogs, errorLogCount)
+			if !tt.finalSuccess {
+				var errorLog model.Log
+				require.NoError(t, database.Where("type = ?", model.LogTypeError).First(&errorLog).Error)
+				assert.Equal(t, channel.Id, errorLog.ChannelId)
+				var other map[string]any
+				require.NoError(t, common.UnmarshalJsonStr(errorLog.Other, &other))
+				adminInfo, ok := other["admin_info"].(map[string]any)
+				require.True(t, ok)
+				targets, ok := adminInfo["retry_targets"].([]any)
+				require.True(t, ok)
+				assert.Len(t, targets, 2)
+			}
+		})
+	}
 }
 
 func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing.T) {

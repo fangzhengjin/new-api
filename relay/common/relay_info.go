@@ -76,6 +76,14 @@ type ChannelMeta struct {
 	SupportStreamOptions bool // 是否支持流式选项
 }
 
+// RelayRetryTarget identifies one relay handler attempt without exposing the key value.
+type RelayRetryTarget struct {
+	ChannelId     int    `json:"channel_id"`
+	MultiKeyIndex *int   `json:"multi_key_index,omitempty"`
+	StatusCode    int    `json:"status_code,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
 type TokenCountMeta struct {
 	//promptTokens int
 	estimatePromptTokens int
@@ -160,6 +168,8 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
+	RetryTargets                          []RelayRetryTarget
+	RetryTargetsTruncated                 bool
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string

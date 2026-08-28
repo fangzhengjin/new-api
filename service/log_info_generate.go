@@ -82,10 +82,20 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		if relayInfo.ConversionDiagnosticsTruncated() {
 			other.SetAdmin("conversion_diagnostics_truncated", true)
 		}
+		if len(relayInfo.RetryTargets) > 0 {
+			other.SetAdmin("retry_targets", relayInfo.RetryTargets)
+		}
+		if relayInfo.RetryTargetsTruncated {
+			other.SetAdmin("retry_targets_truncated", true)
+		}
 	}
 	if common.GetContextKeyBool(ctx, constant.ContextKeyChannelIsMultiKey) {
 		other.SetAdmin("is_multi_key", true)
 		other.SetAdmin("multi_key_index", common.GetContextKeyInt(ctx, constant.ContextKeyChannelMultiKeyIndex))
+	}
+	if relayInfo != nil && relayInfo.ChannelMeta != nil && relayInfo.ChannelIsMultiKey {
+		other.SetAdmin("is_multi_key", true)
+		other.SetAdmin("multi_key_index", relayInfo.ChannelMultiKeyIndex)
 	}
 	if common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens) {
 		other.SetAdmin("local_count_tokens", true)

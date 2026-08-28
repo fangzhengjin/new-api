@@ -41,15 +41,27 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
-func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
+func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
 		return normalized
+	}
+	if common.IsImageGenerationModel(modelName) {
+		return string(constant.EndpointTypeImageGeneration)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
 	return normalized
+}
+
+func parseChannelTestStream(c *gin.Context) bool {
+	raw, exists := c.GetQuery("stream")
+	if !exists {
+		return true
+	}
+	stream, _ := strconv.ParseBool(raw)
+	return stream
 }
 
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
@@ -69,7 +81,7 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	return rootUser.Id, nil
 }
 
-func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, testKeyIndex *int) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -108,7 +120,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
+	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
 
 	requestPath := "/v1/chat/completions"
 
@@ -168,13 +180,35 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	group, _ := model.GetUserGroup(testUserID, false)
 	c.Set("group", group)
 
-	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel)
+	selectedChannel := channel
+	if testKeyIndex != nil {
+		keys := channel.GetKeys()
+		if !channel.ChannelInfo.IsMultiKey || *testKeyIndex < 0 || *testKeyIndex >= len(keys) {
+			err := errors.New("invalid multi-key index for channel test")
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeChannelNoAvailableKey),
+			}
+		}
+		// A local single-key view lets recovery probe a disabled key without weakening normal routing selection.
+		channelCopy := *channel
+		channelCopy.ChannelInfo.IsMultiKey = false
+		channelCopy.Key = keys[*testKeyIndex]
+		selectedChannel = &channelCopy
+	}
+
+	newAPIError := middleware.SetupContextForSelectedChannel(c, selectedChannel, testModel)
 	if newAPIError != nil {
 		return testResult{
 			context:     c,
 			localErr:    newAPIError,
 			newAPIError: newAPIError,
 		}
+	}
+	if testKeyIndex != nil {
+		common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)
+		common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, *testKeyIndex)
 	}
 
 	// Determine relay format based on endpoint type or request path
@@ -228,6 +262,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	isStream = request.IsStream(c.Request)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -666,7 +701,7 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
 }
 
 func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
-	return channel != nil && channel.Type == constant.ChannelTypeCodex
+	return channel != nil
 }
 
 func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
@@ -717,6 +752,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Prompt: "a cute cat",
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
+				Stream: lo.ToPtr(isStream),
 			}
 		case constant.EndpointTypeJinaRerank:
 			// 返回 RerankRequest
@@ -863,7 +899,8 @@ func TestChannel(c *gin.Context) {
 	//}()
 	testModel := c.Query("model")
 	endpointType := c.Query("endpoint_type")
-	isStream, _ := strconv.ParseBool(c.Query("stream"))
+	isStream := parseChannelTestStream(c)
+	manualModelBatch, _ := strconv.ParseBool(c.Query("manual_model_batch"))
 	testUserID, err := resolveChannelTestUserID(c)
 	if err != nil {
 		common.ApiError(c, err)
@@ -874,7 +911,17 @@ func TestChannel(c *gin.Context) {
 	if c.Request != nil {
 		requestCtx = c.Request.Context()
 	}
-	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
+	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream, nil)
+	// Only an explicitly marked batch test may turn successful probes into status changes.
+	if manualModelBatch && common.AutomaticEnableChannelEnabled && channel.Status != common.ChannelStatusManuallyDisabled {
+		if channel.ChannelInfo.IsMultiKey {
+			if keyResult, attempted, _ := recoverAutoDisabledMultiKeys(requestCtx, channel, testUserID, testModel, endpointType, isStream); attempted {
+				result = keyResult
+			}
+		} else if result.localErr == nil && service.ShouldEnableChannel(result.newAPIError, channel.Status) {
+			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+		}
+	}
 	if result.localErr != nil {
 		resp := gin.H{
 			"success": false,
@@ -907,6 +954,28 @@ func TestChannel(c *gin.Context) {
 	})
 }
 
+func recoverAutoDisabledMultiKeys(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) (testResult, bool, bool) {
+	keys := channel.GetKeys()
+	var result testResult
+	attempted := false
+	recovered := false
+	for index, status := range channel.ChannelInfo.MultiKeyStatusList {
+		if status != common.ChannelStatusAutoDisabled || index < 0 || index >= len(keys) {
+			continue
+		}
+		keyResult := testChannel(ctx, channel, testUserID, testModel, endpointType, isStream, &index)
+		if !attempted || keyResult.localErr == nil && keyResult.newAPIError == nil {
+			result = keyResult
+		}
+		attempted = true
+		if keyResult.localErr == nil && keyResult.newAPIError == nil {
+			service.EnableChannel(channel.Id, keys[index], channel.Name)
+			recovered = true
+		}
+	}
+	return result, attempted, recovered
+}
+
 // channelTestSummary records the outcome of one channel test cycle so the
 // system task can persist a per-run result for history.
 type channelTestSummary struct {
@@ -921,8 +990,20 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 	summary := channelTestSummary{}
 	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 	tik := time.Now()
-	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel), nil)
+	primaryMilliseconds := time.Since(tik).Milliseconds()
+	recoveredMultiKey := false
+	if common.AutomaticEnableChannelEnabled && channel.Status != common.ChannelStatusManuallyDisabled && channel.ChannelInfo.IsMultiKey {
+		recoveryResult, attempted, recovered := recoverAutoDisabledMultiKeys(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		if !isChannelEnabled && attempted {
+			result = recoveryResult
+		}
+		recoveredMultiKey = recovered
+	}
 	milliseconds := time.Since(tik).Milliseconds()
+	if isChannelEnabled {
+		milliseconds = primaryMilliseconds
+	}
 	if ctx.Err() != nil {
 		return summary
 	}
@@ -935,7 +1016,7 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
 	}
 
-	if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
+	if result.localErr == nil && common.AutomaticDisableChannelEnabled && !shouldBanChannel {
 		if milliseconds > disableThreshold {
 			err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 			newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
@@ -943,18 +1024,22 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 		}
 	}
 
-	if newAPIError == nil {
+	if result.localErr == nil && newAPIError == nil {
 		summary.Succeeded++
 	} else {
 		summary.Failed++
 	}
 
 	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
+		channelError := types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan())
+		processChannelError(result.context, *channelError, newAPIError, true)
+		recordRelayErrorLog(result.context, newAPIError, nil, channelError)
 		summary.Disabled++
 	}
 
-	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+	if recoveredMultiKey {
+		summary.Enabled++
+	} else if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
 		service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
 		summary.Enabled++
 	}
@@ -987,7 +1072,6 @@ func runChannelTestWorkers(
 	workerCount := min(operation_setting.NormalizeChannelTestConcurrency(concurrency), total)
 	jobs := make(chan *model.Channel)
 	results := make(chan channelTestSummary)
-
 	var workers sync.WaitGroup
 	workers.Add(workerCount)
 	for range workerCount {

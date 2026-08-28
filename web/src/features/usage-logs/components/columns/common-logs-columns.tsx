@@ -44,6 +44,7 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  getRetryTargetChain,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -345,13 +346,10 @@ export function useCommonLogsColumns(
 
           const other = parseLogOther(log.other)
           const affinity = other?.admin_info?.channel_affinity
-          const rawUseChannel = other?.admin_info?.use_channel ?? []
-          const useChannel = Array.isArray(rawUseChannel)
-            ? rawUseChannel.map(String).filter(Boolean)
-            : []
-          const hasRetryChain = useChannel.length > 1
+          const retryTargets = getRetryTargetChain(other?.admin_info, t('Key'))
+          const hasRetryChain = retryTargets.length > 1
           const channelChain = hasRetryChain
-            ? useChannel.join(' → ')
+            ? retryTargets.join(' → ')
             : undefined
           const channelDisplay = log.channel_name
             ? `${log.channel_name} #${log.channel}`

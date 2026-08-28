@@ -201,7 +201,14 @@ func (channel *Channel) GetKeys() []string {
 	return keys
 }
 
+// GetNextEnabledKey returns an available key according to the channel's selection mode.
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
+	return channel.GetNextEnabledKeyExcluding(nil)
+}
+
+// GetNextEnabledKeyExcluding returns an enabled key that has not already been
+// exhausted by the current request.
+func (channel *Channel) GetNextEnabledKeyExcluding(excluded map[int]struct{}) (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
 		return channel.Key, 0, nil
@@ -233,6 +240,9 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// Collect indexes of enabled keys
 	enabledIdx := make([]int, 0, len(keys))
 	for i := range keys {
+		if _, ok := excluded[i]; ok {
+			continue
+		}
 		if getStatus(i) == common.ChannelStatusEnabled {
 			enabledIdx = append(enabledIdx, i)
 		}
@@ -263,7 +273,7 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 			if !common.MemoryCacheEnabled {
 				_ = channel.SaveChannelInfo()
 			} else {
-				// CacheUpdateChannel(channel)
+				cacheUpdateChannelPollingIndex(channel.Id, channel.ChannelInfo.MultiKeyPollingIndex)
 			}
 		}()
 		// Start from the saved polling index and look for the next enabled key
@@ -273,6 +283,9 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		}
 		for i := 0; i < len(keys); i++ {
 			idx := (start + i) % len(keys)
+			if _, ok := excluded[idx]; ok {
+				continue
+			}
 			if getStatus(idx) == common.ChannelStatusEnabled {
 				// update polling index for next call (point to the next position)
 				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
@@ -354,7 +367,7 @@ func (channel *Channel) Save() error {
 // saveStatusState persists only the fields owned by the channel status flow.
 // Keeping this allowlist here prevents a stale channel snapshot from
 // overwriting credentials, accounting counters, or channel configuration.
-func (channel *Channel) saveStatusState() error {
+func (channel *Channel) saveStatusState(tx *gorm.DB) error {
 	if channel.Id == 0 {
 		return errors.New("channel ID is 0")
 	}
@@ -365,7 +378,7 @@ func (channel *Channel) saveStatusState() error {
 	if channel.ChannelInfo.IsMultiKey {
 		updates["channel_info"] = channel.ChannelInfo
 	}
-	return DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
+	return tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
 }
 
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
@@ -668,10 +681,12 @@ func CleanupChannelPollingLocks() {
 	})
 }
 
-func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason string) {
+func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason string) bool {
+	beforeStatus := channel.Status
 	keys := channel.GetKeys()
 	if len(keys) == 0 {
 		channel.Status = status
+		return beforeStatus != channel.Status
 	} else {
 		keyIndex := -1
 		for i, key := range keys {
@@ -683,20 +698,32 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 		if keyIndex < 0 {
 			if usingKey != "" {
 				common.SysLog(fmt.Sprintf("failed to update multi-key status: channel_id=%d, using key not found", channel.Id))
-				return
+				return false
 			}
 			channel.Status = status
 			info := channel.GetOtherInfo()
 			info["status_reason"] = reason
 			info["status_time"] = common.GetTimestamp()
 			channel.SetOtherInfo(info)
-			return
+			return beforeStatus != channel.Status
 		}
 		if channel.ChannelInfo.MultiKeyStatusList == nil {
 			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
 		}
+		changed := false
 		if status == common.ChannelStatusEnabled {
-			delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+			if _, ok := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; ok {
+				delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+				changed = true
+			}
+			if _, ok := channel.ChannelInfo.MultiKeyDisabledReason[keyIndex]; ok {
+				delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
+				changed = true
+			}
+			if _, ok := channel.ChannelInfo.MultiKeyDisabledTime[keyIndex]; ok {
+				delete(channel.ChannelInfo.MultiKeyDisabledTime, keyIndex)
+				changed = true
+			}
 		} else {
 			channel.ChannelInfo.MultiKeyStatusList[keyIndex] = status
 			if channel.ChannelInfo.MultiKeyDisabledReason == nil {
@@ -707,6 +734,7 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 			}
 			channel.ChannelInfo.MultiKeyDisabledReason[keyIndex] = reason
 			channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
+			changed = true
 		}
 		if !hasEnabledMultiKey(keys, channel.ChannelInfo.MultiKeyStatusList) {
 			channel.Status = common.ChannelStatusAutoDisabled
@@ -717,6 +745,7 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 		} else if status == common.ChannelStatusEnabled {
 			channel.Status = common.ChannelStatusEnabled
 		}
+		return changed || beforeStatus != channel.Status
 	}
 }
 
@@ -734,78 +763,53 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
-	if common.MemoryCacheEnabled {
-		channelStatusLock.Lock()
-		defer channelStatusLock.Unlock()
-	}
+	// ponytail: status changes are infrequent; one lock prevents lost multi-key updates.
+	channelStatusLock.Lock()
+	defer channelStatusLock.Unlock()
 
-	// ChannelInfo stores both multi-key status and the polling cursor. Hold the
-	// same per-channel lock from the first read through persistence so neither
-	// writer can save a stale JSON snapshot over the other.
+	// ChannelInfo contains both status metadata and the polling cursor. Keep the
+	// polling lock from the authoritative read through persistence and cache sync.
 	pollingLock := GetChannelPollingLock(channelId)
 	pollingLock.Lock()
 	defer pollingLock.Unlock()
 
-	if common.MemoryCacheEnabled {
-		channelCache, _ := CacheGetChannel(channelId)
-		if channelCache == nil {
-			return false
-		}
-		if channelCache.ChannelInfo.IsMultiKey {
-			beforeStatus := channelCache.Status
-			// 如果是多Key模式，更新缓存中的状态
-			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
-			if beforeStatus != channelCache.Status {
-				CacheUpdateChannelStatus(channelId, channelCache.Status)
-			}
-			//CacheUpdateChannel(channelCache)
-			//return true
-		} else {
-			// 如果缓存渠道存在，且状态已是目标状态，直接返回
-			if channelCache.Status == status {
-				return false
-			}
-			CacheUpdateChannelStatus(channelId, status)
-		}
-	}
-
-	shouldUpdateAbilities := false
-	defer func() {
-		if shouldUpdateAbilities {
-			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
-			}
-		}
-	}()
 	channel, err := GetChannelById(channelId, true)
 	if err != nil {
 		return false
-	} else {
-		if channel.Status == status {
-			return false
-		}
-
-		if channel.ChannelInfo.IsMultiKey {
-			beforeStatus := channel.Status
-			handlerMultiKeyUpdate(channel, usingKey, status, reason)
-			if beforeStatus != channel.Status {
-				shouldUpdateAbilities = true
-			}
-		} else {
-			info := channel.GetOtherInfo()
-			info["status_reason"] = reason
-			info["status_time"] = common.GetTimestamp()
-			channel.SetOtherInfo(info)
-			channel.Status = status
-			shouldUpdateAbilities = true
-		}
-		err = channel.saveStatusState()
-		if err != nil {
-			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
-			return false
-		}
 	}
+
+	beforeStatus := channel.Status
+	changed := false
+	if channel.ChannelInfo.IsMultiKey {
+		changed = handlerMultiKeyUpdate(channel, usingKey, status, reason)
+	} else if channel.Status != status {
+		info := channel.GetOtherInfo()
+		info["status_reason"] = reason
+		info["status_time"] = common.GetTimestamp()
+		channel.SetOtherInfo(info)
+		channel.Status = status
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+
+	abilityChanged := beforeStatus != channel.Status
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := channel.saveStatusState(tx); err != nil {
+			return err
+		}
+		if abilityChanged {
+			return tx.Model(&Ability{}).Where("channel_id = ?", channelId).
+				Update("enabled", channel.Status == common.ChannelStatusEnabled).Error
+		}
+		return nil
+	})
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
+		return false
+	}
+	cacheUpdateChannelStatusState(channel)
 	return true
 }
 

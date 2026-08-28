@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -11,6 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/console_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -21,6 +25,12 @@ import (
 type Option struct {
 	Key   string `json:"key" gorm:"primaryKey"`
 	Value string `json:"value"`
+}
+
+var retiredChatOptionKeys = map[string]struct{}{
+	"InfiniteCanvasEnabled":          {},
+	"InfiniteCanvasLaunchURL":        {},
+	chatPresetsLegacyBackupOptionKey: {},
 }
 
 func AllOption() ([]*Option, error) {
@@ -51,6 +61,7 @@ func InitOptionMap() {
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
+	common.OptionMap[operation_setting.RequestHeaderRulesOptionKey] = operation_setting.DefaultRequestHeaderRulesJSON()
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
@@ -146,9 +157,22 @@ func InitOptionMap() {
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
+	common.OptionMap["ModelRequestIPRateLimitCount"] = strconv.Itoa(setting.ModelRequestIPRateLimitCount)
+	common.OptionMap["ModelRequestIPRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestIPRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap[setting.ModelRequestConcurrencyLimitEnabledOptionKey] = strconv.FormatBool(setting.ModelRequestConcurrencyLimitEnabled)
+	common.OptionMap[setting.ModelRequestConcurrencyLimitOptionKey] = strconv.Itoa(setting.ModelRequestConcurrencyLimit)
+	common.OptionMap[setting.ModelRequestIPConcurrencyLimitOptionKey] = strconv.Itoa(setting.ModelRequestIPConcurrencyLimit)
+	common.OptionMap[setting.AccessSourceLimitEnabledOptionKey] = strconv.FormatBool(setting.AccessSourceLimitEnabled)
+	common.OptionMap[setting.AccessSourceAssociationWindowHoursOptionKey] = strconv.Itoa(setting.AccessSourceAssociationWindowHours)
+	common.OptionMap[setting.AccessSourceMaxIPsPerUserOptionKey] = strconv.Itoa(setting.AccessSourceMaxIPsPerUser)
+	common.OptionMap[setting.AccessSourceSwitchCooldownMinutesOptionKey] = strconv.Itoa(setting.AccessSourceSwitchCooldownMinutes)
+	common.OptionMap[setting.AccessSourceMaxUsersPerIPOptionKey] = strconv.Itoa(setting.AccessSourceMaxUsersPerIP)
+	for key := range setting.GetDefaultRequestLimitErrorTemplates() {
+		common.OptionMap[key] = ""
+	}
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -176,6 +200,8 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
+	common.OptionMap[CycleQuotaManagementOptionKey] = strconv.FormatBool(operation_setting.CycleQuotaManagementEnabled)
+	common.OptionMap["ChatMenuCollapseThreshold"] = strconv.Itoa(setting.ChatMenuCollapseThreshold)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
@@ -195,28 +221,59 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
-	requestPolicyOptionMutex.Lock()
-	defer requestPolicyOptionMutex.Unlock()
+	passkeyOptionMutex.Lock()
+	defer passkeyOptionMutex.Unlock()
+	// 周期重载（启动与 SyncOptions）没有经过带快照 Store 的批量写路径，
+	// 退出时按 OptionMap 重建一次展示性请求策略快照，让 GetChannelOps/
+	// GetRequestPolicy 与库内选项保持一致；写路径自身的强一致 Store 不受影响。
 	defer func() {
 		if err := refreshRequestPolicySnapshot(); err != nil {
 			common.SysError("invalid request policy: " + err.Error())
 		}
 	}()
-	passkeyOptionMutex.Lock()
-	defer passkeyOptionMutex.Unlock()
 	options, _ := AllOption()
 	passkeyOptions := make(map[string]string)
+	defer applyPasskeyDomainOptions(passkeyOptions)
+	legacyIgnored, legacyBlocked := "", ""
+	hasLegacyIgnored, hasLegacyBlocked, hasRules := false, false, false
 	for _, option := range options {
 		if IsPasskeyDomainOption(option.Key) {
 			passkeyOptions[option.Key] = option.Value
 			continue
+		}
+		switch option.Key {
+		case operation_setting.LegacyRequestHeaderIgnoredHeadersKey:
+			legacyIgnored, hasLegacyIgnored = option.Value, true
+			continue
+		case operation_setting.LegacyRequestHeaderBlockedHeadersKey:
+			legacyBlocked, hasLegacyBlocked = option.Value, true
+			continue
+		case operation_setting.RequestHeaderRulesOptionKey:
+			hasRules = true
 		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
 	}
-	applyPasskeyDomainOptions(passkeyOptions)
+	if hasRules || (!hasLegacyIgnored && !hasLegacyBlocked) {
+		return
+	}
+	defaultIgnored, defaultBlocked := operation_setting.DefaultLegacyRequestHeaderRuleLists()
+	if !hasLegacyIgnored {
+		legacyIgnored = defaultIgnored
+	}
+	if !hasLegacyBlocked {
+		legacyBlocked = defaultBlocked
+	}
+	converted, err := operation_setting.ConvertLegacyRequestHeaderRules(legacyIgnored, legacyBlocked)
+	if err != nil {
+		common.SysLog("failed to convert legacy request header rules: " + err.Error())
+		return
+	}
+	if err = updateOptionMap(operation_setting.RequestHeaderRulesOptionKey, converted); err != nil {
+		common.SysLog("failed to load converted request header rules: " + err.Error())
+	}
 }
 
 func SyncOptions(frequency int) {
@@ -231,8 +288,92 @@ func validateOptionValue(key string, value string) error {
 	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
 		return err
 	}
-	if key == operation_setting.ToolPriceOptionKey {
+	if _, retired := retiredChatOptionKeys[key]; retired {
+		return fmt.Errorf("配置项 %s 已停用，请在 Chats 中配置", key)
+	}
+	if setting.IsRequestLimitErrorTemplateOptionKey(key) {
+		return setting.ValidateRequestLimitErrorTemplate(key, value)
+	}
+	switch key {
+	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
+	case "GroupRatio":
+		return ratio_setting.CheckGroupRatio(value)
+	case "ModelRequestRateLimitCount", "ModelRequestIPRateLimitCount", "ModelRequestIPRateLimitSuccessCount", "ModelRequestRateLimitSuccessCount":
+		return setting.CheckModelRequestRateLimitCount(value, 0)
+	case "ModelRequestRateLimitDurationMinutes":
+		return setting.CheckModelRequestRateLimitDurationMinutes(value)
+	case "ModelRequestRateLimitGroup":
+		return setting.CheckModelRequestRateLimitGroup(value)
+	case setting.ModelRequestConcurrencyLimitOptionKey, setting.ModelRequestIPConcurrencyLimitOptionKey:
+		return setting.CheckModelRequestConcurrencyLimit(value)
+	case setting.AccessSourceAssociationWindowHoursOptionKey:
+		return setting.CheckAccessSourceAssociationWindowHours(value)
+	case setting.AccessSourceMaxIPsPerUserOptionKey, setting.AccessSourceMaxUsersPerIPOptionKey:
+		return setting.CheckAccessSourceAssociationCount(value)
+	case setting.AccessSourceSwitchCooldownMinutesOptionKey:
+		return setting.CheckAccessSourceSwitchCooldownMinutes(value)
+	case "AutomaticDisableStatusCodes", "AutomaticRetryStatusCodes":
+		_, err := operation_setting.ParseHTTPStatusCodeRanges(value)
+		return err
+	case "Chats":
+		_, err := setting.ParseChatsJSON(value)
+		return err
+	case "PayMethods":
+		var entries []map[string]string
+		return common.UnmarshalJsonStr(value, &entries)
+	case "ChatMenuCollapseThreshold":
+		_, err := setting.ValidateChatMenuCollapseThreshold(value)
+		return err
+	case "console_setting.overview_panel_order":
+		return console_setting.ValidateOverviewPanelOrder(value)
+	case CycleQuotaManagementOptionKey, "ModelRequestRateLimitEnabled", setting.ModelRequestConcurrencyLimitEnabledOptionKey, setting.AccessSourceLimitEnabledOptionKey,
+		"LogConsumeEnabled", "quota_setting.enable_free_model_pre_consume",
+		"channel_affinity_setting.renew_ttl_on_success",
+		"codex.client_version_check_enabled", "codex.desktop_client_version_check_enabled",
+		"codex.request_header_fallback_enabled", "claude.client_version_check_enabled",
+		"claude.request_header_fallback_enabled":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("配置项 %s 必须为 true 或 false", key)
+		}
+		return nil
+	case operation_setting.RequestHeaderRulesOptionKey:
+		return operation_setting.ValidateRequestHeaderRulesJSON(value)
+	case operation_setting.LegacyRequestHeaderIgnoredHeadersKey,
+		operation_setting.LegacyRequestHeaderBlockedHeadersKey:
+		return fmt.Errorf("配置项 %s 已合并到 %s", key, operation_setting.RequestHeaderRulesOptionKey)
+	case operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
+		operation_setting.RequestHeaderSystemRulesOptionKey,
+		setting.RequestLimitErrorTemplateDefaultsOptionKey,
+		model_setting.CodexSettingsDefaultOptionKey,
+		model_setting.ClaudeSettingsDefaultOptionKey,
+		setting.ChatsDefaultOptionKey,
+		setting.ChatMenuCollapseThresholdDefaultOptionKey,
+		"RequestHeaderAuditCapacityBytes":
+		return fmt.Errorf("配置项 %s 为只读", key)
+	case "AutoGroups":
+		var groups []string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "codex.minimum_client_version", "codex.minimum_desktop_client_version",
+		"codex.request_header_fallback_version", "claude.minimum_client_version":
+		return model_setting.ValidateClientVersion(value)
+	case "codex.request_header_fallback_client":
+		return model_setting.ValidateCodexUserAgentClient(value)
+	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
+		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
+		return model_setting.ValidateCodexUserAgentComponent(value)
+	case "codex.error_response_mappings":
+		return model_setting.ValidateCodexErrorResponseMappings(value)
+	case "UserUsableGroups":
+		var groups map[string]string
+		return common.UnmarshalJsonStr(value, &groups)
+	case "GroupGroupRatio":
+		var ratios map[string]map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
+	case "TopupGroupRatio", "ModelRatio", "CompletionRatio", "ModelPrice", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio":
+		var ratios map[string]float64
+		return common.UnmarshalJsonStr(value, &ratios)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
@@ -277,6 +418,7 @@ func UpdateOption(key string, value string) error {
 // any DB write fails the whole transaction rolls back and no in-memory state
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
+
 func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
@@ -287,11 +429,16 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	pricingUpdates := make(map[string]string)
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
+		if IsModelPricingOption(key) {
+			pricingUpdates[key] = value
+		}
 	}
+	// 上游的请求策略快照在事务前构建，事务成功后才落内存，失败不污染现值
 	var policySnapshot *RequestPolicySnapshot
 	for key := range values {
 		if IsRequestPolicyOption(key) {
@@ -312,8 +459,33 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 	}
 
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	// Pricing owns its writes and cache refresh; ordinary options share its
+	// transaction so a failed write cannot persist only one half.
+	persist := func(tx *gorm.DB, pricing map[string]map[string]any) error {
+		if cycleQuotaManagement, ok := values[CycleQuotaManagementOptionKey]; ok {
+			var option Option
+			err := lockForUpdate(tx).Where(map[string]interface{}{"key": CycleQuotaManagementOptionKey}).First(&option).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				option = Option{Key: CycleQuotaManagementOptionKey, Value: strconv.FormatBool(operation_setting.CycleQuotaManagementEnabled)}
+				err = tx.Create(&option).Error
+			}
+			if err != nil {
+				return err
+			}
+			if cycleQuotaManagement == "false" {
+				var count int64
+				if err := tx.Model(&QuotaCycle{}).Where("status <> ?", QuotaCycleStatusClosed).Count(&count).Error; err != nil {
+					return err
+				}
+				if count > 0 {
+					return errors.New("请先关闭进行中或结算中的周期，并取消已规划周期")
+				}
+			}
+		}
 		for k, v := range values {
+			if IsModelPricingOption(k) || IsPasskeyDomainOption(k) {
+				continue
+			}
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -323,12 +495,24 @@ func UpdateOptionsBulk(values map[string]string) error {
 				return err
 			}
 		}
+		if len(pricingUpdates) > 0 {
+			return replaceModelPricingOptions(pricing, pricingUpdates)
+		}
 		return nil
-	})
+	}
+	var err error
+	if len(pricingUpdates) > 0 {
+		err = mutateModelPricingOptions(persist)
+	} else {
+		err = DB.Transaction(func(tx *gorm.DB) error { return persist(tx, nil) })
+	}
 	if err != nil {
 		return err
 	}
 	for k, v := range values {
+		if IsModelPricingOption(k) || IsPasskeyDomainOption(k) {
+			continue
+		}
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -340,11 +524,42 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	if key == retiredThemeOptionKey {
+	_, retiredChatOption := retiredChatOptionKeys[key]
+	if key == retiredThemeOptionKey || retiredChatOption {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()
 		return nil
+	}
+	if key == operation_setting.RequestHeaderRulesOptionKey ||
+		key == operation_setting.RequestHeaderRulesDefaultOptionKey ||
+		key == operation_setting.RequestHeaderCDNRuleGroupsOptionKey ||
+		key == operation_setting.RequestHeaderSystemRulesOptionKey ||
+		key == model_setting.CodexSettingsDefaultOptionKey ||
+		key == model_setting.ClaudeSettingsDefaultOptionKey ||
+		key == setting.ChatsDefaultOptionKey ||
+		key == setting.ChatMenuCollapseThresholdDefaultOptionKey ||
+		key == setting.RequestLimitErrorTemplateDefaultsOptionKey ||
+		key == "ModelRequestRateLimitEnabled" ||
+		key == "ModelRequestRateLimitCount" ||
+		key == "ModelRequestIPRateLimitCount" ||
+		key == "ModelRequestIPRateLimitSuccessCount" ||
+		key == "ModelRequestRateLimitSuccessCount" ||
+		key == "ModelRequestRateLimitDurationMinutes" ||
+		key == "ModelRequestRateLimitGroup" ||
+		key == setting.ModelRequestConcurrencyLimitEnabledOptionKey ||
+		key == setting.ModelRequestConcurrencyLimitOptionKey ||
+		key == setting.ModelRequestIPConcurrencyLimitOptionKey ||
+		key == setting.AccessSourceAssociationWindowHoursOptionKey ||
+		key == setting.AccessSourceMaxIPsPerUserOptionKey ||
+		key == setting.AccessSourceSwitchCooldownMinutesOptionKey ||
+		key == setting.AccessSourceMaxUsersPerIPOptionKey ||
+		key == setting.AccessSourceLimitEnabledOptionKey ||
+		setting.IsRequestLimitErrorTemplateOptionKey(key) ||
+		key == "RequestHeaderAuditCapacityBytes" {
+		if err := validateOptionValue(key, value); err != nil {
+			return err
+		}
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
@@ -439,10 +654,16 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
 			operation_setting.SelfUseModeEnabled = boolValue
+		case CycleQuotaManagementOptionKey:
+			operation_setting.CycleQuotaManagementEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
 			setting.ModelRequestRateLimitEnabled = boolValue
+		case setting.ModelRequestConcurrencyLimitEnabledOptionKey:
+			setting.ModelRequestConcurrencyLimitEnabled = boolValue
+		case setting.AccessSourceLimitEnabledOptionKey:
+			setting.AccessSourceLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
 		case "SMTPSSLEnabled":
@@ -490,6 +711,8 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.PayAddress = value
 	case "Chats":
 		err = setting.UpdateChatsByJsonString(value)
+	case "ChatMenuCollapseThreshold":
+		err = setting.UpdateChatMenuCollapseThreshold(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
 	case "MaxTokenAutoGroups":
@@ -614,12 +837,28 @@ func updateOptionMap(key string, value string) (err error) {
 		common.PreConsumedQuota, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitCount":
 		setting.ModelRequestRateLimitCount, _ = strconv.Atoi(value)
+	case "ModelRequestIPRateLimitCount":
+		setting.ModelRequestIPRateLimitCount, _ = strconv.Atoi(value)
+	case "ModelRequestIPRateLimitSuccessCount":
+		setting.ModelRequestIPRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitDurationMinutes":
 		setting.ModelRequestRateLimitDurationMinutes, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitSuccessCount":
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
+	case setting.ModelRequestConcurrencyLimitOptionKey:
+		setting.ModelRequestConcurrencyLimit, _ = strconv.Atoi(value)
+	case setting.ModelRequestIPConcurrencyLimitOptionKey:
+		setting.ModelRequestIPConcurrencyLimit, _ = strconv.Atoi(value)
+	case setting.AccessSourceAssociationWindowHoursOptionKey:
+		setting.AccessSourceAssociationWindowHours, _ = strconv.Atoi(value)
+	case setting.AccessSourceMaxIPsPerUserOptionKey:
+		setting.AccessSourceMaxIPsPerUser, _ = strconv.Atoi(value)
+	case setting.AccessSourceSwitchCooldownMinutesOptionKey:
+		setting.AccessSourceSwitchCooldownMinutes, _ = strconv.Atoi(value)
+	case setting.AccessSourceMaxUsersPerIPOptionKey:
+		setting.AccessSourceMaxUsersPerIP, _ = strconv.Atoi(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":

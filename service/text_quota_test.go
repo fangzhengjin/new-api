@@ -1407,3 +1407,46 @@ func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
 	assert.NotContains(t, fields, "image_generation_call")
 	assert.NotContains(t, fields, "image_generation_call_price")
 }
+
+func TestTextQuotaSummaryTokenUsedFollowsUsageSemantic(t *testing.T) {
+	tests := []struct {
+		name      string
+		summary   textQuotaSummary
+		wantInput int
+		wantTotal int
+	}{
+		{
+			name: "anthropic adds cache outside prompt",
+			summary: textQuotaSummary{
+				PromptTokens:          70,
+				CompletionTokens:      7,
+				CacheTokens:           30,
+				CacheCreationTokens:   20,
+				CacheCreationTokens5m: 12,
+				CacheCreationTokens1h: 8,
+				IsClaudeUsageSemantic: true,
+			},
+			wantInput: 120,
+			wantTotal: 127,
+		},
+		{
+			name: "openai keeps cache inside prompt",
+			summary: textQuotaSummary{
+				PromptTokens:          120,
+				CompletionTokens:      7,
+				CacheTokens:           30,
+				CacheCreationTokens:   20,
+				IsClaudeUsageSemantic: false,
+			},
+			wantInput: 120,
+			wantTotal: 127,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.wantInput, test.summary.inputTokensTotal())
+			require.Equal(t, test.wantTotal, test.summary.tokenUsed())
+		})
+	}
+}

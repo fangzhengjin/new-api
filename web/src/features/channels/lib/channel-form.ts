@@ -82,6 +82,9 @@ function isOptionalProxyURL(value: string | undefined): boolean {
 export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
+const MAX_CHANNEL_CONCURRENCY = 10000
+const DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 90
+const MAX_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 3600
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -270,6 +273,18 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
+    max_concurrency: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_CHANNEL_CONCURRENCY)
+      .optional(),
+    concurrency_wait_timeout_seconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_CONCURRENCY_WAIT_TIMEOUT_SECONDS)
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
@@ -462,6 +477,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   tls_insecure_skip_verify: false,
+  max_concurrency: 0,
+  concurrency_wait_timeout_seconds: DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
   system_prompt: '',
@@ -507,6 +524,8 @@ export function transformChannelToFormDefaults(
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     tls_insecure_skip_verify: false,
+    max_concurrency: 0,
+    concurrency_wait_timeout_seconds: DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
     system_prompt: '',
@@ -529,6 +548,10 @@ export function transformChannelToFormDefaults(
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         tls_insecure_skip_verify: parsed.tls_insecure_skip_verify === true,
+        max_concurrency: parsed.max_concurrency ?? 0,
+        concurrency_wait_timeout_seconds:
+          parsed.concurrency_wait_timeout_seconds ??
+          DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
@@ -684,6 +707,15 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
   }
   if (formData.tls_insecure_skip_verify === true) {
     settingObj.tls_insecure_skip_verify = true
+  } else {
+    delete settingObj.tls_insecure_skip_verify
+  }
+
+  if ((formData.max_concurrency ?? 0) > 0) {
+    settingObj.max_concurrency = formData.max_concurrency
+    settingObj.concurrency_wait_timeout_seconds =
+      formData.concurrency_wait_timeout_seconds ??
+      DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS
   }
 
   return JSON.stringify(settingObj)

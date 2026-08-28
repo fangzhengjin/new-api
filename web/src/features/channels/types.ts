@@ -92,6 +92,8 @@ export interface ChannelSettings {
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
   tls_insecure_skip_verify?: boolean
+  max_concurrency?: number
+  concurrency_wait_timeout_seconds?: number
 }
 
 export interface ChannelOtherSettings {
@@ -190,6 +192,15 @@ export interface ChannelOpsResponse {
       automatic_disable: boolean
       source: string
     }
+  }
+}
+
+export interface ChannelConcurrencyResponse {
+  success: boolean
+  message?: string
+  data?: {
+    available: boolean
+    counts: Record<string, { active: number; waiting: number }>
   }
 }
 

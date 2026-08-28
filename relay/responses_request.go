@@ -54,6 +54,8 @@ func PrepareResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, req *d
 		if err != nil {
 			return nil, nil, nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 		}
+		// 透传体不改写请求，仍需记录调用方显式要求的推理强度，供审计与日志对齐。
+		relaycommon.FinalizeReasoningEffortForPassthrough(info)
 		body := common.NewReplayableBodyReader(storage)
 		return adaptor, body, io.NopCloser(body), nil
 	}
@@ -77,6 +79,9 @@ func PrepareResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, req *d
 			return nil, nil, nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+
+	// 上游 JSON 定稿后记录实际发送的推理强度，HTTP 与 WebSocket 两条调用路径共用该审计点。
+	relaycommon.UpdateReasoningEffortForUpstreamJSON(info, jsonData)
 
 	logger.LogDebug(c, "requestBody: %s", jsonData)
 	body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)

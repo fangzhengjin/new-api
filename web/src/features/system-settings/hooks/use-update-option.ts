@@ -36,6 +36,9 @@ const STATUS_RELATED_KEYS = new Set([
   'USDExchangeRate',
   'DisplayInCurrencyEnabled',
   'DisplayTokenStatEnabled',
+  'CycleQuotaManagementEnabled',
+  'Chats',
+  'ChatMenuCollapseThreshold',
   'general_setting.quota_display_type',
   'general_setting.custom_currency_symbol',
   'general_setting.custom_currency_exchange_rate',
@@ -45,6 +48,7 @@ const STATUS_RELATED_KEYS = new Set([
   'passkey.rp_id',
   'passkey.legacy_rp_ids',
   'passkey.origins',
+  'console_setting.overview_panel_order',
 ])
 
 export function useUpdateOption() {

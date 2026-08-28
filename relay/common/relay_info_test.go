@@ -157,6 +157,42 @@ func TestGenRelayInfoCapturesRequestReasoningEffort(t *testing.T) {
 			info, err := GenRelayInfo(ctx, tt.relayFormat, tt.request, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, info.ReasoningEffort)
+			assert.Equal(t, tt.expected, info.ReasoningEffortRequest)
+		})
+	}
+}
+
+func TestUpdateReasoningEffortForUpstreamJSON(t *testing.T) {
+	tests := []struct {
+		name        string
+		info        *RelayInfo
+		body        string
+		wantRequest string
+		wantFinal   string
+	}{
+		{
+			name:        "preserves requested and final values",
+			info:        &RelayInfo{ReasoningEffortRequest: "xhigh"},
+			body:        `{"model":"gpt-5.6-sol","reasoning_effort":"high"}`,
+			wantRequest: "xhigh",
+			wantFinal:   "high",
+		},
+		{name: "reads Claude effort", info: &RelayInfo{}, body: `{"model":"claude-opus-4-8","output_config":{"effort":"high"}}`, wantFinal: "high"},
+		{name: "reads Gemini effort", info: &RelayInfo{}, body: `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"low"}}}`, wantFinal: "low"},
+		{name: "does not infer GPT default", info: &RelayInfo{}, body: `{"model":"gpt-5.6-sol"}`},
+		{name: "does not infer Claude default", info: &RelayInfo{}, body: `{"model":"claude-opus-4-8"}`},
+		{name: "does not infer effort from model suffix", info: &RelayInfo{}, body: `{"model":"gpt-5.6-sol-xhigh"}`},
+		{name: "recognizes disabled DeepSeek thinking", info: &RelayInfo{}, body: `{"model":"deepseek-v4-chat","thinking":{"type":"disabled"}}`, wantFinal: "none"},
+		{name: "does not treat disabled Claude thinking as effort", info: &RelayInfo{}, body: `{"model":"claude-opus-4-8","thinking":{"type":"disabled"}}`},
+		{name: "recognizes disabled reasoning", info: &RelayInfo{}, body: `{"model":"gpt-5.6-sol","reasoning":{"enabled":false}}`, wantFinal: "none"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			UpdateReasoningEffortForUpstreamJSON(test.info, []byte(test.body))
+
+			assert.Equal(t, test.wantRequest, test.info.ReasoningEffortRequest)
+			assert.Equal(t, test.wantFinal, test.info.ReasoningEffort)
 		})
 	}
 }
@@ -187,12 +223,74 @@ func TestInitChannelMetaRestoresRequestReasoningEffortForRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	info.SetReasoningEffort("high")
+	info.ReasoningEffortChecked = true
 	info.InitChannelMeta(ctx)
 	assert.Equal(t, "max", info.ReasoningEffort)
+	assert.False(t, info.ReasoningEffortChecked)
 
 	info.SetReasoningEffort("low")
+	info.ReasoningEffortChecked = true
 	info.InitChannelMeta(ctx)
 	assert.Equal(t, "max", info.ReasoningEffort)
+	assert.False(t, info.ReasoningEffortChecked)
+}
+
+func TestReasoningEffortFromRequestAdditionalCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		request dto.Request
+		want    string
+	}{
+		{
+			name: "responses compaction effort",
+			request: &dto.OpenAIResponsesCompactionRequest{
+				Model:     "gpt-5.6-sol",
+				Reasoning: &dto.Reasoning{Effort: "xhigh"},
+			},
+			want: "xhigh",
+		},
+		{
+			name: "disabled OpenRouter reasoning",
+			request: &dto.GeneralOpenAIRequest{
+				Model:     "gpt-5.6-sol",
+				Reasoning: json.RawMessage(`{"enabled":false}`),
+			},
+			want: "none",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, reasoningEffortFromRequest(test.request))
+		})
+	}
+}
+
+func TestFinalizeReasoningEffortForPassthroughUsesExplicitRequestValue(t *testing.T) {
+	tests := []struct {
+		name string
+		info *RelayInfo
+		want string
+	}{
+		{
+			name: "uses explicit request value",
+			info: &RelayInfo{Request: &dto.GeneralOpenAIRequest{ReasoningEffort: "HIGH"}},
+			want: "high",
+		},
+		{
+			name: "does not infer model default",
+			info: &RelayInfo{Request: &dto.GeneralOpenAIRequest{Model: "gpt-5.6-sol"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			FinalizeReasoningEffortForPassthrough(test.info)
+
+			assert.True(t, test.info.ReasoningEffortChecked)
+			assert.Equal(t, test.want, test.info.ReasoningEffort)
+		})
+	}
 }
 
 func TestInitChannelMetaResetsPerAttemptStreamStateAndPreservesRequestState(t *testing.T) {

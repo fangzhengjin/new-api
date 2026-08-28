@@ -209,6 +209,7 @@
     "A Passkey created for www.example.com cannot be used on example.com. Keep the old website available so users can still verify there.": "为 www.example.com 创建的通行密钥无法在 example.com 使用。请保留旧网站，让用户仍能在那里验证。",
     "A security operation is already in progress.": "已有安全操作正在进行。",
     "A selected model no longer exists. Reload the model list.": "所选模型已不存在，请重新加载模型列表。",
+    "A successful request extends the binding lifetime.": "成功请求会延长绑定存活时间。",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "永不过期的令牌在撤销前一直有效，建议设置过期时间。",
     "A vendor with this name already exists.": "此供应商名称已存在。",
     "About": "关于",

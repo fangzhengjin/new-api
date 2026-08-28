@@ -1,7 +1,10 @@
 package model
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -54,6 +57,37 @@ func UpdateQuotaData() {
 
 var CacheQuotaData = make(map[string]*QuotaData)
 var CacheQuotaDataLock = sync.Mutex{}
+
+// maxCachedQuotaDataEntries bounds the retry backlog. Failed writes stay cached
+// so a transient write error does not lose dashboard data, but without a bound
+// a database that keeps failing (disk full, lock waits, table-level errors)
+// grows the map by one hourly key per distinct combination on every round,
+// which eventually exhausts memory. The oldest hour buckets are dropped first:
+// they are the ones a still-failing write is least likely to recover.
+var maxCachedQuotaDataEntries = 200000
+
+// dropOldestCachedQuotaDataLocked discards the oldest hour buckets until the
+// map is back under the bound. The caller holds CacheQuotaDataLock.
+func dropOldestCachedQuotaDataLocked() int {
+	type entry struct {
+		key       string
+		createdAt int64
+	}
+	entries := make([]entry, 0, len(CacheQuotaData))
+	for key, quotaData := range CacheQuotaData {
+		entries = append(entries, entry{key: key, createdAt: quotaData.CreatedAt})
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return cmp.Compare(a.createdAt, b.createdAt) })
+	dropped := 0
+	for _, item := range entries {
+		if len(CacheQuotaData) <= maxCachedQuotaDataEntries {
+			break
+		}
+		delete(CacheQuotaData, item.key)
+		dropped++
+	}
+	return dropped
+}
 
 func logQuotaDataCache(quotaData *QuotaData) {
 	key := fmt.Sprintf("%d\x00%s\x00%s\x00%d\x00%s\x00%d\x00%d\x00%s",
@@ -113,27 +147,38 @@ func SaveQuotaDataCache() {
 	// 1. 先查询数据库中是否有数据
 	// 2. 如果有数据，就更新数据
 	// 3. 如果没有数据，就插入数据
-	for _, quotaData := range CacheQuotaData {
+	saved := 0
+	for key, quotaData := range CacheQuotaData {
 		quotaDataDB := &QuotaData{}
-		DB.Table("quota_data").
+		queryErr := DB.Table("quota_data").
 			Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 				quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
-			First(quotaDataDB)
-		if quotaDataDB.Id > 0 {
-			//quotaDataDB.Count += quotaData.Count
-			//quotaDataDB.Quota += quotaData.Quota
-			//DB.Table("quota_data").Save(quotaDataDB)
-			increaseQuotaData(quotaData)
-		} else {
-			DB.Table("quota_data").Create(quotaData)
+			First(quotaDataDB).Error
+
+		var writeErr error
+		switch {
+		case queryErr == nil:
+			writeErr = increaseQuotaData(quotaData)
+		case errors.Is(queryErr, gorm.ErrRecordNotFound):
+			writeErr = DB.Table("quota_data").Create(quotaData).Error
+		default:
+			writeErr = queryErr
 		}
+		if writeErr != nil {
+			common.SysLog(fmt.Sprintf("保存数据看板数据失败，等待重试: %s", writeErr))
+			continue
+		}
+		delete(CacheQuotaData, key)
+		saved++
 	}
-	CacheQuotaData = make(map[string]*QuotaData)
-	common.SysLog(common.LogText("saved dashboard data, %d records", size))
+	if dropped := dropOldestCachedQuotaDataLocked(); dropped > 0 {
+		common.SysError(fmt.Sprintf("数据看板缓存积压超过 %d 条，已丢弃最早的 %d 条待重试数据", maxCachedQuotaDataEntries, dropped))
+	}
+	common.SysLog(fmt.Sprintf("保存数据看板数据完成，共%d条，成功%d条，待重试%d条", size, saved, len(CacheQuotaData)))
 }
 
-func increaseQuotaData(quotaData *QuotaData) {
-	err := DB.Table("quota_data").
+func increaseQuotaData(quotaData *QuotaData) error {
+	return DB.Table("quota_data").
 		Where("user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",
 			quotaData.UserID, quotaData.Username, quotaData.ModelName, quotaData.CreatedAt, quotaData.UseGroup, quotaData.TokenID, quotaData.ChannelID, quotaData.NodeName).
 		Updates(map[string]any{
@@ -143,9 +188,6 @@ func increaseQuotaData(quotaData *QuotaData) {
 			"cache_read_tokens":     gorm.Expr("cache_read_tokens + ?", quotaData.CacheReadTokens),
 			"cache_creation_tokens": gorm.Expr("cache_creation_tokens + ?", quotaData.CacheCreationTokens),
 		}).Error
-	if err != nil {
-		common.SysLog(common.LogText("increaseQuotaData error: %s", err))
-	}
 }
 
 func GetQuotaDataByUsername(username string, startTime int64, endTime int64) (quotaData []*QuotaData, err error) {

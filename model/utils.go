@@ -61,6 +61,12 @@ func addNewRecord(type_ int, id int, value int) {
 	batchUpdateStores[type_][id] = sum
 }
 
+func requeueBatchRecord(type_ int, id int, value int) {
+	if value != 0 {
+		addNewRecord(type_, id, value)
+	}
+}
+
 func batchUpdate() {
 	// check if there's any data to update
 	hasData := false
@@ -97,9 +103,13 @@ func batchUpdate() {
 				err := increaseTokenQuota(key, value)
 				if err != nil {
 					common.SysLog(common.LogText("failed to batch update token quota: %s", err.Error()))
+					requeueBatchRecord(BatchUpdateTypeTokenQuota, key, value)
 				}
 			case BatchUpdateTypeChannelUsedQuota:
-				updateChannelUsedQuota(key, value)
+				if err := updateChannelUsedQuota(key, value); err != nil {
+					common.SysLog(err.Error())
+					requeueBatchRecord(BatchUpdateTypeChannelUsedQuota, key, value)
+				}
 			}
 		}
 	}
@@ -119,7 +129,12 @@ func batchUpdate() {
 		userIDs[key] = struct{}{}
 	}
 	for key := range userIDs {
-		updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
+		if err := updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key]); err != nil {
+			common.SysLog(err.Error())
+			requeueBatchRecord(BatchUpdateTypeUserQuota, key, userQuotaStore[key])
+			requeueBatchRecord(BatchUpdateTypeUsedQuota, key, usedQuotaStore[key])
+			requeueBatchRecord(BatchUpdateTypeRequestCount, key, requestCountStore[key])
+		}
 	}
 	common.SysLog(common.LogText("batch update finished"))
 }

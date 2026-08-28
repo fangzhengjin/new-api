@@ -209,6 +209,7 @@
     "A repair task is already running. Please try again later": "Đã có tác vụ sửa chữa đang chạy. Vui lòng thử lại sau",
     "A security operation is already in progress.": "Một thao tác bảo mật đang được thực hiện.",
     "A selected model no longer exists. Reload the model list.": "Một mô hình đã chọn không còn tồn tại. Hãy tải lại danh sách.",
+    "A successful request extends the binding lifetime.": "Yêu cầu thành công sẽ kéo dài thời gian sống của liên kết.",
     "A token can select at most {{max}} Auto groups": "Mỗi token chỉ được chọn tối đa {{max}} nhóm Auto",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "Token không hết hạn sẽ còn hiệu lực cho đến khi bạn thu hồi. Nên đặt thời hạn khi có thể.",
     "A valid site exchange rate is required.": "Vui lòng đặt tỷ giá hợp lệ cho trang web.",

@@ -209,6 +209,7 @@
     "A repair task is already running. Please try again later": "Une tâche de réparation est déjà en cours. Veuillez réessayer plus tard",
     "A security operation is already in progress.": "Une opération de sécurité est déjà en cours.",
     "A selected model no longer exists. Reload the model list.": "Un modèle sélectionné n’existe plus. Rechargez la liste.",
+    "A successful request extends the binding lifetime.": "Une requête réussie prolonge la durée de vie de l'association.",
     "A token can select at most {{max}} Auto groups": "Un jeton peut sélectionner au plus {{max}} groupes Auto",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "Un jeton qui n’expire jamais reste valide jusqu’à sa révocation. Définissez une date d’expiration si possible.",
     "A valid site exchange rate is required.": "Configurez un taux de change valide pour le site.",

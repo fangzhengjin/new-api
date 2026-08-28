@@ -209,6 +209,7 @@
     "A repair task is already running. Please try again later": "A repair task is already running. Please try again later",
     "A security operation is already in progress.": "A security operation is already in progress.",
     "A selected model no longer exists. Reload the model list.": "A selected model no longer exists. Reload the model list.",
+    "A successful request extends the binding lifetime.": "A successful request extends the binding lifetime.",
     "A token can select at most {{max}} Auto groups": "A token can select at most {{max}} Auto groups",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "A token that never expires stays valid until you revoke it. Set an expiration date when possible.",
     "A valid site exchange rate is required.": "A valid site exchange rate is required.",

@@ -209,6 +209,7 @@
     "A repair task is already running. Please try again later": "已經有一個修復任務在執行中，請稍後再試",
     "A security operation is already in progress.": "已有安全操作正在進行。",
     "A selected model no longer exists. Reload the model list.": "所選模型已不存在，請重新載入模型清單。",
+    "A successful request extends the binding lifetime.": "成功請求會延長綁定存活時間。",
     "A token can select at most {{max}} Auto groups": "每個令牌最多可選擇 {{max}} 個 Auto 分組",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "永不過期的令牌在撤銷前一直有效，建議設定過期時間。",
     "A valid site exchange rate is required.": "請先設定有效的網站貨幣匯率。",

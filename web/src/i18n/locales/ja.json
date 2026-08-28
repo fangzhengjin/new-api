@@ -209,6 +209,7 @@
     "A repair task is already running. Please try again later": "修復タスクが既に実行中です。後でもう一度お試しください",
     "A security operation is already in progress.": "セキュリティ操作を実行中です。",
     "A selected model no longer exists. Reload the model list.": "選択したモデルは既に削除されています。一覧を再読み込みしてください。",
+    "A successful request extends the binding lifetime.": "リクエスト成功時にバインディングの有効期間を延長します。",
     "A token can select at most {{max}} Auto groups": "1 つのトークンで選択できる Auto グループは最大 {{max}} 個です",
     "A token that never expires stays valid until you revoke it. Set an expiration date when possible.": "無期限のトークンは取り消すまで有効です。可能な限り有効期限を設定してください。",
     "A valid site exchange rate is required.": "有効なサイトの為替レートを設定してください。",

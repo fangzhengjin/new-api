@@ -348,6 +348,14 @@ class BillingParser {
 
 type ExpressionType = 'number' | 'string' | 'boolean' | 'nil' | 'dynamic'
 
+function conditionHasTopLevelOr(node: ExpressionNode): boolean {
+  if (node.kind !== 'binary' || node.operator !== '||') return false
+  // A `||` produced by an && chain is nested inside the && operands, so a
+  // direct binary-|| hit at this node is a top-level disjunction.
+  return true
+}
+
+
 function checkExpressionTypes(ast: ExpressionNode): void {
   const types = new Map<ExpressionNode, ExpressionType>()
   visitExpression(ast, (node) => {
@@ -509,6 +517,13 @@ export function compileBillingExpression(source: string): CompilationResult {
           ['param', 'header', ...TIME_FUNCTIONS].includes(name)
         )
       ) {
+        return
+      }
+      // The visual editor models a rule group as AND-only conditions. A
+      // top-level `||` inside the condition cannot round-trip there, so the
+      // factor must stay part of the billing expression (which then fails the
+      // "fully representable" tier parse) instead of being silently dropped.
+      if (conditionHasTopLevelOr(node.condition)) {
         return
       }
       requestRules.push({

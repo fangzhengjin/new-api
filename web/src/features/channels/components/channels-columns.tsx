@@ -85,6 +85,7 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
+import { ChannelConcurrencyValue } from './channel-concurrency-value'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { TaskPluginChannelBadge } from './channel-type-badge'
 import { useChannels } from './channels-provider'
@@ -1063,6 +1064,27 @@ export function useChannelsColumns(
           return false
         },
         size: 120,
+        enableSorting: false,
+      },
+
+      // Concurrency column
+      {
+        id: 'concurrency',
+        accessorFn: (channel) => channel.id,
+        header: t('Concurrency'),
+        cell: ({ row }) => {
+          if (isTagAggregateRow(row.original)) {
+            return null
+          }
+          const settings = parseChannelSettings(row.original.setting)
+          return (
+            <ChannelConcurrencyValue
+              channelId={row.original.id}
+              limit={settings.max_concurrency ?? 0}
+            />
+          )
+        },
+        size: 100,
         enableSorting: false,
       },
 

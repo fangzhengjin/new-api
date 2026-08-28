@@ -122,6 +122,33 @@ func TestResponsesRequestToChatCompletionsRequestMultimodalInput(t *testing.T) {
 	assert.Equal(t, "https://example.test/v.mp4", parts[4].GetVideoUrl().Url)
 }
 
+func TestResponsesRequestToChatCompletionsRequestNormalizesDeveloperRoleForTargetModel(t *testing.T) {
+	tests := []struct {
+		model string
+		role  string
+	}{
+		{model: "kimi-k2.6", role: "system"},
+		{model: "gpt-5.6", role: "developer"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
+				Model: tt.model,
+				Input: mustRawMessage(t, []map[string]any{{
+					"role":    "developer",
+					"content": "system rules",
+				}}),
+			})
+			require.NoError(t, err)
+
+			require.Len(t, got.Messages, 1)
+			assert.Equal(t, tt.role, got.Messages[0].Role)
+			assert.Equal(t, "system rules", got.Messages[0].Content)
+		})
+	}
+}
+
 func TestResponsesRequestToChatCompletionsRequestAssistantTextAndFunctionCallCoexist(t *testing.T) {
 	got, err := ResponsesRequestToChatCompletionsRequest(&dto.OpenAIResponsesRequest{
 		Model: "gpt-test",

@@ -241,24 +241,18 @@ function BillingBreakdown(props: {
       label: t('Billing Mode'),
       value: t('Dynamic Pricing'),
     })
+    const matchedTierLabel = tieredSummary?.tier.label || other.matched_tier
+    rows.push({
+      label: t('Matched Tier'),
+      value: matchedTierLabel || t('No matching results'),
+    })
     if (tieredSummary) {
-      if (tieredSummary.tier.label) {
-        rows.push({
-          label: t('Matched Tier'),
-          value: tieredSummary.tier.label,
-        })
-      }
       for (const entry of tieredSummary.priceEntries) {
         rows.push({
           label: t(entry.shortLabel),
           value: `${fmtPrice(entry.price)}/M`,
         })
       }
-    } else {
-      rows.push({
-        label: t('Matched Tier'),
-        value: t('No matching results'),
-      })
     }
   } else if (isPerCall) {
     rows.push({ label: t('Billing Mode'), value: t('Per-call') })

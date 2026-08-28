@@ -141,7 +141,7 @@ describe('usage facts billing details', () => {
       '400'
     )
     expect(
-      screen.getByText('Input Tokens').nextElementSibling
+      screen.getByText('Total Input Tokens').nextElementSibling
     ).toHaveTextContent('1,000')
     expect(
       screen

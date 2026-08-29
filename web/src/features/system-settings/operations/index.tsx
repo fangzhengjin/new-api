@@ -31,6 +31,7 @@ const defaultOperationsSettings: OperationsSettings = {
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
   QuotaRemindEnabled: true,
+  CycleQuotaManagementEnabled: false,
   QuotaRemindThreshold: '',
   EmailProvider: 'smtp',
   ResendApiKey: '',

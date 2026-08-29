@@ -300,6 +300,102 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, auditRequest(router, "GET", "/api/audit", credential).Code)
 		assert.Equal(t, http.StatusOK, auditRequest(router, "GET", "/api/audit/self", credential).Code)
 	}
+	verifyLocalOperationAuditVisibility(t)
+}
+
+func verifyLocalOperationAuditVisibility(t *testing.T) {
+	t.Helper()
+	localActions := []string{
+		"quota.cycle.create", "quota.cycle.update", "quota.cycle.close",
+		"quota.plan.generate", "quota.plan.execute", "quota.plan.cancel", "quota.plan.regenerate", "quota.plan.notifications_retry",
+		"quota.temporary_request.approve", "quota.temporary_request.reject",
+		"user.quota_adjustment_plan", "user.quota_whitelist",
+	}
+	entries := make([]model.AuditLog, 0, len(localActions)+9)
+	for _, action := range localActions {
+		entries = append(entries, model.AuditLog{ActorRole: common.RoleRootUser, UserId: 77, Username: "local-root", Category: model.AuditCategoryOperation, Action: action, Success: true})
+	}
+	system := model.AuditLog{UserId: 0, ActorRole: 0, Username: "system", AuthMethod: "system", Category: model.AuditCategoryOperation, Action: model.AuditActionQuotaCycleSettle}
+	entries = append(entries, system)
+	// Every exceptional identity field must match. In particular, an invalid
+	// role must not become an accepted scheduler identity by being coerced to 0.
+	for _, field := range []string{"role", "user", "username", "auth", "category", "action"} {
+		invalid := system
+		switch field {
+		case "role":
+			invalid.ActorRole = 99
+		case "user":
+			invalid.UserId = 77
+		case "username":
+			invalid.Username = "unknown"
+		case "auth":
+			invalid.AuthMethod = "session"
+		case "category":
+			invalid.Category = model.AuditCategorySecurity
+		case "action":
+			invalid.Action = "quota.cycle.unknown"
+		}
+		entries = append(entries, invalid)
+	}
+	entries = append(entries,
+		model.AuditLog{ActorRole: common.RoleRootUser, UserId: 77, Username: "local-root", Category: model.AuditCategorySecurity, Action: localActions[0]},
+		model.AuditLog{ActorRole: common.RoleRootUser, UserId: 77, Username: "local-root", Category: model.AuditCategoryOperation, Action: "channel.key_view"},
+	)
+	for i, entry := range entries {
+		entry.RequestId = "local-operation-visibility"
+		entry.CreatedAt = int64(10000 + i)
+		entry.Other = model.AuditOther{RootInfo: model.AuditFields{"private": "root-only"}, AdminInfo: &model.AuditAdminInfo{AdminID: 77}}
+		model.RecordAuditLog(nil, entry)
+	}
+	filter := model.AuditLogFilter{RequestId: "local-operation-visibility"}
+	page, total, err := model.GetAuditLogs(filter, 0, 1, common.RoleAdminUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(localActions)+1, total)
+	require.Len(t, page, 1)
+	assert.Equal(t, model.AuditActionQuotaCycleSettle, page[0].Action)
+	assert.Zero(t, page[0].ActorRole)
+	assert.Equal(t, "system", page[0].AuthMethod)
+	assert.Nil(t, page[0].Other.RootInfo)
+	assert.NotNil(t, page[0].Other.AdminInfo)
+	page, total, err = model.GetAuditLogs(filter, 1, len(localActions), common.RoleAdminUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(localActions)+1, total)
+	require.Len(t, page, len(localActions))
+	for i, entry := range page {
+		assert.Equal(t, localActions[len(localActions)-1-i], entry.Action)
+		assert.Equal(t, common.RoleRootUser, entry.ActorRole)
+		assert.Nil(t, entry.Other.RootInfo)
+	}
+	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser} {
+		privateFilter := filter
+		privateFilter.SelfView = true
+		_, count, err := model.GetAuditLogs(privateFilter, 0, 100, role)
+		require.NoError(t, err)
+		assert.Zero(t, count)
+	}
+	_, count, err := model.GetAuditLogs(filter, 0, 100, common.RoleCommonUser)
+	require.NoError(t, err)
+	assert.Zero(t, count)
+	rootPage, count, err := model.GetAuditLogs(filter, 0, 100, common.RoleRootUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(entries), count)
+	assert.NotNil(t, rootPage[0].Other.RootInfo)
+	var invalidRoleCount int
+	for _, entry := range rootPage {
+		if entry.ActorRole == 99 {
+			invalidRoleCount++
+		}
+	}
+	assert.Equal(t, 1, invalidRoleCount)
+	filter.UserId = 77
+	_, count, err = model.GetAuditLogs(filter, 0, 100, common.RoleAdminUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(localActions), count)
+	filter.UserId = 0
+	filter.Success = common.GetPointer(false)
+	_, count, err = model.GetAuditLogs(filter, 0, 100, common.RoleAdminUser)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
 }
 
 func TestAuditRoleSnapshotSurvivesActorChanges(t *testing.T) {
@@ -752,6 +848,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, authz.ReloadPolicy())
 					assert.False(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))
 					assert.True(t, authz.Can(1, common.RoleRootUser, authz.AuditRead))
+					verifyLocalOperationAuditVisibility(t)
 				})
 			}
 		})
@@ -817,6 +914,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 					require.NoError(t, model.LOG_DB.Raw("SHOW CREATE TABLE logs").Scan(&create).Error)
 					assert.Contains(t, strings.ToUpper(create), "TTL")
 				}
+				verifyLocalOperationAuditVisibility(t)
 			})
 		}
 	}

@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,6 +36,14 @@ func serveTaskPluginImageProtocol(c *gin.Context, pinned pluginruntime.PinnedEnd
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
 		return
 	}
+	// 同步 Images 桥接也走任务提交与预扣结算，必须与原生任务入口一样在
+	// 周期额度结算窗口内暂停受理。
+	releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if admissionErr != nil {
+		respondPluginProtocolError(c, http.StatusConflict, "quota_cycle_unavailable", admissionErr.Error())
+		return
+	}
+	defer releaseQuotaRequest()
 	clientRequest := c.Request
 	var relayInfo *relaycommon.RelayInfo
 	var relayInfoErr error

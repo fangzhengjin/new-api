@@ -10,6 +10,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestChannelSettingsSystemPromptMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		setting  ChannelSettings
+		existing string
+		wantMode string
+		want     string
+		changed  bool
+	}{
+		{name: "default is disabled", setting: ChannelSettings{SystemPrompt: "extra"}, existing: "base", wantMode: SystemPromptModeNone, want: "base"},
+		{name: "legacy override prepends", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptOverride: true}, existing: "base", wantMode: SystemPromptModePrepend, want: "extra\n\nbase", changed: true},
+		{name: "prepend", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModePrepend}, existing: "base", wantMode: SystemPromptModePrepend, want: "extra\n\nbase", changed: true},
+		{name: "append", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeAppend}, existing: "base", wantMode: SystemPromptModeAppend, want: "base\n\nextra", changed: true},
+		{name: "override", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeOverride}, existing: "base", wantMode: SystemPromptModeOverride, want: "extra", changed: true},
+		{name: "empty target avoids separator", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeAppend}, wantMode: SystemPromptModeAppend, want: "extra", changed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantMode, tt.setting.EffectiveSystemPromptMode())
+			got, changed := tt.setting.RewriteSystemPrompt(tt.existing)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.changed, changed)
+		})
+	}
+}
+
+func TestChannelSettingsValidateSystemPromptMode(t *testing.T) {
+	require.NoError(t, (&ChannelSettings{SystemPromptMode: SystemPromptModeOverride}).ValidateSystemPromptMode())
+	require.Error(t, (&ChannelSettings{SystemPromptMode: "replace"}).ValidateSystemPromptMode())
+	require.Error(t, (&ChannelSettings{SystemPromptMode: " PREPEND "}).ValidateSystemPromptMode())
+}
+
 func TestAdvancedCustomValidateResponsesToChatConverterPath(t *testing.T) {
 	valid := &AdvancedCustomConfig{
 		Routes: []AdvancedCustomRoute{

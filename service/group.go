@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -50,6 +51,20 @@ func IsUserSelectableGroup(userGroup, groupName string) bool {
 		return false
 	}
 	return GroupInUserUsableGroups(userGroup, groupName) && ratio_setting.ContainsGroupRatio(groupName)
+}
+
+// ResolveTokenGroup applies the same group authorization used by TokenAuth.
+func ResolveTokenGroup(userGroup, tokenGroup string) (string, error) {
+	if tokenGroup == "" {
+		return userGroup, nil
+	}
+	if !GroupInUserUsableGroups(userGroup, tokenGroup) {
+		return "", fmt.Errorf("无权访问 %s 分组", tokenGroup)
+	}
+	if tokenGroup != "auto" && !ratio_setting.ContainsGroupRatio(tokenGroup) {
+		return "", fmt.Errorf("分组 %s 已被弃用", tokenGroup)
+	}
+	return tokenGroup, nil
 }
 
 // GetUserAutoGroup 根据用户分组获取自动分组设置

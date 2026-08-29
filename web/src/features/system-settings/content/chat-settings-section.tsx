@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
@@ -32,7 +32,18 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { parseChatConfigEntries } from '@/features/chat/lib/chat-links'
 
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
@@ -43,6 +54,11 @@ import { formatJsonForEditor, normalizeJsonString } from './utils'
 
 const createChatSchema = (t: (key: string) => string) =>
   z.object({
+    ChatMenuCollapseThreshold: z
+      .number()
+      .int(t('Enter an integer from 0 to 20'))
+      .min(0, t('Enter an integer from 0 to 20'))
+      .max(20, t('Enter an integer from 0 to 20')),
     Chats: z.string().superRefine((value, ctx) => {
       try {
         const parsed = JSON.parse(value || '[]')
@@ -53,28 +69,13 @@ const createChatSchema = (t: (key: string) => string) =>
           })
           return
         }
-        for (const item of parsed) {
-          if (
-            item === null ||
-            typeof item !== 'object' ||
-            Array.isArray(item)
-          ) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: t(
-                'Each item must be an object with a single key-value pair.'
-              ),
-            })
-            return
-          }
-          const entries = Object.entries(item)
-          if (entries.length !== 1) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: t('Each item must have exactly one key-value pair.'),
-            })
-            return
-          }
+        if (parseChatConfigEntries(parsed).length !== parsed.length) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: t(
+              'Each preset must contain a unique name, URL, enabled status, an optional valid open mode, and optional valid sandbox permissions.'
+            ),
+          })
         }
       } catch {
         ctx.addIssue({
@@ -89,43 +90,119 @@ type ChatSettingsFormValues = z.infer<ReturnType<typeof createChatSchema>>
 
 type ChatSettingsSectionProps = {
   defaultValue: string
+  defaultThreshold: number
+  builtInValue: string
+  builtInThreshold: number
 }
 
-export function ChatSettingsSection({
-  defaultValue,
-}: ChatSettingsSectionProps) {
+export function ChatSettingsSection(props: ChatSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
+  const thresholdInputId = useId()
 
   const chatSchema = createChatSchema(t)
-  const formatted = formatJsonForEditor(defaultValue, '[]')
+  const formatted = formatJsonForEditor(props.defaultValue, '[]')
+  const builtInDefaultsResult = chatSchema.safeParse({
+    Chats: formatJsonForEditor(props.builtInValue, '[]'),
+    ChatMenuCollapseThreshold: props.builtInThreshold,
+  })
+  const builtInDefaults = builtInDefaultsResult.success
+    ? builtInDefaultsResult.data
+    : null
   const form = useForm<ChatSettingsFormValues>({
     resolver: zodResolver(chatSchema),
     mode: 'onChange', // Enable real-time validation
     defaultValues: {
       Chats: formatted,
+      ChatMenuCollapseThreshold: props.defaultThreshold,
     },
   })
 
-  const initialNormalizedRef = useRef(normalizeJsonString(defaultValue, '[]'))
+  const initialNormalizedRef = useRef(
+    normalizeJsonString(props.defaultValue, '[]')
+  )
+  const initialThresholdRef = useRef(props.defaultThreshold)
 
   useEffect(() => {
-    form.reset({ Chats: formatJsonForEditor(defaultValue, '[]') })
-    initialNormalizedRef.current = normalizeJsonString(defaultValue, '[]')
-  }, [defaultValue, form])
+    form.reset({
+      Chats: formatJsonForEditor(props.defaultValue, '[]'),
+      ChatMenuCollapseThreshold: props.defaultThreshold,
+    })
+    initialNormalizedRef.current = normalizeJsonString(props.defaultValue, '[]')
+    initialThresholdRef.current = props.defaultThreshold
+  }, [form, props.defaultThreshold, props.defaultValue])
 
   const onSubmit = async (values: ChatSettingsFormValues) => {
     const normalized = normalizeJsonString(values.Chats, '[]')
-    if (normalized === initialNormalizedRef.current) {
-      return
+    const updates = []
+    if (values.ChatMenuCollapseThreshold !== initialThresholdRef.current) {
+      updates.push({
+        key: 'ChatMenuCollapseThreshold',
+        value: values.ChatMenuCollapseThreshold,
+      })
     }
-
-    await updateOption.mutateAsync({
-      key: 'Chats',
-      value: normalized,
-    })
+    if (normalized !== initialNormalizedRef.current) {
+      updates.push({ key: 'Chats', value: normalized })
+    }
+    if (updates.length > 0) await updateOption.mutateAsync(updates)
   }
+
+  const variables = [
+    {
+      name: '{address}',
+      description: t('Current API address, URL-encoded.'),
+    },
+    {
+      name: '{theme}',
+      description: t('Current theme: light or dark.'),
+    },
+    {
+      name: '{key}',
+      description: t('The selected Token, for direct client import links.'),
+    },
+    {
+      name: '{cherryConfig}',
+      description: t('Cherry Studio import configuration.'),
+    },
+    {
+      name: '{aionuiConfig}',
+      description: t('AionUI import configuration.'),
+    },
+    {
+      name: '{deepchatConfig}',
+      description: t('DeepChat import configuration.'),
+    },
+    {
+      name: '{authCode}',
+      description: t('One-time authorization code, valid for one minute.'),
+    },
+    {
+      name: '{textModels}',
+      description: t(
+        'Comma-separated text models available to the selected Token.'
+      ),
+    },
+    {
+      name: '{imageModels}',
+      description: t(
+        'Comma-separated image models available to the selected Token.'
+      ),
+    },
+    {
+      name: '{videoModels}',
+      description: t(
+        'Comma-separated video models available to the selected Token.'
+      ),
+    },
+  ]
+  const currentValues = form.watch()
+  const usesBuiltInDefaults =
+    builtInDefaults !== null &&
+    currentValues.ChatMenuCollapseThreshold ===
+      builtInDefaults.ChatMenuCollapseThreshold &&
+    normalizeJsonString(currentValues.Chats, '[]') ===
+      normalizeJsonString(builtInDefaults.Chats, '[]')
 
   return (
     <SettingsSection title={t('Chat Presets')}>
@@ -134,9 +211,51 @@ export function ChatSettingsSection({
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
+            onReset={() => builtInDefaults && form.reset(builtInDefaults)}
             isSaving={updateOption.isPending}
+            isResetDisabled={!builtInDefaults || usesBuiltInDefaults}
             saveLabel='Save chat settings'
+            resetLabel='Restore defaults'
           />
+          <FormField
+            control={form.control}
+            name='ChatMenuCollapseThreshold'
+            render={({ field }) => (
+              <FormItem data-settings-form-span='full'>
+                <FormLabel htmlFor={thresholdInputId} className='sr-only'>
+                  {t('Chat menu grouping threshold')}
+                </FormLabel>
+                <div className='flex flex-wrap items-center gap-2 text-sm'>
+                  <span>{t('When there are more than')}</span>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      id={thresholdInputId}
+                      type='number'
+                      min={0}
+                      max={20}
+                      inputMode='numeric'
+                      className='h-8 w-16'
+                      value={Number.isNaN(field.value) ? '' : field.value}
+                      onChange={(event) =>
+                        field.onChange(
+                          event.target.value === ''
+                            ? Number.NaN
+                            : Number(event.target.value)
+                        )
+                      }
+                      aria-invalid={Boolean(
+                        form.formState.errors.ChatMenuCollapseThreshold
+                      )}
+                    />
+                  </FormControl>
+                  <span>{t('entries, group them under the "Chat" menu')}</span>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Separator />
           <Tabs
             value={editMode}
             onValueChange={(value) => setEditMode(value as 'visual' | 'json')}
@@ -179,7 +298,7 @@ export function ChatSettingsSection({
                         onBlur={field.onBlur}
                         textareaRef={field.ref}
                         placeholder={t(
-                          '[{"ChatGPT":"https://chat.openai.com"},{"Lobe Chat":"https://chat-preview.lobehub.com/?settings={...}"}]'
+                          '[{"name":"Example","url":"https://chat.example","enabled":true,"icon":"Palette","open_mode":"embedded"}]'
                         )}
                         heightClassName='h-72 min-h-72 max-h-72'
                         aria-invalid={Boolean(form.formState.errors.Chats)}
@@ -187,7 +306,7 @@ export function ChatSettingsSection({
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Array of chat client presets. Each item is an object with one key-value pair: client name and its URL.'
+                        'Each item uses name, url, and enabled. icon, open_mode, and sandbox are optional.'
                       )}
                     </FormDescription>
                     <FormMessage />
@@ -196,6 +315,39 @@ export function ChatSettingsSection({
               />
             </TabsContent>
           </Tabs>
+          <Separator />
+          <div className='space-y-3' data-settings-form-span='full'>
+            <div className='space-y-1'>
+              <h3 className='text-sm font-medium'>{t('Built-in variables')}</h3>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Variables are replaced only when a preset is opened. Saved settings never show real Token values.'
+                )}
+              </p>
+            </div>
+            <div className='overflow-x-auto rounded-lg border'>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('Variable')}</TableHead>
+                    <TableHead>{t('Notes')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {variables.map((variable) => (
+                    <TableRow key={variable.name}>
+                      <TableCell>
+                        <code className='text-xs'>{variable.name}</code>
+                      </TableCell>
+                      <TableCell className='min-w-72'>
+                        {variable.description}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         </SettingsForm>
       </Form>
     </SettingsSection>

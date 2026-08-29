@@ -329,6 +329,10 @@ func InitResources() error {
 
 	// Initialize options, should after model.InitDB()
 	if common.IsMasterNode {
+		if err := model.MigrateChatPresetsOption(); err != nil {
+			common.FatalLog("failed to migrate chat presets: " + err.Error())
+			return err
+		}
 		if err := model.MigrateRetiredFrontendOptions(); err != nil {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}

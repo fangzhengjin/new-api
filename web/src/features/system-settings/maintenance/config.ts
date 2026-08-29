@@ -70,6 +70,9 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   personal: {
     enabled: true,
     topup: true,
+    wallet_add_funds: true,
+    wallet_subscriptions: true,
+    wallet_affiliate: true,
     personal: true,
   },
   admin: {

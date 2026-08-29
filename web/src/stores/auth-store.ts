@@ -33,6 +33,7 @@ export interface AuthUser {
   email?: string
   role: number
   status?: number
+  temporary_quota_request_eligible?: boolean
   group?: string
   quota?: number
   used_quota?: number

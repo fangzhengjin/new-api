@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 2
+const userCacheSchemaVersion = 4
 
 type UserBase struct {
 	Id          int    `json:"id"`
@@ -150,6 +150,15 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 
 func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
+}
+
+// SyncUserQuotaCacheDelta applies a committed quota adjustment to an existing
+// complete user cache. A cache miss is left for the next database hydration.
+func SyncUserQuotaCacheDelta(userId int, delta int64) error {
+	if delta == 0 {
+		return nil
+	}
+	return cacheIncrUserQuota(userId, delta)
 }
 
 // syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存

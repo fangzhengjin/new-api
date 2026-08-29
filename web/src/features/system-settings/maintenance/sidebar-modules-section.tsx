@@ -52,6 +52,12 @@ type SidebarModulesSectionProps = {
 
 type SidebarFormValues = SidebarModulesAdminConfig
 
+const WALLET_CHILD_MODULES = [
+  'wallet_add_funds',
+  'wallet_subscriptions',
+  'wallet_affiliate',
+] as const
+
 const toTitleCase = (value: string) =>
   value
     .replaceAll(/[_-]+/g, ' ')
@@ -123,6 +129,18 @@ export function SidebarModulesSection({
       topup: {
         title: t('Wallet'),
         description: t('Top up balance and view billing history.'),
+      },
+      wallet_add_funds: {
+        title: t('Add Funds'),
+        description: t('Top up balance and view billing history.'),
+      },
+      wallet_subscriptions: {
+        title: t('Subscription Plans'),
+        description: t('Subscribe to a plan for model access'),
+      },
+      wallet_affiliate: {
+        title: t('Referral Program'),
+        description: t('Share your link and earn rewards'),
       },
       personal: {
         title: t('Profile'),
@@ -201,7 +219,14 @@ export function SidebarModulesSection({
               description: t('Custom sidebar section'),
             }
             const modules = Object.entries(sectionConfig).filter(
-              ([moduleKey]) => moduleKey !== 'enabled'
+              ([moduleKey]) =>
+                moduleKey !== 'enabled' &&
+                !(
+                  sectionKey === 'personal' &&
+                  WALLET_CHILD_MODULES.includes(
+                    moduleKey as (typeof WALLET_CHILD_MODULES)[number]
+                  )
+                )
             )
 
             return (
@@ -235,32 +260,69 @@ export function SidebarModulesSection({
                       description: t('Custom module'),
                     }
                     return (
-                      <FormField
-                        key={`${sectionKey}.${moduleKey}`}
-                        control={form.control}
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        name={`${sectionKey}.${moduleKey}` as any}
-                        render={({ field }) => (
-                          <SettingsSwitchItem className='py-2'>
-                            <SettingsSwitchContent>
-                              <FormLabel>{moduleInfo.title}</FormLabel>
-                              <FormDescription>
-                                {moduleInfo.description}
-                              </FormDescription>
-                            </SettingsSwitchContent>
-                            <FormControl>
-                              <Switch
-                                checked={Boolean(field.value)}
-                                onCheckedChange={field.onChange}
-                                disabled={
+                      <div key={`${sectionKey}.${moduleKey}`}>
+                        <FormField
+                          control={form.control}
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          name={`${sectionKey}.${moduleKey}` as any}
+                          render={({ field }) => (
+                            <SettingsSwitchItem className='py-2'>
+                              <SettingsSwitchContent>
+                                <FormLabel>{moduleInfo.title}</FormLabel>
+                                <FormDescription>
+                                  {moduleInfo.description}
+                                </FormDescription>
+                              </SettingsSwitchContent>
+                              <FormControl>
+                                <Switch
+                                  checked={Boolean(field.value)}
+                                  onCheckedChange={field.onChange}
+                                  disabled={
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    !form.watch(`${sectionKey}.enabled` as any)
+                                  }
+                                />
+                              </FormControl>
+                            </SettingsSwitchItem>
+                          )}
+                        />
+
+                        {sectionKey === 'personal' && moduleKey === 'topup' ? (
+                          <SettingsControlChildren className='grid gap-1'>
+                            {WALLET_CHILD_MODULES.map((childKey) => {
+                              const childInfo = moduleMeta.personal[childKey]
+                              return (
+                                <FormField
+                                  key={`personal.${childKey}`}
+                                  control={form.control}
                                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  !form.watch(`${sectionKey}.enabled` as any)
-                                }
-                              />
-                            </FormControl>
-                          </SettingsSwitchItem>
-                        )}
-                      />
+                                  name={`personal.${childKey}` as any}
+                                  render={({ field }) => (
+                                    <SettingsSwitchItem className='py-2'>
+                                      <SettingsSwitchContent>
+                                        <FormLabel>{childInfo.title}</FormLabel>
+                                        <FormDescription>
+                                          {childInfo.description}
+                                        </FormDescription>
+                                      </SettingsSwitchContent>
+                                      <FormControl>
+                                        <Switch
+                                          checked={Boolean(field.value)}
+                                          onCheckedChange={field.onChange}
+                                          disabled={
+                                            !form.watch('personal.enabled') ||
+                                            !form.watch('personal.topup')
+                                          }
+                                        />
+                                      </FormControl>
+                                    </SettingsSwitchItem>
+                                  )}
+                                />
+                              )
+                            })}
+                          </SettingsControlChildren>
+                        ) : null}
+                      </div>
                     )
                   })}
                 </SettingsControlChildren>

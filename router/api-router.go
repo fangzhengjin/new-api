@@ -125,6 +125,9 @@ func SetApiRouter(router *gin.Engine) {
 				// Check-in routes
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
+				selfRoute.GET("/temporary-quota", controller.GetSelfTemporaryQuota)
+				selfRoute.GET("/temporary-quota/requests", controller.GetSelfTemporaryQuotaRequests)
+				selfRoute.POST("/temporary-quota", middleware.CriticalRateLimit(), controller.SubmitSelfTemporaryQuota)
 
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
@@ -251,6 +254,27 @@ func SetApiRouter(router *gin.Engine) {
 			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
 		}
 		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
+		quotaManagementRoute := apiRouter.Group("/quota-management")
+		quotaManagementRoute.Use(middleware.AdminAuth())
+		{
+			quotaManagementRoute.GET("/overview", controller.GetQuotaOverview)
+			quotaManagementRoute.GET("/activities", controller.GetQuotaActivities)
+			quotaManagementRoute.GET("/cycles", controller.GetQuotaCycles)
+			quotaManagementRoute.POST("/cycles", controller.CreateQuotaCycle)
+			quotaManagementRoute.GET("/cycles/:id", controller.GetQuotaCycle)
+			quotaManagementRoute.PATCH("/cycles/:id", controller.UpdateQuotaCycle)
+			quotaManagementRoute.POST("/cycles/:id/close", controller.CloseQuotaCycle)
+			quotaManagementRoute.GET("/plans/options", controller.GetQuotaPlanOptions)
+			quotaManagementRoute.POST("/plans", controller.GenerateQuotaPlan)
+			quotaManagementRoute.GET("/plans/:id", controller.GetQuotaPlan)
+			quotaManagementRoute.POST("/plans/:id/execute", controller.ExecuteQuotaPlan)
+			quotaManagementRoute.POST("/plans/:id/cancel", controller.CancelQuotaPlan)
+			quotaManagementRoute.POST("/plans/:id/regenerate", controller.RegenerateQuotaPlan)
+			quotaManagementRoute.POST("/plans/:id/notifications/retry", controller.RetryQuotaPlanNotifications)
+			quotaManagementRoute.GET("/temporary-quota-requests", controller.GetTemporaryQuotaRequests)
+			quotaManagementRoute.POST("/temporary-quota-requests/:id/approve", controller.ApproveTemporaryQuotaRequest)
+			quotaManagementRoute.POST("/temporary-quota-requests/:id/reject", controller.RejectTemporaryQuotaRequest)
+		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")

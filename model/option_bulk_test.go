@@ -31,6 +31,35 @@ func TestUpdateOptionsBulkRejectsInvalidJSONBeforeWriting(t *testing.T) {
 	assert.Equal(t, "old.example.com", option.Value)
 	assert.ErrorIs(t, db.First(&Option{}, "key = ?", "ModelPrice").Error, gorm.ErrRecordNotFound)
 }
+
+func TestUpdateOptionsBulkRejectsDisablingCycleQuotaManagementWithOpenCycle(t *testing.T) {
+	previousDB := DB
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	previousMainType := common.MainDatabaseType()
+	previousLogType := common.LogDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Option{}, &QuotaCycle{}))
+	require.NoError(t, db.Create(&Option{Key: CycleQuotaManagementOptionKey, Value: "true"}).Error)
+	require.NoError(t, db.Create(&QuotaCycle{Status: QuotaCycleStatusScheduled}).Error)
+	DB = db
+	operation_setting.CycleQuotaManagementEnabled = true
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, previousLogType)
+	t.Cleanup(func() {
+		DB = previousDB
+		operation_setting.CycleQuotaManagementEnabled = previousMode
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+	})
+
+	err = UpdateOptionsBulk(map[string]string{CycleQuotaManagementOptionKey: "false"})
+	require.EqualError(t, err, "请先关闭进行中或结算中的周期，并取消已规划周期")
+	assert.True(t, operation_setting.CycleQuotaManagementEnabled)
+
+	var option Option
+	require.NoError(t, db.First(&option, "key = ?", CycleQuotaManagementOptionKey).Error)
+	assert.Equal(t, "true", option.Value)
+}
+
 func TestInitOptionMapConvertsLegacyRequestHeaderRulesWithoutWritingDatabase(t *testing.T) {
 	previousDB := DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

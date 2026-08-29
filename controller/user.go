@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -195,6 +196,11 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		common.ApiError(c, err)
 		return
 	}
+	userData, err := buildSelfUserData(currentUser)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var bundle *service.AuthBundle
 	if expectedAuthVersion > 0 {
 		bundle, err = service.CreateLoginSessionAtAuthVersion(
@@ -228,7 +234,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
-			"user":              buildSelfUserData(currentUser),
+			"user":              userData,
 		},
 	})
 }
@@ -384,9 +390,18 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var quotaWhitelist *bool
+	if quotaWhitelistStr := c.Query("quota_whitelist"); quotaWhitelistStr != "" {
+		parsed, err := strconv.ParseBool(quotaWhitelistStr)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		quotaWhitelist = &parsed
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, quotaWhitelist, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -516,7 +531,11 @@ func GetSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	responseData := buildSelfUserData(user)
+	responseData, err := buildSelfUserData(user)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	// The authenticated role is loaded from GetUserCache. It should equal the
 	// row role, but use it for capabilities so GetSelf and login/refresh remain
 	// consistent with the authorization decision made for this request.
@@ -535,11 +554,17 @@ func GetSelf(c *gin.Context) {
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
-func buildSelfUserData(user *model.User) map[string]interface{} {
+func buildSelfUserData(user *model.User) (map[string]interface{}, error) {
+	temporaryQuotaRequestEligible, err := quotaService.TemporaryQuotaRequestEligible(user)
+	if err != nil {
+		return nil, fmt.Errorf("查询临时额度菜单资格失败: %w", err)
+	}
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
 	return map[string]interface{}{
+		"temporary_quota_request_eligible": temporaryQuotaRequestEligible,
+
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
@@ -565,7 +590,7 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,
-	}
+	}, nil
 }
 
 // 计算用户权限的辅助函数
@@ -1109,6 +1134,7 @@ type ManageRequest struct {
 	Action string `json:"action"`
 	Value  int    `json:"value"`
 	Mode   string `json:"mode"`
+	Reason string `json:"reason"`
 }
 
 // ManageUser Only admin user can do this
@@ -1191,6 +1217,37 @@ func ManageUser(c *gin.Context) {
 		}
 		user.Role = common.RoleCommonUser
 	case "add_quota":
+		if model.CycleQuotaManagementEnabled() {
+			var adjustment int64
+			switch req.Mode {
+			case "add":
+				if req.Value <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				adjustment = int64(req.Value)
+			case "subtract":
+				if req.Value <= 0 {
+					common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+					return
+				}
+				adjustment = -int64(req.Value)
+			default:
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			result, err := quotaService.ManualAdjustUserQuota(user.Id, adjustment, req.Reason, c.GetString("username"))
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			recordManageAuditFor(c, user.Id, "user.quota_adjustment_plan", map[string]interface{}{
+				"target_user_id": user.Id, "plan_id": result.PlanID, "adjustment_quota": quotaString(adjustment),
+				"affected_users": result.AffectedUsers, "reason": strings.TrimSpace(req.Reason),
+			})
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+			return
+		}
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
@@ -1242,6 +1299,21 @@ func ManageUser(c *gin.Context) {
 			"success": true,
 			"message": "",
 		})
+		return
+	case "quota_whitelist":
+		if req.Mode != "enable" && req.Mode != "disable" {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		enabled := req.Mode == "enable"
+		if err := quotaService.SetQuotaWhitelist(user.Id, enabled, c.GetString("username")); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.quota_whitelist", map[string]interface{}{
+			"target_user_id": user.Id, "enabled": enabled, "username": user.Username,
+		})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return
 	default:
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)

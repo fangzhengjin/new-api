@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -186,6 +187,11 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
 			return false
 		}
+	case model.CycleQuotaManagementOptionKey:
+		if value != "true" && value != "false" {
+			common.ApiErrorMsg(c, "周期额度管理开关值不正确")
+			return false
+		}
 	default:
 		if isPaymentComplianceOptionKey(key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
@@ -352,6 +358,44 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 			})
 			return false
 		}
+	case "quota_setting.settlement_lead_minutes":
+		minutes, parseErr := strconv.Atoi(value)
+		if parseErr != nil || minutes < 3 || minutes > 60 {
+			common.ApiErrorMsg(c, "结算提前时间必须为3至60分钟")
+			return false
+		}
+		var cycles []model.QuotaCycle
+		if err = model.DB.Select("cycle_start_at", "cycle_end_at").Where("status <> ?", model.QuotaCycleStatusClosed).Find(&cycles).Error; err != nil {
+			common.ApiError(c, err)
+			return false
+		}
+		for _, cycle := range cycles {
+			if cycle.CycleEndAt-cycle.CycleStartAt <= int64(minutes*60) {
+				common.ApiErrorMsg(c, "结算提前时间必须小于所有未关闭周期的时长")
+				return false
+			}
+		}
+	case "quota_setting.settlement_prompt":
+		if strings.TrimSpace(value) == "" || utf8.RuneCountInString(value) > 200 {
+			common.ApiErrorMsg(c, "结算提示语不能为空且不得超过200个字符")
+			return false
+		}
+	case "quota_setting.temporary_quota_projects":
+		var projects map[string]bool
+		if err = common.UnmarshalJsonStr(value, &projects); err != nil || projects == nil {
+			common.ApiErrorMsg(c, "临时额度项目必须是项目名称到可选状态的 JSON 对象")
+			return false
+		}
+		if len(projects) > 100 {
+			common.ApiErrorMsg(c, "临时额度项目不能超过100个")
+			return false
+		}
+		for name := range projects {
+			if name != strings.TrimSpace(name) || name == "" || utf8.RuneCountInString(name) > 100 {
+				common.ApiErrorMsg(c, "项目名称不能为空、不能包含首尾空格且不得超过100个字符")
+				return false
+			}
+		}
 	case "ImageRatio":
 		err = validateRatioOption(value)
 		if err != nil {
@@ -512,9 +556,14 @@ func UpdateOption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。
 	recordManageAudit(c, "option.update", map[string]interface{}{
-		"key": option.Key,
+		"key": strings.Join(keys, ", "),
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -574,10 +623,13 @@ func UpdateOptions(c *gin.Context) {
 			return
 		}
 	}
-
 	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	keys = keys[:0]
+	for key := range values {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	// 出于安全考虑只记录被修改的配置项名称，不记录配置值（可能含密钥等敏感信息）。

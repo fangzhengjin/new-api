@@ -29,6 +29,7 @@ import {
   FormLabel,
 } from '@/components/ui/form'
 import { Switch } from '@/components/ui/switch'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   SettingsForm,
@@ -44,6 +45,7 @@ const behaviorSchema = z.object({
   DefaultCollapseSidebar: z.boolean(),
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
+  CycleQuotaManagementEnabled: z.boolean(),
 })
 
 type BehaviorFormValues = z.infer<typeof behaviorSchema>
@@ -57,6 +59,7 @@ export function SystemBehaviorSection({
 }: SystemBehaviorSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const setSystemConfig = useSystemConfigStore((state) => state.setConfig)
 
   const form = useForm({
     resolver: zodResolver(behaviorSchema),
@@ -71,7 +74,10 @@ export function SystemBehaviorSection({
     )
 
     for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
+      const result = await updateOption.mutateAsync({ key, value })
+      if (key === 'CycleQuotaManagementEnabled' && result.success) {
+        setSystemConfig({ cycleQuotaManagementEnabled: value === true })
+      }
     }
   }
 
@@ -140,6 +146,30 @@ export function SystemBehaviorSection({
                   <Switch
                     checked={field.value}
                     onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='CycleQuotaManagementEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Cycle Quota Management')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Cycle quota management handles quota issuance, adjustment, reclaim, temporary grants, and cycle settlement without changing other account features'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={updateOption.isPending}
                   />
                 </FormControl>
               </SettingsSwitchItem>

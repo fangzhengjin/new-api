@@ -27,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -83,6 +84,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
 	)
+	releaseQuotaRequest, err := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if err != nil {
+		if relayFormat == types.RelayFormatClaude {
+			c.JSON(http.StatusConflict, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		} else {
+			c.JSON(http.StatusConflict, gin.H{"error": types.OpenAIError{Message: err.Error(), Type: "new_api_error", Code: "quota_cycle_unavailable"}})
+		}
+		return
+	}
+	defer releaseQuotaRequest()
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -702,6 +713,17 @@ func RelayMidjourney(c *gin.Context) {
 	}
 
 	var mjErr *taskdto.MidjourneyResponse
+	if relayInfo.RelayMode != relayconstant.RelayModeMidjourneyNotify &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetch &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetchByCondition &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskImageSeed {
+		releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+		if admissionErr != nil {
+			c.JSON(http.StatusConflict, gin.H{"description": admissionErr.Error(), "type": "quota_cycle_unavailable", "code": 4})
+			return
+		}
+		defer releaseQuotaRequest()
+	}
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeMidjourneyNotify:
 		mjErr = relay.RelayMidjourneyNotify(c)
@@ -805,6 +827,13 @@ type taskSubmissionOutcome struct {
 }
 
 func RelayTask(c *gin.Context) {
+	releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if admissionErr != nil {
+		c.JSON(http.StatusConflict, &taskdto.TaskError{Code: "quota_cycle_unavailable", Message: admissionErr.Error(), StatusCode: http.StatusConflict})
+		return
+	}
+	defer releaseQuotaRequest()
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		respondTaskSubmissionError(c, &taskdto.TaskError{

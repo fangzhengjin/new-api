@@ -49,6 +49,19 @@ var auditContentTemplates = map[string]string{
 
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+
+	"quota.cycle.create":              "Created quota cycle ${cycle_id}",
+	"quota.cycle.update":              "Updated quota cycle ${cycle_id}",
+	"quota.cycle.close":               "Closed quota cycle ${cycle_id}",
+	"quota.plan.generate":             "Generated quota plan ${plan_id}",
+	"quota.plan.execute":              "Executed quota plan ${plan_id}",
+	"quota.plan.cancel":               "Cancelled quota plan ${plan_id}",
+	"quota.plan.regenerate":           "Regenerated quota plan ${source_plan_id} as ${plan_id}",
+	"quota.plan.notifications_retry":  "Retried notifications for quota plan ${plan_id}",
+	"quota.temporary_request.approve": "Approved temporary quota request ${request_id}",
+	"quota.temporary_request.reject":  "Rejected temporary quota request ${request_id}",
+	"user.quota_adjustment_plan":      "Executed a quota adjustment for user ${target_user_id}",
+	"user.quota_whitelist":            "Changed quota management status for user ${target_user_id}",
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。

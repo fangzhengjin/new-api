@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
+import { ShieldCheck, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -31,6 +32,7 @@ import {
 } from '@/components/data-table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { getUsers, searchUsers } from '../api'
 import {
@@ -61,7 +63,10 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
-  const columns = useUsersColumns()
+  const cycleQuotaManagementEnabled = useSystemConfigStore(
+    (state) => state.config.cycleQuotaManagementEnabled === true
+  )
+  const columns = useUsersColumns(cycleQuotaManagementEnabled)
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
@@ -83,6 +88,11 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'string' },
+      {
+        columnId: 'quota_whitelist',
+        searchKey: 'quotaWhitelist',
+        type: 'array',
+      },
     ],
   })
   const statusFilter =
@@ -96,6 +106,19 @@ export function UsersTable() {
   const groupFilter =
     (columnFilters.find((filter) => filter.id === 'group')?.value as string) ??
     ''
+  const quotaWhitelistFilter =
+    (columnFilters.find((filter) => filter.id === 'quota_whitelist')?.value as
+      | string[]
+      | undefined) ?? []
+  let quotaWhitelist: boolean | undefined
+  if (cycleQuotaManagementEnabled && quotaWhitelistFilter[0] === 'true') {
+    quotaWhitelist = true
+  } else if (
+    cycleQuotaManagementEnabled &&
+    quotaWhitelistFilter[0] === 'false'
+  ) {
+    quotaWhitelist = false
+  }
 
   const sortParams = useMemo(() => {
     const activeSort = sorting[0]
@@ -129,13 +152,17 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      quotaWhitelist,
       sortParams,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
       const hasColumnFilter =
-        statusFilter.length > 0 || roleFilter.length > 0 || Boolean(groupFilter)
+        statusFilter.length > 0 ||
+        roleFilter.length > 0 ||
+        Boolean(groupFilter) ||
+        quotaWhitelist !== undefined
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -150,6 +177,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter,
+              quota_whitelist: quotaWhitelist,
             })
           : await getUsers(params)
 
@@ -178,6 +206,7 @@ export function UsersTable() {
     globalFilter,
     pagination,
     sorting,
+    initialColumnVisibility: { quota_whitelist: false },
     globalFilterFn: (row, _columnId, filterValue) => {
       const searchValue = String(filterValue).toLowerCase()
       const fields = [
@@ -230,15 +259,35 @@ export function UsersTable() {
             options: getUserRoleOptions(t),
             singleSelect: true,
           },
+          ...(cycleQuotaManagementEnabled
+            ? [
+                {
+                  columnId: 'quota_whitelist',
+                  title: t('Quota Management'),
+                  options: [
+                    {
+                      label: t('Managed users'),
+                      value: 'false',
+                      icon: Users,
+                    },
+                    {
+                      label: t('Whitelist'),
+                      value: 'true',
+                      icon: ShieldCheck,
+                    },
+                  ],
+                  singleSelect: true,
+                },
+              ]
+            : []),
         ],
       }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledUserRow(row.original)) {
+          return undefined
+        }
+        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+      }}
       bulkActions={<DataTableBulkActions table={table} />}
     />
   )

@@ -49,6 +49,9 @@ type LegacyComboboxProps = {
   className?: string
   id?: string
   openOnFocus?: boolean
+  disabled?: boolean
+  'aria-invalid'?: React.AriaAttributes['aria-invalid']
+  'aria-describedby'?: string
 }
 
 function Combobox(props: LegacyComboboxProps): React.ReactElement
@@ -72,6 +75,9 @@ function Combobox(
         className={props.className}
         allowCustomValue={props.allowCustomValue}
         openOnFocus={props.openOnFocus}
+        disabled={props.disabled}
+        aria-invalid={props['aria-invalid']}
+        aria-describedby={props['aria-describedby']}
       />
     )
   }

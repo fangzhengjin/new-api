@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -31,6 +32,11 @@ func RefreshAuth(c *gin.Context) {
 		return
 	}
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
+	userData, err := buildSelfUserData(user)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -38,7 +44,7 @@ func RefreshAuth(c *gin.Context) {
 			"access_token":      bundle.AccessToken,
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
-			"user":              buildSelfUserData(user),
+			"user":              userData,
 			"session":           bundle.Session,
 		},
 	})

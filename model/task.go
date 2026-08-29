@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -254,7 +253,7 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		TaskID:      taskID,
 		UserId:      relayInfo.UserId,
 		Group:       relayInfo.UsingGroup,
-		SubmitTime:  time.Now().Unix(),
+		SubmitTime:  relayInfo.StartTime.Unix(),
 		Status:      TaskStatusNotStart,
 		Progress:    "0%",
 		ChannelId:   relayInfo.ChannelId,

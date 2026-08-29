@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 import {
   Box,
+  Building2,
   CreditCard,
   Layout,
   Settings,
@@ -34,6 +35,7 @@ import { getModelsSectionNavItems } from '@/features/system-settings/models/sect
 import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import type { NavGroup, SidebarView } from '../types'
 
@@ -45,6 +47,8 @@ import type { NavGroup, SidebarView } from '../types'
  * scopes the items as "administration" actions.
  */
 function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
+  const cycleQuotaManagementEnabled =
+    useSystemConfigStore.getState().config.cycleQuotaManagementEnabled === true
   return [
     {
       id: 'system-administration',
@@ -65,6 +69,15 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           icon: CreditCard,
           items: getBillingSectionNavItems(t),
         },
+        ...(cycleQuotaManagementEnabled
+          ? [
+              {
+                title: t('Cycle Quota Management'),
+                icon: Building2,
+                url: '/system-settings/cycle-quota',
+              },
+            ]
+          : []),
         {
           title: t('Models & Routing'),
           icon: Box,

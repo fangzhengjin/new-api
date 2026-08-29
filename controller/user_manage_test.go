@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -179,4 +180,75 @@ func TestManageUserQuotaRespectsWalletCeiling(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"success":false`)
 	require.NoError(t, db.First(&updated, user.Id).Error)
 	assert.Equal(t, common.MaxWalletQuota-1, updated.Quota)
+}
+
+func TestManageUserRejectsQuotaOverrideDuringCycleQuotaManagement(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	operation_setting.CycleQuotaManagementEnabled = true
+	t.Cleanup(func() { operation_setting.CycleQuotaManagementEnabled = previousMode })
+	user := model.User{
+		Username: "managed-cycle-quota-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "managed-cycle-quota-user",
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"add_quota","mode":"override","value":10}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.Quota)
+}
+
+func TestManageUserExecutesCycleQuotaAdjustmentWithReason(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	operation_setting.CycleQuotaManagementEnabled = true
+	t.Cleanup(func() { operation_setting.CycleQuotaManagementEnabled = previousMode })
+	require.NoError(t, db.AutoMigrate(
+		&model.QuotaCycle{}, &model.QuotaPlan{}, &model.QuotaItem{},
+	))
+	now := time.Now().Unix()
+	quota := func(value float64) int64 {
+		return int64(common.QuotaFromFloat(value * common.QuotaPerUnit))
+	}
+	allocated := quota(50)
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60*24*60*60,
+		BudgetQuota: quota(1000), InitialGrantQuota: quota(100),
+		OpeningAllocatedQuota: &allocated, AllocatedQuota: &allocated, AllocationBaselineAt: &now,
+		Status: model.QuotaCycleStatusActive,
+	}
+	user := model.User{
+		Username: "managed-stage-confirmation", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AffCode: "managed-stage-confirmation", Quota: int(quota(50)),
+	}
+	require.NoError(t, db.Create(&cycle).Error)
+	require.NoError(t, db.Create(&user).Error)
+	recorder := performManageUserRequest(t, fmt.Sprintf(
+		`{"id":%d,"action":"add_quota","mode":"add","value":%d,"reason":"项目临时需要"}`,
+		user.Id, quota(150),
+	))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, int(quota(200)), user.Quota)
+	require.NoError(t, db.First(&cycle, cycle.Id).Error)
+	require.NotNil(t, cycle.AllocatedQuota)
+	assert.Equal(t, quota(200), *cycle.AllocatedQuota)
+
+	var plan model.QuotaPlan
+	require.NoError(t, db.Order("id DESC").First(&plan).Error)
+	var audit model.Log
+	require.NoError(t, db.Where("type = ? AND user_id = ?", model.LogTypeManage, 9999).Order("id DESC").First(&audit).Error)
+	var other struct {
+		Operation struct {
+			Action string                 `json:"action"`
+			Params map[string]interface{} `json:"params"`
+		} `json:"op"`
+	}
+	require.NoError(t, common.UnmarshalJsonStr(audit.Other, &other))
+	assert.Equal(t, "user.quota_adjustment_plan", other.Operation.Action)
+	assert.Equal(t, float64(user.Id), other.Operation.Params["target_user_id"])
+	assert.Equal(t, float64(plan.Id), other.Operation.Params["plan_id"])
+	assert.Equal(t, fmt.Sprintf("%d", quota(150)), other.Operation.Params["adjustment_quota"])
+	assert.Equal(t, "项目临时需要", other.Operation.Params["reason"])
 }

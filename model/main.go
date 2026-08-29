@@ -368,6 +368,10 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&QuotaCycle{},
+		&QuotaPlan{},
+		&QuotaItem{},
+		&TemporaryQuotaRequest{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)

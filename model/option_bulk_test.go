@@ -14,7 +14,7 @@ import (
 )
 
 func TestUpdateOptionsBulkPricingTransaction(t *testing.T) {
-	for _, name := range []string{"mixed success", "mode and expression together", "negative price", "null map", "missing expression", "ordinary write failure", "pricing write failure", "ordinary only"} {
+	for _, name := range []string{"mixed success", "mode and expression together", "negative price", "null map", "missing expression", "ordinary write failure", "pricing write failure", "open quota cycle", "ordinary only"} {
 		t.Run(name, func(t *testing.T) {
 			previousDB, previousOptions := DB, common.OptionMap
 			previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
@@ -66,6 +66,12 @@ func TestUpdateOptionsBulkPricingTransaction(t *testing.T) {
 				require.NoError(t, db.Create(&Option{Key: key, Value: raw}).Error)
 				require.NoError(t, updateOptionMap(key, raw))
 			}
+			if name == "open quota cycle" {
+				require.NoError(t, db.AutoMigrate(&QuotaCycle{}))
+				require.NoError(t, db.Create(&QuotaCycle{Status: QuotaCycleStatusScheduled}).Error)
+				require.NoError(t, db.Create(&Option{Key: CycleQuotaManagementOptionKey, Value: "true"}).Error)
+				updates[CycleQuotaManagementOptionKey] = "false"
+			}
 			var before []Option
 			require.NoError(t, db.Order(commonKeyCol).Find(&before).Error)
 			snapshot, err := GetModelPricingSnapshot([]string{"bulk-test-model"})
@@ -89,6 +95,9 @@ func TestUpdateOptionsBulkPricingTransaction(t *testing.T) {
 			err = UpdateOptionsBulk(updates)
 			if name != "mixed success" && name != "mode and expression together" {
 				require.Error(t, err)
+				if name == "open quota cycle" {
+					assert.EqualError(t, err, "请先关闭进行中或结算中的周期，并取消已规划周期")
+				}
 				var after []Option
 				require.NoError(t, db.Order(commonKeyCol).Find(&after).Error)
 				assert.Equal(t, before, after)
@@ -139,6 +148,35 @@ func TestUpdateOptionsBulkRejectsInvalidJSONBeforeWriting(t *testing.T) {
 	assert.Equal(t, "old.example.com", option.Value)
 	assert.ErrorIs(t, db.First(&Option{}, map[string]interface{}{"key": "ModelPrice"}).Error, gorm.ErrRecordNotFound)
 }
+
+func TestUpdateOptionsBulkRejectsDisablingCycleQuotaManagementWithOpenCycle(t *testing.T) {
+	previousDB := DB
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	previousMainType := common.MainDatabaseType()
+	previousLogType := common.LogDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Option{}, &QuotaCycle{}))
+	require.NoError(t, db.Create(&Option{Key: CycleQuotaManagementOptionKey, Value: "true"}).Error)
+	require.NoError(t, db.Create(&QuotaCycle{Status: QuotaCycleStatusScheduled}).Error)
+	DB = db
+	operation_setting.CycleQuotaManagementEnabled = true
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, previousLogType)
+	t.Cleanup(func() {
+		DB = previousDB
+		operation_setting.CycleQuotaManagementEnabled = previousMode
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+	})
+
+	err = UpdateOptionsBulk(map[string]string{CycleQuotaManagementOptionKey: "false"})
+	require.EqualError(t, err, "请先关闭进行中或结算中的周期，并取消已规划周期")
+	assert.True(t, operation_setting.CycleQuotaManagementEnabled)
+
+	var option Option
+	require.NoError(t, db.First(&option, map[string]interface{}{"key": CycleQuotaManagementOptionKey}).Error)
+	assert.Equal(t, "true", option.Value)
+}
+
 func TestInitOptionMapConvertsLegacyRequestHeaderRulesWithoutWritingDatabase(t *testing.T) {
 	previousDB := DB
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

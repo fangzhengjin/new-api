@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,6 +41,15 @@ var responsesWSRequestEngine = sync.OnceValue(func() *gin.Engine {
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		c.Next()
 	}, middleware.BodyStorageCleanup(), middleware.TokenAuth(), middleware.ModelRequestRateLimit(), func(c *gin.Context) {
+		// 每个 response.create 等同一次消费请求，必须和 HTTP 入口一样在周期额度结算窗口内
+		// 暂停受理，否则长连接会在结算过程中扣减已经冻结的额度。
+		releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+		if admissionErr != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": types.OpenAIError{Message: admissionErr.Error(), Type: "new_api_error", Code: "quota_cycle_unavailable"}})
+			c.Abort()
+			return
+		}
+		defer releaseQuotaRequest()
 		state := c.Request.Context().Value(responsesWSRequestContextKey{}).(*responsesWSRequestState)
 		state.apiError = state.handle(c)
 		if state.apiError != nil {

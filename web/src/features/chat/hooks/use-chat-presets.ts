@@ -64,21 +64,39 @@ function extractChats(status: SystemStatus | null): RawChatConfig {
   return (raw as RawChatConfig) ?? getStoredStatusChats()
 }
 
+function extractStatusValue(status: SystemStatus | null, key: string) {
+  return status?.[key] ?? status?.data?.[key]
+}
+
 export function useChatPresets(): {
   chatPresets: ChatPreset[]
   serverAddress: string
+  chatMenuCollapseThreshold: number
 } {
   const { status } = useStatus()
 
   const serverAddress = useMemo(() => extractServerAddress(status), [status])
 
-  const chatPresets = useMemo(() => {
-    const raw = extractChats(status)
-    return parseChatConfig(raw)
-  }, [status])
+  const chatPresets = useMemo(
+    () => parseChatConfig(extractChats(status)),
+    [status]
+  )
+
+  const configuredThreshold = extractStatusValue(
+    status,
+    'chat_menu_collapse_threshold'
+  )
+  const chatMenuCollapseThreshold =
+    typeof configuredThreshold === 'number' &&
+    Number.isInteger(configuredThreshold) &&
+    configuredThreshold >= 0 &&
+    configuredThreshold <= 20
+      ? configuredThreshold
+      : 3
 
   return {
     chatPresets,
     serverAddress,
+    chatMenuCollapseThreshold,
   }
 }

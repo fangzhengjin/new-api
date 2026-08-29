@@ -69,6 +69,9 @@ func SetApiRouter(router *gin.Engine) {
 		// Universal secure verification routes
 		apiRouter.GET("/verify/methods", middleware.UserAuth(), middleware.DisableCache(), controller.GetVerificationMethods)
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.UniversalVerify)
+		apiRouter.POST("/integrations/launch", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.LaunchIntegration)
+		apiRouter.OPTIONS("/integrations/exchange", middleware.CORS())
+		apiRouter.POST("/integrations/exchange", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeIntegrationCode)
 
 		userRoute := apiRouter.Group("/user")
 		{

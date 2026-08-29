@@ -54,6 +54,15 @@ func TestChannelValidateSettingsRejectsInvalidConcurrency(t *testing.T) {
 	assert.Contains(t, err.Error(), "concurrency_wait_timeout_seconds")
 }
 
+func TestChannelValidateSettingsRejectsInvalidSystemPromptMode(t *testing.T) {
+	channel := &Channel{}
+	channel.SetSetting(dto.ChannelSettings{SystemPromptMode: "replace"})
+
+	err := channel.ValidateSettings()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "system_prompt_mode")
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

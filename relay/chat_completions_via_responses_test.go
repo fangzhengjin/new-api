@@ -180,10 +180,10 @@ func TestApplySystemPromptIfNeededSkipsToolLoadingMessages(t *testing.T) {
 			messages: []dto.Message{toolLoading, {Role: "system", Content: "You are Kimi."}, user},
 			wantMessages: []dto.Message{
 				toolLoading,
-				{Role: "system", Content: "Answer in English.\nYou are Kimi."},
+				{Role: "system", Content: "Answer in English.\n\nYou are Kimi."},
 				user,
 			},
-			wantOverride: true,
+			wantOverride: false,
 		},
 	}
 

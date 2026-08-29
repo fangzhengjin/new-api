@@ -235,6 +235,23 @@ func TestInitChannelMetaRestoresRequestReasoningEffortForRetry(t *testing.T) {
 	assert.False(t, info.ReasoningEffortChecked)
 }
 
+func TestInitChannelMetaResetsFinalRequestFormatForRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+	info := &RelayInfo{
+		RelayFormat:             types.RelayFormatOpenAIResponses,
+		RequestConversionChain:  []types.RelayFormat{types.RelayFormatOpenAIResponses, types.RelayFormatGemini},
+		FinalRequestRelayFormat: types.RelayFormatClaude,
+	}
+
+	info.InitChannelMeta(ctx)
+
+	assert.Equal(t, []types.RelayFormat{types.RelayFormatOpenAIResponses}, info.RequestConversionChain)
+	assert.Empty(t, info.FinalRequestRelayFormat)
+	assert.Equal(t, types.RelayFormat(types.RelayFormatOpenAIResponses), info.GetFinalRequestRelayFormat())
+}
+
 func TestReasoningEffortFromRequestAdditionalCases(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -686,6 +686,14 @@ func newCodexUUIDV7() string {
 }
 
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	requestBody, promptBodyCloser, err := common.RewriteResponsesSystemPromptBody(c, info, requestBody)
+	if err != nil {
+		return nil, err
+	}
+	if promptBodyCloser != nil {
+		defer promptBodyCloser.Close()
+	}
+
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)

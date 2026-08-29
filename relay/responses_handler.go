@@ -93,6 +93,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			return newConvertRequestFailedError(c, info, err)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+		applyConvertedSystemPromptIfNeeded(c, info, convertedRequest)
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -48,32 +47,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	adaptor.Init(info)
 
-	if info.ChannelSetting.SystemPrompt != "" {
-		if request.SystemInstructions == nil {
-			request.SystemInstructions = &dto.GeminiChatContent{
-				Parts: []dto.GeminiPart{
-					{Text: info.ChannelSetting.SystemPrompt},
-				},
-			}
-		} else if len(request.SystemInstructions.Parts) == 0 {
-			request.SystemInstructions.Parts = []dto.GeminiPart{{Text: info.ChannelSetting.SystemPrompt}}
-		} else if info.ChannelSetting.SystemPromptOverride {
-			common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
-			merged := false
-			for i := range request.SystemInstructions.Parts {
-				if request.SystemInstructions.Parts[i].Text == "" {
-					continue
-				}
-				request.SystemInstructions.Parts[i].Text = info.ChannelSetting.SystemPrompt + "\n" + request.SystemInstructions.Parts[i].Text
-				merged = true
-				break
-			}
-			if !merged {
-				request.SystemInstructions.Parts = append([]dto.GeminiPart{{Text: info.ChannelSetting.SystemPrompt}}, request.SystemInstructions.Parts...)
-			}
-		}
-	}
-
 	// Clean up empty system instruction
 	if request.SystemInstructions != nil {
 		hasContent := false
@@ -103,6 +76,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return newConvertRequestFailedError(c, info, err)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+		applyConvertedSystemPromptIfNeeded(c, info, convertedRequest)
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -156,6 +130,47 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+
+func applyGeminiSystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) {
+	if info == nil || info.ChannelMeta == nil || request == nil {
+		return
+	}
+	setting := info.ChannelSetting
+	mode := setting.EffectiveSystemPromptMode()
+	if setting.SystemPrompt == "" || mode == dto.SystemPromptModeNone {
+		return
+	}
+	if request.SystemInstructions == nil {
+		request.SystemInstructions = &dto.GeminiChatContent{Parts: []dto.GeminiPart{{Text: setting.SystemPrompt}}}
+		return
+	}
+	for index := range request.SystemInstructions.Parts {
+		if request.SystemInstructions.Parts[index].Text == "" {
+			continue
+		}
+		rewritten, changed := setting.RewriteSystemPrompt(request.SystemInstructions.Parts[index].Text)
+		if changed {
+			if mode == dto.SystemPromptModeOverride {
+				request.SystemInstructions.Parts = []dto.GeminiPart{{Text: rewritten}}
+			} else {
+				request.SystemInstructions.Parts[index].Text = rewritten
+			}
+			relaycommon.MarkSystemPromptRewrite(c, mode)
+		}
+		return
+	}
+
+	part := dto.GeminiPart{Text: setting.SystemPrompt}
+	switch mode {
+	case dto.SystemPromptModeAppend:
+		request.SystemInstructions.Parts = append(request.SystemInstructions.Parts, part)
+	case dto.SystemPromptModeOverride:
+		request.SystemInstructions.Parts = []dto.GeminiPart{part}
+	default:
+		request.SystemInstructions.Parts = append([]dto.GeminiPart{part}, request.SystemInstructions.Parts...)
+	}
+	relaycommon.MarkSystemPromptRewrite(c, mode)
 }
 
 func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {

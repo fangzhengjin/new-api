@@ -44,7 +44,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'http2_connection_shards',
   'tls_insecure_skip_verify',
   'system_prompt',
-  'system_prompt_override',
+  'system_prompt_mode',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',

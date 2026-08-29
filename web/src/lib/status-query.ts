@@ -99,6 +99,9 @@ export function mapStatusDataToConfig(
     displayTokenStatEnabled: data.display_token_stat_enabled as
       | boolean
       | undefined,
+    cycleQuotaManagementEnabled: data.cycle_quota_management_enabled as
+      | boolean
+      | undefined,
     currency,
   }
 }

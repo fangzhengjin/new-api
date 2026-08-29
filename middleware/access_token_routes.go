@@ -304,6 +304,29 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 
 	// router/relay-router.go
 	"POST /pg/chat/completions": accessTokenSessionRule,
+
+	// router/api-router.go: /api/quota-management (admin, cycle quota management)
+	"GET /api/quota-management/overview":                              accessTokenScopeRule("billing:read"),
+	"GET /api/quota-management/cycles":                                accessTokenScopeRule("billing:read"),
+	"POST /api/quota-management/cycles":                               accessTokenScopeRule("billing:write"),
+	"GET /api/quota-management/cycles/:id":                            accessTokenScopeRule("billing:read"),
+	"PATCH /api/quota-management/cycles/:id":                          accessTokenScopeRule("billing:write"),
+	"POST /api/quota-management/cycles/:id/close":                     accessTokenScopeRule("billing:write"),
+	"GET /api/quota-management/plans/options":                         accessTokenScopeRule("billing:read"),
+	"POST /api/quota-management/plans":                                accessTokenScopeRule("billing:write"),
+	"GET /api/quota-management/plans/:id":                             accessTokenScopeRule("billing:read"),
+	"POST /api/quota-management/plans/:id/execute":                    accessTokenScopeRule("billing:write"),
+	"POST /api/quota-management/plans/:id/cancel":                     accessTokenScopeRule("billing:write"),
+	"POST /api/quota-management/plans/:id/regenerate":                 accessTokenScopeRule("billing:write"),
+	"POST /api/quota-management/plans/:id/notifications/retry":        accessTokenScopeRule("billing:write"),
+	"GET /api/quota-management/temporary-quota-requests":              accessTokenScopeRule("billing:read"),
+	"POST /api/quota-management/temporary-quota-requests/:id/approve": accessTokenScopeRule("billing:write"),
+	"POST /api/quota-management/temporary-quota-requests/:id/reject":  accessTokenScopeRule("billing:write"),
+
+	// router/api-router.go: /api/user temporary quota (self)
+	"GET /api/user/temporary-quota":          accessTokenScopeRule("wallet:read"),
+	"POST /api/user/temporary-quota":         accessTokenScopeRule("wallet:write"),
+	"GET /api/user/temporary-quota/requests": accessTokenScopeRule("wallet:read"),
 }
 
 var (

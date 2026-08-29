@@ -50,8 +50,14 @@ import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import {
+  manageUser,
+  resetUserPasskey,
+  resetUserTwoFA,
+  setQuotaWhitelist,
+} from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -77,6 +83,9 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
+  const cycleQuotaManagementEnabled = useSystemConfigStore(
+    (state) => state.config.cycleQuotaManagementEnabled === true
+  )
   const {
     setOpen,
     setCurrentRow,
@@ -88,6 +97,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [whitelistDialogOpen, setWhitelistDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -184,6 +194,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     }
   }
 
+  const handleWhitelist = async () => {
+    try {
+      const result = await setQuotaWhitelist(user.id, !user.quota_whitelist)
+      if (result.success) {
+        toast.success(t('Quota whitelist updated successfully'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Failed to update quota whitelist'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setWhitelistDialogOpen(false)
+    }
+  }
+
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
@@ -247,6 +273,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Promote')}
             <DropdownMenuShortcut>
               <ArrowUp size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+
+        {cycleQuotaManagementEnabled && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault()
+              setWhitelistDialogOpen(true)
+            }}
+          >
+            {user.quota_whitelist
+              ? t('Remove quota whitelist')
+              : t('Add to quota whitelist')}
+            <DropdownMenuShortcut>
+              <ShieldAlert size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
@@ -316,6 +358,31 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
       </DataTableRowActionMenu>
+
+      <ConfirmDialog
+        open={whitelistDialogOpen}
+        onOpenChange={setWhitelistDialogOpen}
+        title={
+          user.quota_whitelist
+            ? t('Remove quota whitelist')
+            : t('Add to quota whitelist')
+        }
+        desc={
+          user.quota_whitelist
+            ? t(
+                'Removing this user from the quota whitelist returns the current balance to allocation control. All unexecuted drafts in the current cycle will be cancelled'
+              )
+            : t(
+                'Whitelist users are excluded from cycle quota allocation and manual adjustment. Their existing balance remains unchanged. All unexecuted drafts in the current cycle will be cancelled'
+              )
+        }
+        confirmText={
+          user.quota_whitelist
+            ? t('Remove quota whitelist')
+            : t('Add to quota whitelist')
+        }
+        handleConfirm={handleWhitelist}
+      />
 
       <ConfirmDialog
         open={resetPasskeyOpen && !verificationActive}

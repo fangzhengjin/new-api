@@ -15,10 +15,12 @@ import (
 )
 
 const (
-	AuditCategoryLogin       = "login"
-	AuditCategorySecurity    = "security"
-	AuditCategoryOperation   = "operation"
-	AuditCategoryAccessToken = "access_token"
+	AuditCategoryLogin            = "login"
+	AuditCategorySecurity         = "security"
+	AuditCategoryOperation        = "operation"
+	AuditCategoryAccessToken      = "access_token"
+	AuditActionQuotaCycleSettle   = "quota.cycle.settle"
+	AuditActionQuotaBalanceAdjust = "quota.balance.adjust"
 )
 
 // AuditLog is retained independently of usage logs and their cleanup/TTL policy.
@@ -102,8 +104,13 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 	switch entry.ActorRole {
 	case common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser:
 	default:
-		logger.LogError(ctx, fmt.Sprintf("audit actor role unavailable (request_id=%s, actor_role=%d)", entry.RequestId, entry.ActorRole))
-		entry.ActorRole = 0 // Unknown actors remain visible to root only.
+		// Scheduled settlement has no user role. Only this explicit system
+		// identity is recognized; malformed actor roles remain diagnostic errors.
+		if entry.ActorRole != 0 || entry.UserId != 0 || entry.Username != "system" || entry.AuthMethod != "system" || entry.Category != AuditCategoryOperation || entry.Action != AuditActionQuotaCycleSettle {
+			logger.LogError(ctx, fmt.Sprintf("audit actor role unavailable (request_id=%s, actor_role=%d)", entry.RequestId, entry.ActorRole))
+		}
+		// Keep the recorded value: coercing an invalid role to zero would make
+		// a malformed system claim indistinguishable from a roleless scheduler.
 	}
 	if entry.Username == "" {
 		entry.Username, _ = GetUsernameById(entry.UserId, false)
@@ -112,16 +119,25 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 	if len(ua) > 512 {
 		entry.UserAgent = string(ua[:512])
 	}
-	if LOG_DB == nil {
-		logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): log database unavailable", entry.RequestId))
-		return
+	if err := CreateAuditLog(LOG_DB, entry); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): %v", entry.RequestId, err))
+	}
+}
+
+// CreateAuditLog persists a prepared event using the caller's transaction and
+// returns failures so durable callers can roll back or retry delivery.
+func CreateAuditLog(db *gorm.DB, entry AuditLog) error {
+	if db == nil {
+		return errors.New("audit log database unavailable")
+	}
+	if entry.EventId == "" || entry.RequestId == "" {
+		return errors.New("audit event and request IDs are required")
 	}
 	var row any = &entry
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		encoded, err := common.Marshal(entry.Other)
 		if err != nil {
-			logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): %v", entry.RequestId, err))
-			return
+			return err
 		}
 		// The ClickHouse GORM insert callback passes structs to the native
 		// driver without resolving their Valuer. Bind this column's JSON
@@ -131,9 +147,7 @@ func RecordAuditLog(c *gin.Context, entry AuditLog) {
 			EncodedOther string `gorm:"column:other;type:json"`
 		}{AuditLog: entry, EncodedOther: string(encoded)}
 	}
-	if err := LOG_DB.Table("audit_logs").Create(row).Error; err != nil {
-		logger.LogError(ctx, fmt.Sprintf("audit log write failed (request_id=%s): %v", entry.RequestId, err))
-	}
+	return db.Table("audit_logs").Create(row).Error
 }
 
 func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*AuditLog, int64, error) {
@@ -146,8 +160,21 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 			"output_format_json_quote_64bit_integers":   0,
 		})))
 	}
-	if viewerRole < common.RoleRootUser {
-		query = query.Where("actor_role IN ?", []int{common.RoleCommonUser, common.RoleAdminUser})
+	if viewerRole == common.RoleAdminUser && !filter.SelfView {
+		// Preserve administrator access to local quota/source operations without
+		// exposing root authentication, credential access, or other root events.
+		localActions := []string{
+			"quota.cycle.create", "quota.cycle.update", "quota.cycle.close",
+			"quota.plan.generate", "quota.plan.execute", "quota.plan.cancel", "quota.plan.regenerate", "quota.plan.notifications_retry",
+			"quota.temporary_request.approve", "quota.temporary_request.reject",
+			"user.quota_adjustment_plan", "user.quota_whitelist",
+		}
+		query = query.Where("(actor_role IN ? OR (category = ? AND action = ?) OR (actor_role = ? AND category = ? AND action IN ?) OR (actor_role = 0 AND user_id = 0 AND username = ? AND auth_method = ? AND category = ? AND action = ?))",
+			[]int{common.RoleCommonUser, common.RoleAdminUser}, AuditCategoryOperation, AuditActionQuotaBalanceAdjust, common.RoleRootUser, AuditCategoryOperation, localActions,
+			"system", "system", AuditCategoryOperation, AuditActionQuotaCycleSettle)
+	} else if viewerRole < common.RoleRootUser {
+		selfQuota := filter.SelfView && filter.UserId > 0
+		query = query.Where("(actor_role IN ? OR (? AND category = ? AND action = ?))", []int{common.RoleCommonUser, common.RoleAdminUser}, selfQuota, AuditCategoryOperation, AuditActionQuotaBalanceAdjust)
 	}
 	if filter.UserId > 0 {
 		query = query.Where("user_id = ?", filter.UserId)
@@ -195,7 +222,12 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 			entry.Other.RootInfo = nil
 		}
 		if visibility == logOtherVisibilityUser {
-			entry.Other.AdminInfo = nil
+			if entry.Category != AuditCategoryOperation || entry.Action != AuditActionQuotaBalanceAdjust {
+				entry.Other.AdminInfo = nil
+			} else if entry.Other.AdminInfo != nil {
+				// Balance recipients may see the immutable operator identity only.
+				entry.Other.AdminInfo = &AuditAdminInfo{AdminID: entry.Other.AdminInfo.AdminID, AdminUsername: entry.Other.AdminInfo.AdminUsername, AdminRole: entry.ActorRole}
+			}
 			entry.Other.AuditInfo = nil
 		}
 	}

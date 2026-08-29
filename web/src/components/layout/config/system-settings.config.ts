@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import {
   Box,
+  Building2,
   Route,
   CreditCard,
   Layout,
@@ -36,6 +37,7 @@ import { getOperationsSectionNavItems } from '@/features/system-settings/operati
 import { getPolicySectionNavItems } from '@/features/system-settings/request-policies/section-registry'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
 import { getSiteSectionNavItems } from '@/features/system-settings/site/section-registry.tsx'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import type { NavGroup, SidebarView } from '../types'
 
@@ -47,6 +49,8 @@ import type { NavGroup, SidebarView } from '../types'
  * scopes the items as "administration" actions.
  */
 function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
+  const cycleQuotaManagementEnabled =
+    useSystemConfigStore.getState().config.cycleQuotaManagementEnabled === true
   return [
     {
       id: 'system-administration',
@@ -67,6 +71,15 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           icon: CreditCard,
           items: getBillingSectionNavItems(t),
         },
+        ...(cycleQuotaManagementEnabled
+          ? [
+              {
+                title: t('Cycle Quota Management'),
+                icon: Building2,
+                url: '/system-settings/cycle-quota',
+              },
+            ]
+          : []),
         {
           title: t('Models'),
           icon: Box,

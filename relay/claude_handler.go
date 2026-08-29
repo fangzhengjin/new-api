@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -48,31 +47,6 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	adaptor.Init(info)
 
-	if info.ChannelSetting.SystemPrompt != "" {
-		if request.System == nil {
-			request.SetStringSystem(info.ChannelSetting.SystemPrompt)
-		} else if info.ChannelSetting.SystemPromptOverride {
-			common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
-			if request.IsStringSystem() {
-				existing := strings.TrimSpace(request.GetStringSystem())
-				if existing == "" {
-					request.SetStringSystem(info.ChannelSetting.SystemPrompt)
-				} else {
-					request.SetStringSystem(info.ChannelSetting.SystemPrompt + "\n" + existing)
-				}
-			} else {
-				systemContents := request.ParseSystem()
-				newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
-				newSystem.SetText(info.ChannelSetting.SystemPrompt)
-				if len(systemContents) == 0 {
-					request.System = []dto.ClaudeMediaMessage{newSystem}
-				} else {
-					request.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
-				}
-			}
-		}
-	}
-
 	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
@@ -99,6 +73,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return newConvertRequestFailedError(c, info, err)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+		applyConvertedSystemPromptIfNeeded(c, info, convertedRequest)
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -156,4 +131,48 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+
+func applyClaudeSystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) {
+	if info == nil || info.ChannelMeta == nil || request == nil {
+		return
+	}
+	setting := info.ChannelSetting
+	mode := setting.EffectiveSystemPromptMode()
+	if setting.SystemPrompt == "" || mode == dto.SystemPromptModeNone {
+		return
+	}
+	if request.System == nil {
+		request.SetStringSystem(setting.SystemPrompt)
+		return
+	}
+	if request.IsStringSystem() {
+		rewritten, changed := setting.RewriteSystemPrompt(request.GetStringSystem())
+		if changed {
+			request.SetStringSystem(rewritten)
+			relaycommon.MarkSystemPromptRewrite(c, mode)
+		}
+		return
+	}
+
+	systemContents := request.ParseSystem()
+	newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
+	if len(systemContents) == 0 {
+		newSystem.SetText(setting.SystemPrompt)
+		systemContents = []dto.ClaudeMediaMessage{newSystem}
+	} else {
+		switch mode {
+		case dto.SystemPromptModePrepend:
+			newSystem.SetText(setting.SystemPrompt + "\n\n")
+			systemContents = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
+		case dto.SystemPromptModeAppend:
+			newSystem.SetText("\n\n" + setting.SystemPrompt)
+			systemContents = append(systemContents, newSystem)
+		case dto.SystemPromptModeOverride:
+			newSystem.SetText(setting.SystemPrompt)
+			systemContents = []dto.ClaudeMediaMessage{newSystem}
+		}
+	}
+	request.System = systemContents
+	relaycommon.MarkSystemPromptRewrite(c, mode)
 }

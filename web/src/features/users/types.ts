@@ -43,6 +43,7 @@ export const userSchema = z.object({
   telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  quota_whitelist: z.boolean().optional(),
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
@@ -111,6 +112,7 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  quota_whitelist?: boolean
   p?: number
   page_size?: number
   sort_by?: UserSortBy
@@ -135,6 +137,7 @@ export type ManageUserAction =
   | 'disable'
   | 'delete'
   | 'add_quota'
+  | 'quota_whitelist'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
@@ -143,6 +146,7 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+  reason?: string
 }
 
 // ============================================================================

@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/gin-gonic/gin"
 )
 
@@ -243,6 +244,16 @@ func serveTaskPluginProtocol(
 	}
 	defer release()
 	logger.LogDebug(c, "task_plugin subsystem=protocol event=admission_acquired generation=%d plugin=%q", generation, pluginKey)
+
+	// 桥接的提交流程同样计入计费消费，必须与原生任务入口一样在周期额度
+	// 结算窗口内暂停受理，否则 Responses 客户端可在结算过程中发起新的
+	// 异步任务扣减已冻结的额度。
+	releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if admissionErr != nil {
+		respondPluginProtocolError(c, http.StatusConflict, "quota_cycle_unavailable", admissionErr.Error())
+		return
+	}
+	defer releaseQuotaRequest()
 
 	clientRequest := c.Request
 	var relayInfo *relaycommon.RelayInfo

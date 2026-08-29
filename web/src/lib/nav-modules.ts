@@ -199,11 +199,11 @@ export async function getModuleAccessForGuard(
  * Fails open: an absent, blank, or unparsable configuration keeps every module
  * visible, so a status read that has not landed yet cannot blank the sidebar.
  */
-export function isSidebarModuleEnabled(
+export function isSidebarModuleEnabledFromStatus(
+  status: Record<string, unknown> | null,
   section: string,
   module: string
 ): boolean {
-  const status = readCachedStatus()
   if (!status) return true
 
   const raw = status.SidebarModulesAdmin
@@ -222,4 +222,11 @@ export function isSidebarModuleEnabled(
   } catch {
     return true
   }
+}
+
+export function isSidebarModuleEnabled(
+  section: string,
+  module: string
+): boolean {
+  return isSidebarModuleEnabledFromStatus(readCachedStatus(), section, module)
 }

@@ -9,9 +9,12 @@ import (
 )
 
 type QuotaSetting struct {
-	EnableFreeModelPreConsume bool    `json:"enable_free_model_pre_consume"` // 是否对免费模型启用预消耗
-	TrustQuotaUSD             float64 `json:"trust_quota_usd"`               // 钱包免预扣门槛，0 表示禁用
-	PreConsumeMultiplier      float64 `json:"pre_consume_multiplier"`        // 预计输入费用的预扣倍率，仅影响预留
+	EnableFreeModelPreConsume bool            `json:"enable_free_model_pre_consume"` // 是否对免费模型启用预消耗
+	TrustQuotaUSD             float64         `json:"trust_quota_usd"`               // 钱包免预扣门槛，0 表示禁用
+	PreConsumeMultiplier      float64         `json:"pre_consume_multiplier"`        // 预计输入费用的预扣倍率，仅影响预留
+	SettlementLeadMinutes     int             `json:"settlement_lead_minutes"`       // 周期结束前进入结算的分钟数
+	SettlementPrompt          string          `json:"settlement_prompt"`             // 结算期间拒绝新请求的提示语
+	TemporaryQuotaProjects    map[string]bool `json:"temporary_quota_projects"`      // 临时额度申请项目及可选状态
 }
 
 // 默认配置
@@ -19,6 +22,9 @@ var quotaSetting = QuotaSetting{
 	EnableFreeModelPreConsume: true,
 	TrustQuotaUSD:             10,
 	PreConsumeMultiplier:      1,
+	SettlementLeadMinutes:     10,
+	SettlementPrompt:          "本期额度正在结算，暂时无法发起新请求，请稍后重试",
+	TemporaryQuotaProjects:    map[string]bool{},
 }
 
 func init() {

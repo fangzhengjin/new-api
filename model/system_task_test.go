@@ -307,6 +307,40 @@ func TestFinishSystemTaskRetainsExecutor(t *testing.T) {
 	assert.Equal(t, int64(0), lockCount)
 }
 
+func TestCleanupFinishedSystemTasksKeepsAnchorsAndActiveRows(t *testing.T) {
+	truncateTables(t)
+	cutoff := int64(1_000)
+	tasks := []*SystemTask{
+		{TaskID: "a-old-success", Type: "type_a", Status: SystemTaskStatusSucceeded, UpdatedAt: 100},
+		{TaskID: "a-old-failed", Type: "type_a", Status: SystemTaskStatusFailed, UpdatedAt: 200},
+		{TaskID: "a-anchor", Type: "type_a", Status: SystemTaskStatusSucceeded, UpdatedAt: 300},
+		{TaskID: "a-recent", Type: "type_a", Status: SystemTaskStatusSucceeded, UpdatedAt: cutoff},
+		{TaskID: "b-old", Type: "type_b", Status: SystemTaskStatusFailed, UpdatedAt: 100},
+		{TaskID: "b-anchor", Type: "type_b", Status: SystemTaskStatusSucceeded, UpdatedAt: 200},
+		{TaskID: "active-pending", Type: "active_a", Status: SystemTaskStatusPending, UpdatedAt: 100},
+		{TaskID: "active-running", Type: "active_b", Status: SystemTaskStatusRunning, UpdatedAt: 100},
+	}
+	for _, task := range tasks {
+		require.NoError(t, DB.Create(task).Error)
+	}
+
+	deleted, err := CleanupFinishedSystemTasks(cutoff)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), deleted)
+
+	var remaining []SystemTask
+	require.NoError(t, DB.Order("id asc").Find(&remaining).Error)
+	remainingIDs := make([]string, 0, len(remaining))
+	for _, task := range remaining {
+		remainingIDs = append(remainingIDs, task.TaskID)
+	}
+	assert.ElementsMatch(t, []string{"a-anchor", "a-recent", "b-anchor", "active-pending", "active-running"}, remainingIDs)
+
+	deleted, err = CleanupFinishedSystemTasks(cutoff)
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+}
+
 func TestSystemTaskUpdatesRequireCurrentLock(t *testing.T) {
 	truncateTables(t)
 

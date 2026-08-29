@@ -300,10 +300,12 @@ const SENSITIVE_FORM_FIELDS = [
   'proxy',
   'http_protocol',
   'http2_connection_shards',
+  'max_concurrency',
+  'concurrency_wait_timeout_seconds',
   'pass_through_body_enabled',
   'responses_websocket_enabled',
   'system_prompt',
-  'system_prompt_override',
+  'system_prompt_mode',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -697,6 +699,16 @@ export function ChannelMutateDrawer({
         ? ADD_MODE_OPTIONS
         : ADD_MODE_OPTIONS.filter((option) => option.value === 'single'),
     [supportsMultiKeyAddMode]
+  )
+
+  const systemPromptModeOptions = useMemo(
+    () => [
+      { value: 'none', label: t('Disabled (default)') },
+      { value: 'prepend', label: t('Prepend channel prompt') },
+      { value: 'append', label: t('Append channel prompt') },
+      { value: 'override', label: t('Override identified prompt') },
+    ],
+    [t]
   )
 
   const advancedCustomStats = useMemo(
@@ -1826,15 +1838,13 @@ export function ChannelMutateDrawer({
           <FormLabel>{t('System Prompt')}</FormLabel>
           <FormControl>
             <Textarea
-              placeholder={t(
-                'Enter system prompt (user prompt takes priority)'
-              )}
+              placeholder={t('Enter channel system prompt')}
               rows={3}
               {...field}
             />
           </FormControl>
           <FormDescription>
-            {t('Default system prompt for this channel')}
+            {t('Prompt used by the selected strategy')}
           </FormDescription>
           <FormMessage />
         </FormItem>
@@ -1842,25 +1852,40 @@ export function ChannelMutateDrawer({
     />
   )
 
-  const systemPromptOverrideFields = (
+  const systemPromptModeFields = (
     <FormField
       control={form.control}
-      name='system_prompt_override'
+      name='system_prompt_mode'
       render={({ field }) => (
-        <FormItem className='flex items-center justify-between'>
-          <div className='space-y-0.5'>
-            <FormLabel>{t('System Prompt Concatenation')}</FormLabel>
-            <FormDescription>
-              {t('Concatenate channel system prompt with user&apos;s prompt')}
-            </FormDescription>
-          </div>
-          <FormControl>
-            <Switch
-              disabled={sensitiveLocked}
-              checked={field.value}
-              onCheckedChange={field.onChange}
-            />
-          </FormControl>
+        <FormItem>
+          <FormLabel>{t('System Prompt Strategy')}</FormLabel>
+          <Select
+            disabled={sensitiveLocked}
+            items={systemPromptModeOptions}
+            value={field.value ?? 'none'}
+            onValueChange={field.onChange}
+          >
+            <FormControl>
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {systemPromptModeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <FormDescription>
+            {t(
+              'Controls how this channel prompt modifies an identified request system prompt. Responses Lite preserves other developer messages.'
+            )}
+          </FormDescription>
+          <FormMessage />
         </FormItem>
       )}
     />
@@ -4747,7 +4772,7 @@ export function ChannelMutateDrawer({
                 {currentType !== CHANNEL_TYPE_ADVANCED_CUSTOM &&
                   passthroughFields}
                 {systemPromptFields}
-                {systemPromptOverrideFields}
+                {systemPromptModeFields}
               </fieldset>
             </div>
             {fieldPassthroughFields}

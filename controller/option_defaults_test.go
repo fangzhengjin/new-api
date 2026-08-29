@@ -7,6 +7,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -43,4 +45,15 @@ func TestGetOptionsIncludesRestorableBuiltInDefaults(t *testing.T) {
 	require.JSONEq(t, operation_setting.DefaultRequestHeaderRulesJSON(), values[operation_setting.RequestHeaderRulesDefaultOptionKey])
 	require.JSONEq(t, operation_setting.CDNRequestHeaderRuleGroupsJSON(), values[operation_setting.RequestHeaderCDNRuleGroupsOptionKey])
 	require.JSONEq(t, operation_setting.SystemRequestHeaderRulesJSON(), values[operation_setting.RequestHeaderSystemRulesOptionKey])
+	require.JSONEq(t, mustMarshalOptionDefault(t, model_setting.GetDefaultCodexSettings()), values[model_setting.CodexSettingsDefaultOptionKey])
+	require.JSONEq(t, mustMarshalOptionDefault(t, model_setting.GetDefaultClaudeSettings()), values[model_setting.ClaudeSettingsDefaultOptionKey])
+	require.JSONEq(t, mustMarshalOptionDefault(t, setting.GetDefaultChats()), values[setting.ChatsDefaultOptionKey])
+	require.Equal(t, "3", values[setting.ChatMenuCollapseThresholdDefaultOptionKey])
+}
+
+func mustMarshalOptionDefault(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := common.Marshal(value)
+	require.NoError(t, err)
+	return string(encoded)
 }

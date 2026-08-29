@@ -223,38 +223,40 @@ func ValidateUserToken(key string) (token *Token, err error) {
 	}
 	token, err = GetTokenByKey(key, false)
 	if err == nil {
-		if token.Status == common.TokenStatusExhausted ||
-			token.Status == common.TokenStatusExpired ||
-			token.Status != common.TokenStatusEnabled {
-			return token, ErrTokenInvalid
-		}
-		if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
-			if !common.RedisEnabled {
-				token.Status = common.TokenStatusExpired
-				err := token.SelectUpdate()
-				if err != nil {
-					common.SysLog("failed to update token status" + err.Error())
-				}
-			}
-			return token, ErrTokenInvalid
-		}
-		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
-			if !common.RedisEnabled {
-				token.Status = common.TokenStatusExhausted
-				err := token.SelectUpdate()
-				if err != nil {
-					common.SysLog("failed to update token status" + err.Error())
-				}
-			}
-			return token, ErrTokenInvalid
-		}
-		return token, nil
+		return token, ValidateTokenAvailability(token)
 	}
 	common.SysLog("ValidateUserToken: failed to get token: " + err.Error())
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrTokenInvalid
 	}
 	return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
+}
+
+// ValidateTokenAvailability checks an already loaded Token without querying it again.
+func ValidateTokenAvailability(token *Token) error {
+	if token == nil || token.Status == common.TokenStatusExhausted ||
+		token.Status == common.TokenStatusExpired || token.Status != common.TokenStatusEnabled {
+		return ErrTokenInvalid
+	}
+	if token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp() {
+		if !common.RedisEnabled {
+			token.Status = common.TokenStatusExpired
+			if err := token.SelectUpdate(); err != nil {
+				common.SysLog("failed to update token status" + err.Error())
+			}
+		}
+		return ErrTokenInvalid
+	}
+	if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+		if !common.RedisEnabled {
+			token.Status = common.TokenStatusExhausted
+			if err := token.SelectUpdate(); err != nil {
+				common.SysLog("failed to update token status" + err.Error())
+			}
+		}
+		return ErrTokenInvalid
+	}
+	return nil
 }
 
 func GetTokenByIds(id int, userId int) (*Token, error) {

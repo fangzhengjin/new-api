@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import type { Row } from '@tanstack/react-table'
 import {
   Trash2,
@@ -47,11 +48,20 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useTheme } from '@/context/theme-provider'
+import { launchChatPreset } from '@/features/chat/api'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
-import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
+import {
+  chatLinkRequiresApiKey,
+  chatLinkRequiresBackendLaunch,
+  chatPresetOpensInNewTab,
+  resolveChatUrl,
+  type ChatPreset,
+} from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
+import { getServerErrorMessage } from '@/lib/handle-server-error'
 
 import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
@@ -79,6 +89,8 @@ export function DataTableRowActions<TData>({
   row,
 }: DataTableRowActionsProps<TData>) {
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
+  const navigate = useNavigate()
   const apiKey = apiKeySchema.parse(row.original)
   const {
     setOpen,
@@ -116,6 +128,37 @@ export function DataTableRowActions<TData>({
 
   const handleOpenChatPreset = useCallback(
     async (preset: ChatPreset) => {
+      if (preset.type === 'web' && !chatPresetOpensInNewTab(preset)) {
+        const tokenId =
+          chatLinkRequiresBackendLaunch(preset.url) ||
+          chatLinkRequiresApiKey(preset.url)
+            ? apiKey.id
+            : undefined
+        void navigate({
+          to: '/chat/$chatId',
+          params: { chatId: preset.id },
+          search: tokenId ? { tokenId } : {},
+        })
+        return
+      }
+      if (chatLinkRequiresBackendLaunch(preset.url)) {
+        try {
+          const launchURL = resolveChatUrl({
+            template: await launchChatPreset(preset.name, apiKey.id),
+            serverAddress,
+            theme: resolvedTheme,
+          })
+          window.open(launchURL, '_blank', 'noopener')
+        } catch (error) {
+          toast.error(
+            t('Unable to open chat preset: {{reason}}', {
+              reason: getServerErrorMessage(error),
+            })
+          )
+        }
+        return
+      }
+
       const realKey = await resolveRealKey(apiKey.id)
       if (!realKey) return
 
@@ -137,6 +180,7 @@ export function DataTableRowActions<TData>({
         template: preset.url,
         apiKey: realKey,
         serverAddress,
+        theme: resolvedTheme,
       })
 
       if (!resolvedUrl) {
@@ -152,7 +196,7 @@ export function DataTableRowActions<TData>({
         window.location.href = resolvedUrl
       }
     },
-    [resolveRealKey, apiKey.id, serverAddress, t]
+    [apiKey.id, navigate, resolveRealKey, resolvedTheme, serverAddress, t]
   )
 
   const handleToggleStatus = async (
@@ -293,7 +337,7 @@ export function DataTableRowActions<TData>({
                   onClick={() => handleOpenChatPreset(preset)}
                 >
                   {preset.name}
-                  {preset.type !== 'web' && (
+                  {chatPresetOpensInNewTab(preset) && (
                     <DropdownMenuShortcut>
                       <ExternalLink size={16} />
                     </DropdownMenuShortcut>

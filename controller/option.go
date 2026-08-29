@@ -125,6 +125,21 @@ func GetOptions(c *gin.Context) {
 		Key:   "CompletionRatioMeta",
 		Value: buildCompletionRatioMetaValue(optionValues),
 	})
+	codexDefaults, err := common.Marshal(model_setting.GetDefaultCodexSettings())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default Codex settings: %w", err))
+		return
+	}
+	claudeDefaults, err := common.Marshal(model_setting.GetDefaultClaudeSettings())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default Claude settings: %w", err))
+		return
+	}
+	chatDefaults, err := common.Marshal(setting.GetDefaultChats())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default chat presets: %w", err))
+		return
+	}
 	options = append(options,
 		&model.Option{
 			Key:   operation_setting.RequestHeaderRulesDefaultOptionKey,
@@ -137,6 +152,22 @@ func GetOptions(c *gin.Context) {
 		&model.Option{
 			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
 			Value: operation_setting.SystemRequestHeaderRulesJSON(),
+		},
+		&model.Option{
+			Key:   model_setting.CodexSettingsDefaultOptionKey,
+			Value: string(codexDefaults),
+		},
+		&model.Option{
+			Key:   model_setting.ClaudeSettingsDefaultOptionKey,
+			Value: string(claudeDefaults),
+		},
+		&model.Option{
+			Key:   setting.ChatsDefaultOptionKey,
+			Value: string(chatDefaults),
+		},
+		&model.Option{
+			Key:   setting.ChatMenuCollapseThresholdDefaultOptionKey,
+			Value: strconv.Itoa(setting.DefaultChatMenuCollapseThreshold),
 		},
 		&model.Option{
 			Key:   "RequestHeaderAuditCapacityBytes",
@@ -182,6 +213,9 @@ func validateRatioOption(value string) error {
 
 func validateOptionUpdate(c *gin.Context, key string, value string, values map[string]string) bool {
 	switch key {
+	case "InfiniteCanvasEnabled", "InfiniteCanvasLaunchURL", "ChatsLegacyBackup":
+		common.ApiErrorMsg(c, "该设置项已停用，请在聊天预设中配置")
+		return false
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(value) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
@@ -395,6 +429,11 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 				common.ApiErrorMsg(c, "项目名称不能为空、不能包含首尾空格且不得超过100个字符")
 				return false
 			}
+		}
+	case "ChatMenuCollapseThreshold":
+		if _, err = setting.ValidateChatMenuCollapseThreshold(value); err != nil {
+			common.ApiError(c, err)
+			return false
 		}
 	case "ImageRatio":
 		err = validateRatioOption(value)

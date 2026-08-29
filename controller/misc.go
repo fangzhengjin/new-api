@@ -86,10 +86,11 @@ func GetStatus(c *gin.Context) {
 		"data_export_default_time":       common.DataExportDefaultTime,
 		"default_collapse_sidebar":       common.DefaultCollapseSidebar,
 		"mj_notify_enabled":              setting.MjNotifyEnabled,
-		"chats":                          setting.Chats,
+		"chats":                          setting.GetChats(),
 		"demo_site_enabled":              operation_setting.DemoSiteEnabled,
 		"self_use_mode_enabled":          operation_setting.SelfUseModeEnabled,
 		"cycle_quota_management_enabled": operation_setting.CycleQuotaManagementEnabled,
+		"chat_menu_collapse_threshold":   setting.ChatMenuCollapseThreshold,
 		"register_enabled":               common.RegisterEnabled,
 		"password_login_enabled":         common.PasswordLoginEnabled,
 		"password_register_enabled":      common.PasswordRegisterEnabled,
@@ -128,7 +129,6 @@ func GetStatus(c *gin.Context) {
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
 	}
-
 	// 根据启用状态注入可选内容
 	if cs.ApiInfoEnabled {
 		data["api_info"] = console_setting.GetApiInfo()

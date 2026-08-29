@@ -25,6 +25,7 @@ const (
 	// pass runs, independent of how often the runner wakes to claim tasks.
 	systemTaskSchedulerInterval = 15 * time.Second
 	systemTaskStaleLockInterval = 30 * time.Second
+	systemTaskHistoryInterval   = 24 * time.Hour
 )
 
 // SystemTaskHandler executes a claimed task of a specific type. Run owns the
@@ -135,6 +136,7 @@ func StartSystemTaskRunner() {
 
 			var lastScheduler time.Time
 			var lastStaleLockCleanup time.Time
+			var lastHistoryCleanup time.Time
 			runPass := func() {
 				// The scheduler/stale-lock pass is throttled independently of the
 				// claim pass: wakeups (e.g. a manual log cleanup) should claim
@@ -149,6 +151,15 @@ func StartSystemTaskRunner() {
 				if now.Sub(lastScheduler) >= systemTaskSchedulerInterval {
 					lastScheduler = now
 					runSystemTaskScheduler()
+				}
+				if now.Sub(lastHistoryCleanup) >= systemTaskHistoryInterval {
+					lastHistoryCleanup = now
+					deleted, err := model.CleanupFinishedSystemTasks(now.Unix())
+					if err != nil {
+						logger.LogWarn(context.Background(), fmt.Sprintf("system task history cleanup failed: %v", err))
+					} else if deleted > 0 {
+						logger.LogInfo(context.Background(), fmt.Sprintf("system task history cleanup removed %d rows", deleted))
+					}
 				}
 				runSystemTaskClaimPass(runnerID)
 			}

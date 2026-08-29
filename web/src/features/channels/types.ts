@@ -85,6 +85,8 @@ export interface ChannelSettings {
   proxy?: string
   pass_through_body_enabled?: boolean
   system_prompt?: string
+  system_prompt_mode?: 'none' | 'prepend' | 'append' | 'override'
+  /** Legacy compatibility: true maps to system_prompt_mode=prepend. */
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number

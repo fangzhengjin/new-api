@@ -295,7 +295,7 @@ const SENSITIVE_FORM_FIELDS = [
   'http2_connection_shards',
   'pass_through_body_enabled',
   'system_prompt',
-  'system_prompt_override',
+  'system_prompt_mode',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -347,7 +347,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
-    values.system_prompt_override ||
+    (values.system_prompt_mode ?? 'none') !== 'none' ||
     (values.http_protocol && values.http_protocol !== 'auto') ||
     (values.http2_connection_shards != null &&
       values.http2_connection_shards > 1) ||
@@ -766,7 +766,7 @@ export function ChannelMutateDrawer({
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
   const currentMaxConcurrency = form.watch('max_concurrency')
   const currentSystemPrompt = form.watch('system_prompt')
-  const currentSystemPromptOverride = form.watch('system_prompt_override')
+  const currentSystemPromptMode = form.watch('system_prompt_mode')
   const currentAllowServiceTier = form.watch('allow_service_tier')
   const currentDisableStore = form.watch('disable_store')
   const currentAllowSafetyIdentifier = form.watch('allow_safety_identifier')
@@ -874,6 +874,15 @@ export function ChannelMutateDrawer({
         ? ADD_MODE_OPTIONS
         : ADD_MODE_OPTIONS.filter((option) => option.value === 'single'),
     [supportsMultiKeyAddMode]
+  )
+  const systemPromptModeOptions = useMemo(
+    () => [
+      { value: 'none', label: t('Disabled (default)') },
+      { value: 'prepend', label: t('Prepend channel prompt') },
+      { value: 'append', label: t('Append channel prompt') },
+      { value: 'override', label: t('Override identified prompt') },
+    ],
+    [t]
   )
 
   const advancedCustomStats = useMemo(
@@ -1042,7 +1051,7 @@ export function ChannelMutateDrawer({
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
-    currentSystemPromptOverride ||
+    (currentSystemPromptMode ?? 'none') !== 'none' ||
     (currentHttpProtocol && currentHttpProtocol !== 'auto') ||
     (currentHttp2ConnectionShards != null && currentHttp2ConnectionShards > 1)
   )
@@ -4529,16 +4538,14 @@ export function ChannelMutateDrawer({
                                   <FormControl>
                                     <Textarea
                                       placeholder={t(
-                                        'Enter system prompt (user prompt takes priority)'
+                                        'Enter channel system prompt'
                                       )}
                                       rows={3}
                                       {...field}
                                     />
                                   </FormControl>
                                   <FormDescription>
-                                    {t(
-                                      'Default system prompt for this channel'
-                                    )}
+                                    {t('Prompt used by the selected strategy')}
                                   </FormDescription>
                                   <FormMessage />
                                 </FormItem>
@@ -4547,25 +4554,43 @@ export function ChannelMutateDrawer({
 
                             <FormField
                               control={form.control}
-                              name='system_prompt_override'
+                              name='system_prompt_mode'
                               render={({ field }) => (
-                                <FormItem className='flex items-center justify-between'>
-                                  <div className='space-y-0.5'>
-                                    <FormLabel>
-                                      {t('System Prompt Concatenation')}
-                                    </FormLabel>
-                                    <FormDescription>
-                                      {t(
-                                        'Concatenate channel system prompt with user&apos;s prompt'
-                                      )}
-                                    </FormDescription>
-                                  </div>
-                                  <FormControl>
-                                    <Switch
-                                      checked={field.value}
-                                      onCheckedChange={field.onChange}
-                                    />
-                                  </FormControl>
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('System Prompt Strategy')}
+                                  </FormLabel>
+                                  <Select
+                                    items={systemPromptModeOptions}
+                                    value={field.value ?? 'none'}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger className='w-full'>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent alignItemWithTrigger={false}>
+                                      <SelectGroup>
+                                        {systemPromptModeOptions.map(
+                                          (option) => (
+                                            <SelectItem
+                                              key={option.value}
+                                              value={option.value}
+                                            >
+                                              {option.label}
+                                            </SelectItem>
+                                          )
+                                        )}
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {t(
+                                      'Controls how this channel prompt modifies an identified request system prompt. Responses Lite preserves other developer messages.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
                                 </FormItem>
                               )}
                             />

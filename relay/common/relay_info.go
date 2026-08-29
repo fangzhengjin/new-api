@@ -271,6 +271,9 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	}
 
 	info.ChannelMeta = channelMeta
+	info.RequestConversionChain = nil
+	info.FinalRequestRelayFormat = ""
+	info.InitRequestConversionChain()
 
 	// Channel identity feeds the converter options snapshot (e.g.
 	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.

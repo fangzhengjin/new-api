@@ -327,6 +327,9 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/user/temporary-quota":          accessTokenScopeRule("wallet:read"),
 	"POST /api/user/temporary-quota":         accessTokenScopeRule("wallet:write"),
 	"GET /api/user/temporary-quota/requests": accessTokenScopeRule("wallet:read"),
+
+	// router/api-router.go: /api/integrations
+	"POST /api/integrations/launch": accessTokenScopeRule("profile:write"),
 }
 
 var (

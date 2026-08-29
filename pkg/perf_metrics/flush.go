@@ -10,7 +10,11 @@ import (
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 )
 
+// 指标保留期按天配置，过期清理无需与高频 flush 同步执行。
+const cleanupInterval = 24 * time.Hour
+
 func flushLoop() {
+	var lastCleanup time.Time
 	for {
 		interval := perf_metrics_setting.GetFlushIntervalMinutes()
 		time.Sleep(time.Duration(interval) * time.Minute)
@@ -19,7 +23,10 @@ func flushLoop() {
 			continue
 		}
 		flushCompletedBuckets()
-		cleanupExpiredMetrics(setting.RetentionDays)
+		if setting.RetentionDays > 0 && time.Since(lastCleanup) >= cleanupInterval {
+			cleanupExpiredMetrics(setting.RetentionDays)
+			lastCleanup = time.Now()
+		}
 	}
 }
 

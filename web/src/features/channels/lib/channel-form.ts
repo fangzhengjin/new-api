@@ -83,6 +83,12 @@ export const MAX_HTTP2_CONNECTION_SHARDS = 8
 const MAX_CHANNEL_CONCURRENCY = 10000
 const DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 90
 const MAX_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 3600
+const SYSTEM_PROMPT_MODES = [
+  'none',
+  'prepend',
+  'append',
+  'override',
+] as const
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -284,7 +290,7 @@ export const channelFormSchema = z
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
-    system_prompt_override: z.boolean().optional(),
+    system_prompt_mode: z.enum(SYSTEM_PROMPT_MODES).optional(),
     // Type-specific settings (stored in settings JSON)
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -476,7 +482,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
   system_prompt: '',
-  system_prompt_override: false,
+  system_prompt_mode: 'none',
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -521,7 +527,9 @@ export function transformChannelToFormDefaults(
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
     system_prompt: '',
-    system_prompt_override: false,
+    system_prompt_mode: 'none' as NonNullable<
+      ChannelFormValues['system_prompt_mode']
+    >,
   }
 
   if (channel.setting) {
@@ -531,6 +539,14 @@ export function transformChannelToFormDefaults(
       const shards = normalizeHttp2ConnectionShards(
         parsed.http2_connection_shards
       )
+      let systemPromptMode: NonNullable<
+        ChannelFormValues['system_prompt_mode']
+      > = 'none'
+      if (SYSTEM_PROMPT_MODES.includes(parsed.system_prompt_mode)) {
+        systemPromptMode = parsed.system_prompt_mode
+      } else if (parsed.system_prompt_override) {
+        systemPromptMode = 'prepend'
+      }
       extraSettings = {
         task_plugin_key: parsed.task_plugin_key || '',
         force_format: parsed.force_format || false,
@@ -546,7 +562,7 @@ export function transformChannelToFormDefaults(
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
         system_prompt: parsed.system_prompt || '',
-        system_prompt_override: parsed.system_prompt_override || false,
+        system_prompt_mode: systemPromptMode,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -675,7 +691,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       (formData.type === 1 || formData.type === 57) &&
       formData.responses_websocket_enabled === true,
     system_prompt: formData.system_prompt || '',
-    system_prompt_override: formData.system_prompt_override || false,
+    system_prompt_mode: formData.system_prompt_mode || 'none',
+    system_prompt_override: formData.system_prompt_mode === 'prepend',
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

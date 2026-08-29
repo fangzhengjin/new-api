@@ -152,3 +152,28 @@ func TestUpdateOptionDoesNotMutateCacheWhenPersistenceFails(t *testing.T) {
 	require.NoError(t, db.Model(&model.Option{}).Count(&count).Error)
 	assert.Zero(t, count)
 }
+
+func TestLogConsumeEnabledRejectsNonBooleanValue(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	previousOptionMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() { common.OptionMap = previousOptionMap })
+
+	body, err := common.Marshal(map[string]interface{}{
+		"options": []OptionUpdateRequest{{Key: "LogConsumeEnabled", Value: "invalid"}},
+	})
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPut, "/api/option/batch", bytes.NewReader(body))
+	UpdateOptions(context)
+
+	var response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "必须为 true 或 false")
+}

@@ -15,10 +15,13 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,6 +58,8 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.QuotaCycle{},
+		&model.QuotaPlan{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -79,7 +84,136 @@ func truncate(t *testing.T) {
 		model.DB.Exec("DELETE FROM user_subscriptions")
 		model.DB.Exec("DELETE FROM system_task_locks")
 		model.DB.Exec("DELETE FROM system_tasks")
+		model.DB.Exec("DELETE FROM tool_quota_adjustment_plans")
+		model.DB.Exec("DELETE FROM tool_quota_cycles")
 	})
+}
+
+type blockingRefundFunding struct {
+	started chan struct{}
+	resume  chan struct{}
+}
+
+type billingLeaseReleaseHook struct {
+	evaluations int
+	counted     chan struct{}
+}
+
+func (hook *billingLeaseReleaseHook) BeforeProcess(ctx context.Context, _ redis.Cmder) (context.Context, error) {
+	return ctx, nil
+}
+
+func (hook *billingLeaseReleaseHook) AfterProcess(_ context.Context, cmd redis.Cmder) error {
+	if cmd.Name() != "eval" {
+		return nil
+	}
+	hook.evaluations++
+	if hook.evaluations == 3 {
+		close(hook.counted)
+	}
+	return nil
+}
+
+func (hook *billingLeaseReleaseHook) BeforeProcessPipeline(ctx context.Context, _ []redis.Cmder) (context.Context, error) {
+	return ctx, nil
+}
+
+func (*billingLeaseReleaseHook) AfterProcessPipeline(context.Context, []redis.Cmder) error {
+	return nil
+}
+
+func (*blockingRefundFunding) Source() string       { return BillingSourceWallet }
+func (*blockingRefundFunding) PreConsume(int) error { return nil }
+func (*blockingRefundFunding) Settle(int) error     { return nil }
+func (f *blockingRefundFunding) Refund() error {
+	close(f.started)
+	<-f.resume
+	return nil
+}
+
+func TestBillingSessionRefundHoldsQuotaSettlementBillingLease(t *testing.T) {
+	truncate(t)
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	releaseCounted := make(chan struct{})
+	client.AddHook(&billingLeaseReleaseHook{counted: releaseCounted})
+	previousRDB, previousRedisEnabled := common.RDB, common.RedisEnabled
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	common.RDB, common.RedisEnabled = client, true
+	operation_setting.CycleQuotaManagementEnabled = true
+	t.Cleanup(func() {
+		common.RDB, common.RedisEnabled = previousRDB, previousRedisEnabled
+		operation_setting.CycleQuotaManagementEnabled = previousMode
+		_ = client.Close()
+	})
+
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 3600, CycleEndAt: now + 60, BudgetQuota: 1000,
+		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusActive,
+	}
+	require.NoError(t, model.DB.Create(&cycle).Error)
+	funding := &blockingRefundFunding{
+		started: make(chan struct{}), resume: make(chan struct{}),
+	}
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	session := &BillingSession{
+		relayInfo: &relaycommon.RelayInfo{StartTime: time.Unix(now-60, 0), IsPlayground: true},
+		funding:   funding, tokenConsumed: 1,
+	}
+
+	session.Refund(ctx)
+	select {
+	case <-funding.started:
+	case <-time.After(time.Second):
+		t.Fatal("异步退款未开始")
+	}
+	keys, err := client.Keys(context.Background(), "quota_settlement:*:requests:v1").Result()
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	count, err := client.ZCard(context.Background(), keys[0]).Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+	require.NoError(t, client.ZAdd(context.Background(), keys[0], &redis.Z{
+		Score: float64(time.Now().Add(time.Minute).UnixMilli()), Member: "test-sentinel",
+	}).Err())
+
+	close(funding.resume)
+	select {
+	case <-releaseCounted:
+	case <-time.After(time.Second):
+		t.Fatal("billing lease release was not counted")
+	}
+	remaining, err := client.ZCard(context.Background(), keys[0]).Result()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), remaining)
+}
+
+func TestSettleBillingKeepsWalletAdjustmentWhenTokenAdjustmentFails(t *testing.T) {
+	truncate(t)
+	const userID, tokenID = 61, 61
+	seedUser(t, userID, 1000)
+	seedToken(t, tokenID, userID, "sk-settlement-token-failure", 1000)
+	now := time.Now()
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		RequestId: "settlement-token-failure", UserId: userID, TokenId: tokenID,
+		TokenKey: "sk-settlement-token-failure", StartTime: now, OriginModelName: "test-model",
+	}
+	require.Nil(t, PreConsumeBilling(ctx, 100, info))
+	require.NoError(t, model.DB.Exec(`
+		CREATE TRIGGER fail_settlement_token_update
+		BEFORE UPDATE ON tokens
+		WHEN OLD.id = 61
+		BEGIN
+			SELECT RAISE(ABORT, 'forced token quota failure');
+		END;
+	`).Error)
+	t.Cleanup(func() { model.DB.Exec("DROP TRIGGER IF EXISTS fail_settlement_token_update") })
+
+	require.Error(t, SettleBilling(ctx, info, 200))
+	assert.Equal(t, 800, getUserQuota(t, userID))
 }
 
 func seedUser(t *testing.T, id int, quota int) {

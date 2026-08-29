@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
@@ -65,6 +66,10 @@ type BatchTaskResult struct {
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
 
+func acquireTaskBillingLease(ctx context.Context, task *model.Task) func() {
+	return quotaService.AcquireQuotaSettlementBillingLease(ctx, task.SubmitTime)
+}
+
 // sweepTimedOutTasks 在主轮询之前独立清理超时任务。
 // 每次最多处理 100 条，剩余的下个周期继续处理。
 // 使用 per-task CAS (UpdateWithStatus) 防止覆盖被正常轮询已推进的任务。
@@ -85,6 +90,10 @@ func sweepTimedOutTasks(ctx context.Context) {
 
 	for _, task := range tasks {
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
+		releaseBillingLease := func() {}
+		if !isLegacy && task.Quota != 0 {
+			releaseBillingLease = acquireTaskBillingLease(ctx, task)
+		}
 
 		oldStatus := task.Status
 		task.Status = model.TaskStatusFailure
@@ -101,10 +110,12 @@ func sweepTimedOutTasks(ctx context.Context) {
 
 		won, err := task.UpdateWithStatus(oldStatus)
 		if err != nil {
+			releaseBillingLease()
 			logger.LogError(ctx, fmt.Sprintf("sweepTimedOutTasks CAS update error for task %s: %v", task.TaskID, err))
 			continue
 		}
 		if !won {
+			releaseBillingLease()
 			logger.LogInfo(ctx, fmt.Sprintf("sweepTimedOutTasks: task %s already transitioned, skip", task.TaskID))
 			continue
 		}
@@ -112,6 +123,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 		if !isLegacy && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, reason)
 		}
+		releaseBillingLease()
 	}
 
 	if timedOutCount > 0 {
@@ -335,7 +347,6 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		}
 		task.Status = lo.If(parsedStatus != "", parsedStatus).Else(task.Status)
 		task.FailReason = lo.If(responseItem.TaskInfo.Reason != "", responseItem.TaskInfo.Reason).Else(task.FailReason)
-		task.SubmitTime = lo.If(responseItem.SubmitTime != 0, responseItem.SubmitTime).Else(task.SubmitTime)
 		task.StartTime = lo.If(responseItem.StartTime != 0, responseItem.StartTime).Else(task.StartTime)
 		task.FinishTime = lo.If(responseItem.FinishTime != 0, responseItem.FinishTime).Else(task.FinishTime)
 		if responseItem.TaskInfo.Progress != "" {
@@ -363,12 +374,18 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 
 		isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
 		terminalTransition := isDone && snap.Status != task.Status
+		releaseBillingLease := func() {}
+		if terminalTransition {
+			releaseBillingLease = acquireTaskBillingLease(ctx, task)
+		}
 		won, updateErr := task.UpdateWithStatus(snap.Status)
 		if updateErr != nil {
+			releaseBillingLease()
 			common.SysLog("UpdateSunoTask task error: " + updateErr.Error())
 			continue
 		}
 		if !won {
+			releaseBillingLease()
 			logger.LogWarn(ctx, fmt.Sprintf("Batch task %s already transitioned by another process, skip billing", task.TaskID))
 			continue
 		}
@@ -378,6 +395,7 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 				RefundTaskQuota(ctx, task, task.FailReason)
 			}
 		}
+		releaseBillingLease()
 	}
 	return nil
 }
@@ -597,6 +615,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	if isDone && snap.Status != task.Status && shouldFinalizeBilling {
+		releaseBillingLease := acquireTaskBillingLease(ctx, task)
+		defer releaseBillingLease()
+	}
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {

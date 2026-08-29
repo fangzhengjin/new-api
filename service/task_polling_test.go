@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -630,12 +631,16 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	require.NoError(t, model.DB.First(&firstPollTask, task.ID).Error)
 	require.NoError(t, model.DB.First(&staleSecondPollTask, task.ID).Error)
 
+	originalSubmitTime := task.SubmitTime
 	adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{
-		upstreamTaskID: {TaskInfo: relaycommon.TaskInfo{
-			TaskID: upstreamTaskID,
-			Status: model.TaskStatusFailure,
-			Reason: "upstream failed",
-		}},
+		upstreamTaskID: {
+			SubmitTime: originalSubmitTime + 3600,
+			TaskInfo: relaycommon.TaskInfo{
+				TaskID: upstreamTaskID,
+				Status: model.TaskStatusFailure,
+				Reason: "upstream failed",
+			},
+		},
 	}}
 	previousFactory := GetTaskAdaptorFunc
 	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
@@ -651,10 +656,86 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, originalSubmitTime, reloaded.SubmitTime)
 	assert.Zero(t, reloaded.Quota)
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
 	assert.Equal(t, int64(1), countLogs(t))
+}
+
+func TestUpdateBatchTasksRefundsWhenQuotaObservationIsUnavailable(t *testing.T) {
+	truncate(t)
+	require.NoError(t, model.LOG_DB.AutoMigrate(&model.AuditLog{}))
+	t.Cleanup(func() {
+		require.NoError(t, model.LOG_DB.Where("action = ?", model.AuditActionQuotaCycleSettle).Delete(&model.AuditLog{}).Error)
+	})
+
+	const userID, channelID, taskQuota = 404, 404, 2_500
+	const publicTaskID, upstreamTaskID = "suno_public_lease", "suno_upstream_lease"
+	const initialUserQuota = 10_000
+	seedUser(t, userID, initialUserQuota)
+	baseURL := "https://suno.invalid"
+	require.NoError(t, model.DB.Create(&model.Channel{
+		Id: channelID, Type: constant.ChannelTypeSunoAPI, Name: "suno_lease",
+		Key: "sk-suno-channel", Status: common.ChannelStatusEnabled, BaseURL: &baseURL,
+	}).Error)
+
+	now := time.Now().Unix()
+	cycle := model.QuotaCycle{
+		CycleStartAt: now - 60, CycleEndAt: now + 60, BudgetQuota: 100_000,
+		BalancePolicy: model.QuotaCycleBalancePolicyCarry, Status: model.QuotaCycleStatusSettling,
+	}
+	require.NoError(t, model.DB.Create(&cycle).Error)
+	task := makeTask(userID, channelID, taskQuota, 0, BillingSourceWallet, 0)
+	task.TaskID = publicTaskID
+	task.Platform = constant.TaskPlatformSuno
+	task.Status = model.TaskStatusInProgress
+	task.Progress = "50%"
+	task.SubmitTime = now
+	task.PrivateData.UpstreamTaskID = upstreamTaskID
+	require.NoError(t, model.DB.Create(task).Error)
+
+	previousMode := operation_setting.CycleQuotaManagementEnabled
+	previousRDB, previousRedisEnabled := common.RDB, common.RedisEnabled
+	adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{
+		upstreamTaskID: {TaskInfo: relaycommon.TaskInfo{
+			TaskID: upstreamTaskID,
+			Status: model.TaskStatusFailure,
+			Reason: "upstream failed",
+		}},
+	}}
+	operation_setting.CycleQuotaManagementEnabled = true
+	common.RDB, common.RedisEnabled = nil, false
+	t.Cleanup(func() {
+		operation_setting.CycleQuotaManagementEnabled = previousMode
+		common.RDB, common.RedisEnabled = previousRDB, previousRedisEnabled
+	})
+
+	err := updateBatchTasks(context.Background(), adaptor, channelID, []string{upstreamTaskID}, map[string]*model.Task{
+		upstreamTaskID: task,
+	})
+
+	require.NoError(t, err)
+	var reloaded model.Task
+	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
+	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.Equal(t, "100%", reloaded.Progress)
+	assert.Zero(t, reloaded.Quota)
+	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
+	require.NoError(t, model.DB.First(&cycle, cycle.Id).Error)
+	assert.Equal(t, model.QuotaCycleStatusClosed, cycle.Status)
+	require.Eventually(t, func() bool { return gopool.WorkerCount() == 0 }, time.Second, time.Millisecond)
+	var audits []model.AuditLog
+	require.NoError(t, model.LOG_DB.Where("action = ?", model.AuditActionQuotaCycleSettle).Find(&audits).Error)
+	require.Len(t, audits, 1)
+	assert.True(t, audits[0].Success)
+	require.NotNil(t, audits[0].Other.Op)
+	var auditedCycleID int
+	auditedCycleJSON, err := common.Marshal(audits[0].Other.Op.Params["cycle_id"])
+	require.NoError(t, err)
+	require.NoError(t, common.Unmarshal(auditedCycleJSON, &auditedCycleID))
+	assert.Equal(t, cycle.Id, auditedCycleID)
 }
 
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {

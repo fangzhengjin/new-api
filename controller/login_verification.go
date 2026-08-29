@@ -2,6 +2,8 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -146,6 +148,16 @@ func completeVerifiedLoginResponse(c *gin.Context, bundle *service.AuthBundle, m
 		writeAuthSessionError(c, err)
 		return
 	}
+	userData, err := buildSelfUserData(user)
+	if err != nil {
+		// Verification already created the session. A failed local eligibility
+		// lookup must not leave an active session that the client cannot use.
+		if _, revokeErr := model.RevokeUserSession(user.Id, bundle.Session.SID, "profile_response_failed"); revokeErr != nil {
+			err = errors.Join(err, fmt.Errorf("revoke undelivered login session: %w", revokeErr))
+		}
+		writeAuthSessionError(c, err)
+		return
+	}
 	c.Set("login_verification_method", method)
-	writeLoginResponse(c, user, bundle)
+	writeLoginResponse(c, user, bundle, userData)
 }

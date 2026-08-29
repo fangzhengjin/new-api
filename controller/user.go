@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -169,6 +170,11 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		common.ApiError(c, err)
 		return
 	}
+	userData, err := buildSelfUserData(currentUser)
+	if err != nil {
+		writeAuthSessionError(c, err)
+		return
+	}
 	var bundle *service.AuthBundle
 	if expectedAuthVersion > 0 {
 		bundle, err = service.CreateLoginSessionAtAuthVersion(
@@ -190,10 +196,10 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 		writeAuthSessionError(c, err)
 		return
 	}
-	writeLoginResponse(c, currentUser, bundle)
+	writeLoginResponse(c, currentUser, bundle, userData)
 }
 
-func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {
+func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle, userData map[string]interface{}) {
 	c.Set("login_method", bundle.Session.LoginMethod)
 	model.UpdateUserLastLoginAt(user.Id)
 	service.WriteRefreshCookie(c, bundle.RefreshToken)
@@ -207,7 +213,7 @@ func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBu
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
-			"user":              buildSelfUserData(user),
+			"user":              userData,
 		},
 	})
 }
@@ -363,9 +369,18 @@ func SearchUsers(c *gin.Context) {
 			status = &parsed
 		}
 	}
+	var quotaWhitelist *bool
+	if quotaWhitelistStr := c.Query("quota_whitelist"); quotaWhitelistStr != "" {
+		parsed, err := strconv.ParseBool(quotaWhitelistStr)
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		quotaWhitelist = &parsed
+	}
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
-	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
+	users, total, err := model.SearchUsers(keyword, group, role, status, quotaWhitelist, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -467,7 +482,11 @@ func GetSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	responseData := buildSelfUserData(user)
+	responseData, err := buildSelfUserData(user)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	// The authenticated role is loaded from GetUserCache. It should equal the
 	// row role, but use it for capabilities so GetSelf and login/refresh remain
 	// consistent with the authorization decision made for this request.
@@ -486,38 +505,43 @@ func GetSelf(c *gin.Context) {
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
-func buildSelfUserData(user *model.User) map[string]any {
+func buildSelfUserData(user *model.User) (map[string]any, error) {
+	temporaryQuotaRequestEligible, err := quotaService.TemporaryQuotaRequestEligible(user)
+	if err != nil {
+		return nil, fmt.Errorf("查询临时额度菜单资格失败: %w", err)
+	}
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
 	return map[string]any{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"has_password":      user.HasPassword,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
-		"request_count":     user.RequestCount,
-		"aff_code":          user.AffCode,
-		"aff_count":         user.AffCount,
-		"aff_quota":         user.AffQuota,
-		"aff_history_quota": user.AffHistoryQuota,
-		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
-		"stripe_customer":   user.StripeCustomer,
-		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,
-	}
+		"temporary_quota_request_eligible": temporaryQuotaRequestEligible,
+		"id":                               user.Id,
+		"username":                         user.Username,
+		"display_name":                     user.DisplayName,
+		"has_password":                     user.HasPassword,
+		"role":                             user.Role,
+		"status":                           user.Status,
+		"email":                            user.Email,
+		"github_id":                        user.GitHubId,
+		"discord_id":                       user.DiscordId,
+		"oidc_id":                          user.OidcId,
+		"wechat_id":                        user.WeChatId,
+		"telegram_id":                      user.TelegramId,
+		"group":                            user.Group,
+		"quota":                            user.Quota,
+		"used_quota":                       user.UsedQuota,
+		"request_count":                    user.RequestCount,
+		"aff_code":                         user.AffCode,
+		"aff_count":                        user.AffCount,
+		"aff_quota":                        user.AffQuota,
+		"aff_history_quota":                user.AffHistoryQuota,
+		"inviter_id":                       user.InviterId,
+		"linux_do_id":                      user.LinuxDOId,
+		"setting":                          user.Setting,
+		"stripe_customer":                  user.StripeCustomer,
+		"sidebar_modules":                  userSetting.SidebarModules, // 正确提取sidebar_modules字段
+		"permissions":                      permissions,
+	}, nil
 }
 
 // 计算用户权限的辅助函数
@@ -1045,6 +1069,7 @@ type ManageRequest struct {
 	Action string `json:"action"`
 	Value  int    `json:"value"`
 	Mode   string `json:"mode"`
+	Reason string `json:"reason"`
 }
 
 // ManageUser Only admin user can do this
@@ -1130,6 +1155,21 @@ func ManageUser(c *gin.Context) {
 			return
 		}
 		user.Role = common.RoleCommonUser
+	case "quota_whitelist":
+		if req.Mode != "enable" && req.Mode != "disable" {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		enabled := req.Mode == "enable"
+		if err := quotaService.SetQuotaWhitelist(user.Id, myRole, enabled, c.GetString("username")); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.quota_whitelist", map[string]interface{}{
+			"target_user_id": user.Id, "enabled": enabled, "username": user.Username,
+		})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+		return
 	default:
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return

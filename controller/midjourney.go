@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -156,8 +157,13 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 				logger.LogWarn(ctx, fmt.Sprintf("Midjourney task response ignored: unknown mj_id=%s", responseItem.MjId))
 				continue
 			}
-
-			useTime := (time.Now().UnixNano() / int64(time.Millisecond)) - task.SubmitTime
+			billingAt := task.SubmitTime
+			billingAtMillis := billingAt * 1000
+			if billingAt > 100_000_000_000 {
+				billingAtMillis = billingAt
+				billingAt /= 1000
+			}
+			useTime := time.Now().UnixMilli() - billingAtMillis
 			// 如果时间超过一小时，且进度不是100%，则认为任务失败
 			if useTime > 3600000 && task.Progress != "100%" {
 				responseItem.FailReason = "上游任务超时（超过1小时）"
@@ -209,12 +215,17 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 					shouldReturnQuota = true
 				}
 			}
+			releaseBillingLease := func() {}
+			if shouldReturnQuota {
+				releaseBillingLease = quotaService.AcquireQuotaSettlementBillingLease(ctx, billingAt)
+			}
 			won, err := task.UpdateWithStatus(preStatus)
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
 			} else if won && shouldReturnQuota {
 				service.RefundMidjourneyQuota(ctx, task, "构图失败")
 			}
+			releaseBillingLease()
 		}
 	}
 	if report != nil && (ctx == nil || ctx.Err() == nil) {

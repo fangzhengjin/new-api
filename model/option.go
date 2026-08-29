@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -180,6 +181,7 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveEnabled"] = strconv.FormatBool(setting.CheckSensitiveEnabled)
 	common.OptionMap["DemoSiteEnabled"] = strconv.FormatBool(operation_setting.DemoSiteEnabled)
 	common.OptionMap["SelfUseModeEnabled"] = strconv.FormatBool(operation_setting.SelfUseModeEnabled)
+	common.OptionMap[CycleQuotaManagementOptionKey] = strconv.FormatBool(operation_setting.CycleQuotaManagementEnabled)
 	common.OptionMap["ModelRequestRateLimitEnabled"] = strconv.FormatBool(setting.ModelRequestRateLimitEnabled)
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
@@ -262,7 +264,7 @@ func validateOptionValue(key string, value string) error {
 		return common.UnmarshalJsonStr(value, &entries)
 	case "console_setting.overview_panel_order":
 		return console_setting.ValidateOverviewPanelOrder(value)
-	case "CompanyQuotaModeEnabled", "quota_setting.enable_free_model_pre_consume",
+	case CycleQuotaManagementOptionKey, "LogConsumeEnabled", "quota_setting.enable_free_model_pre_consume",
 		"channel_affinity_setting.renew_ttl_on_success",
 		"codex.client_version_check_enabled", "codex.desktop_client_version_check_enabled",
 		"codex.request_header_fallback_enabled", "claude.client_version_check_enabled",
@@ -356,6 +358,26 @@ func UpdateOptionsBulk(values map[string]string) error {
 	// Pricing owns its writes and cache refresh; ordinary options share its
 	// transaction so a failed mixed batch cannot persist only one half.
 	persist := func(tx *gorm.DB, pricing map[string]map[string]any) error {
+		if cycleQuotaManagement, ok := values[CycleQuotaManagementOptionKey]; ok {
+			var option Option
+			err := lockForUpdate(tx).Where(map[string]interface{}{"key": CycleQuotaManagementOptionKey}).First(&option).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				option = Option{Key: CycleQuotaManagementOptionKey, Value: strconv.FormatBool(operation_setting.CycleQuotaManagementEnabled)}
+				err = tx.Create(&option).Error
+			}
+			if err != nil {
+				return err
+			}
+			if cycleQuotaManagement == "false" {
+				var count int64
+				if err := tx.Model(&QuotaCycle{}).Where("status <> ?", QuotaCycleStatusClosed).Count(&count).Error; err != nil {
+					return err
+				}
+				if count > 0 {
+					return errors.New("请先关闭进行中或结算中的周期，并取消已规划周期")
+				}
+			}
+		}
 		for k, v := range values {
 			if IsModelPricingOption(k) {
 				continue
@@ -503,6 +525,8 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
 			operation_setting.SelfUseModeEnabled = boolValue
+		case CycleQuotaManagementOptionKey:
+			operation_setting.CycleQuotaManagementEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":

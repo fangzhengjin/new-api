@@ -19,7 +19,10 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled    bool   `json:"pass_through_body_enabled,omitempty"`
 	ResponsesWebSocketEnabled bool   `json:"responses_websocket_enabled,omitempty"`
 	SystemPrompt              string `json:"system_prompt,omitempty"`
-	SystemPromptOverride      bool   `json:"system_prompt_override,omitempty"`
+	SystemPromptMode          string `json:"system_prompt_mode,omitempty"`
+	// SystemPromptOverride is kept for compatibility with older channel settings.
+	// A true value maps to prepend when SystemPromptMode is absent.
+	SystemPromptOverride bool `json:"system_prompt_override,omitempty"`
 	// TaskExtendPluginKeys lists the task plugins a New API channel (type 60)
 	// is extended with. The upstream gateway may host many plugins, so the
 	// channel serves every listed plugin's models while the request still pins
@@ -69,6 +72,15 @@ func (s ChannelSettings) TaskPluginBindings() []string {
 }
 
 const (
+	SystemPromptModeNone     = "none"
+	SystemPromptModePrepend  = "prepend"
+	SystemPromptModeAppend   = "append"
+	SystemPromptModeOverride = "override"
+	// SystemPromptModeLegacy is a computed effective mode for channels saved
+	// before system_prompt_mode existed: the prompt only fills an empty
+	// target and never touches existing content. It is never a valid stored
+	// value.
+	SystemPromptModeLegacy               = "legacy"
 	HTTPProtocolAuto                     = "auto"
 	HTTPProtocolHTTP1                    = "http1"
 	MaxHTTP2ConnectionShards             = 8
@@ -76,6 +88,65 @@ const (
 	DefaultConcurrencyWaitTimeoutSeconds = 90
 	MaxConcurrencyWaitTimeoutSeconds     = 3600
 )
+
+// ValidateSystemPromptMode validates the configured system prompt rewrite mode.
+func (s *ChannelSettings) ValidateSystemPromptMode() error {
+	if s == nil {
+		return nil
+	}
+	switch s.SystemPromptMode {
+	case "", SystemPromptModeNone, SystemPromptModePrepend, SystemPromptModeAppend, SystemPromptModeOverride:
+		return nil
+	default:
+		return fmt.Errorf("invalid system_prompt_mode: %s", s.SystemPromptMode)
+	}
+}
+
+// EffectiveSystemPromptMode returns the configured mode and maps the legacy
+// SystemPromptOverride flag to prepend, and prompt-only legacy channels to
+// legacy fill-if-empty behavior, when the new setting is absent.
+func (s ChannelSettings) EffectiveSystemPromptMode() string {
+	if s.SystemPromptMode != "" {
+		return s.SystemPromptMode
+	}
+	if s.SystemPromptOverride {
+		return SystemPromptModePrepend
+	}
+	if s.SystemPrompt != "" {
+		return SystemPromptModeLegacy
+	}
+	return SystemPromptModeNone
+}
+
+// RewriteSystemPrompt applies the configured channel prompt to an identified
+// request system prompt. It reports whether the target should be updated.
+func (s ChannelSettings) RewriteSystemPrompt(existing string) (string, bool) {
+	if s.SystemPrompt == "" {
+		return existing, false
+	}
+
+	switch s.EffectiveSystemPromptMode() {
+	case SystemPromptModePrepend:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return s.SystemPrompt + "\n\n" + existing, true
+	case SystemPromptModeAppend:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return existing + "\n\n" + s.SystemPrompt, true
+	case SystemPromptModeOverride:
+		return s.SystemPrompt, true
+	case SystemPromptModeLegacy:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return existing, false
+	default:
+		return existing, false
+	}
+}
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
 func (s *ChannelSettings) ValidateHTTPTransport() error {

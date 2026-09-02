@@ -177,3 +177,27 @@ func TestLogConsumeEnabledRejectsNonBooleanValue(t *testing.T) {
 	assert.False(t, response.Success)
 	assert.Contains(t, response.Message, "必须为 true 或 false")
 }
+
+func TestUpdateOptionRejectsInvalidModelRequestIPRateLimitsBeforePersisting(t *testing.T) {
+	for _, key := range []string{"ModelRequestIPRateLimitCount", "ModelRequestIPRateLimitSuccessCount"} {
+		t.Run(key, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(
+				http.MethodPut,
+				"/api/option",
+				bytes.NewReader([]byte(fmt.Sprintf(`{"key":%q,"value":-1}`, key))),
+			)
+
+			UpdateOption(context)
+
+			var response struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.False(t, response.Success)
+			assert.Contains(t, response.Message, "模型请求数限制必须为 0 至")
+		})
+	}
+}

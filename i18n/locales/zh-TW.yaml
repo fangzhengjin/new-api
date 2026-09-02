@@ -203,7 +203,10 @@ twofa.code_invalid: "驗證碼或備用碼不正確"
 
 # Rate limit messages
 rate_limit.reached: "您已達到請求數限制：{{.Minutes}}分鐘內最多請求{{.Max}}次"
-rate_limit.total_reached: "您已達到總請求數限制：{{.Minutes}}分鐘內最多請求{{.Max}}次，包括失敗次數"
+concurrency_limit.unavailable: "模型請求並發控制暫時無法使用"
+access_source.pending_changed: "待處理來源已變化，請重新整理後重試"
+access_source.current_cannot_remove: "目前來源不能解除關聯"
+access_source.association_not_found: "來源關聯不存在"
 
 # Setting messages
 setting.invalid_type: "無效的預警類型"

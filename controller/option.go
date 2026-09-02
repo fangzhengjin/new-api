@@ -140,6 +140,11 @@ func GetOptions(c *gin.Context) {
 		common.ApiError(c, fmt.Errorf("marshal default chat presets: %w", err))
 		return
 	}
+	requestLimitErrorTemplateDefaults, err := common.Marshal(setting.GetDefaultRequestLimitErrorTemplates())
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("marshal default request limit error templates: %w", err))
+		return
+	}
 	options = append(options,
 		&model.Option{
 			Key:   operation_setting.RequestHeaderRulesDefaultOptionKey,
@@ -168,6 +173,10 @@ func GetOptions(c *gin.Context) {
 		&model.Option{
 			Key:   setting.ChatMenuCollapseThresholdDefaultOptionKey,
 			Value: strconv.Itoa(setting.DefaultChatMenuCollapseThreshold),
+		},
+		&model.Option{
+			Key:   setting.RequestLimitErrorTemplateDefaultsOptionKey,
+			Value: string(requestLimitErrorTemplateDefaults),
 		},
 		&model.Option{
 			Key:   "RequestHeaderAuditCapacityBytes",

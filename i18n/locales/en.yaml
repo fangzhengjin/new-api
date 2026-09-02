@@ -202,7 +202,10 @@ twofa.code_invalid: "Verification code or backup code is incorrect"
 
 # Rate limit messages
 rate_limit.reached: "You have reached the request limit: maximum {{.Max}} requests in {{.Minutes}} minutes"
-rate_limit.total_reached: "You have reached the total request limit: maximum {{.Max}} requests in {{.Minutes}} minutes, including failed attempts"
+concurrency_limit.unavailable: "Model request concurrency control is temporarily unavailable"
+access_source.pending_changed: "The pending source has changed. Refresh and try again"
+access_source.current_cannot_remove: "The current source cannot be removed"
+access_source.association_not_found: "The source association does not exist"
 
 # Setting messages
 setting.invalid_type: "Invalid warning type"

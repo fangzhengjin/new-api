@@ -237,8 +237,11 @@ const (
 
 // Rate limit related messages
 const (
-	MsgRateLimitReached      = "rate_limit.reached"
-	MsgRateLimitTotalReached = "rate_limit.total_reached"
+	MsgRateLimitReached                   = "rate_limit.reached"
+	MsgModelRequestConcurrencyUnavailable = "concurrency_limit.unavailable"
+	MsgAccessSourcePendingChanged         = "access_source.pending_changed"
+	MsgAccessSourceCurrentCannotRemove    = "access_source.current_cannot_remove"
+	MsgAccessSourceAssociationNotFound    = "access_source.association_not_found"
 )
 
 // Setting related messages

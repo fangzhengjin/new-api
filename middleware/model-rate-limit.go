@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,6 +12,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
@@ -19,186 +25,347 @@ import (
 
 const (
 	ModelRequestRateLimitCountMark        = "MRRL"
+	ModelRequestIPRateLimitCountMark      = "MRRLIP"
 	ModelRequestRateLimitSuccessCountMark = "MRRLS"
-	modelRateLimitTimeFormat              = "2006-01-02T15:04:05.000Z"
+	ModelRequestIPRateLimitSuccessMark    = "MRRLSIP"
 )
 
-// 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
-	// 如果maxCount为0，表示不限制
-	if maxCount == 0 {
-		return true, nil
-	}
+const redisSuccessLimitReserveScript = `
+local now = redis.call('TIME')
+local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
+local window_ms = tonumber(ARGV[2]) * 1000
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms - window_ms)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then
+  local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+  local retry_after = math.ceil((tonumber(oldest[2]) + window_ms - now_ms) / 1000)
+  return {0, math.max(retry_after, 1)}
+end
+redis.call('ZADD', KEYS[1], now_ms, ARGV[3])
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return {1, tonumber(ARGV[2])}
+`
 
-	// 获取当前计数
-	length, err := rdb.LLen(ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
-
-	// 如果未达到限制，允许请求
-	if length < int64(maxCount) {
-		return true, nil
-	}
-
-	// 检查时间窗口
-	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-	oldTime, err := time.Parse(modelRateLimitTimeFormat, oldTimeStr)
-	if err != nil {
-		return false, err
-	}
-
-	nowTimeStr := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	nowTime, err := time.Parse(modelRateLimitTimeFormat, nowTimeStr)
-	if err != nil {
-		return false, err
-	}
-	// 如果在时间窗口内已达到限制，拒绝请求
-	subTime := nowTime.Sub(oldTime).Seconds()
-	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
-	}
-
-	return true, nil
+type successLimitReservation struct {
+	key    string
+	member string
+	rdb    *redis.Client
 }
 
-// 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
-	// 如果maxCount为0，不记录请求
-	if maxCount == 0 {
+func reserveRedisSuccessLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64, member string) (bool, int64, error) {
+	values, err := rdb.Eval(ctx, redisSuccessLimitReserveScript, []string{key}, maxCount, duration, member).Slice()
+	if err != nil {
+		return false, 0, err
+	}
+	if len(values) != 2 {
+		return false, 0, fmt.Errorf("unexpected Redis success rate limit reply length %d", len(values))
+	}
+	allowed, err := redisReplyInteger(values[0])
+	if err != nil {
+		return false, 0, err
+	}
+	retryAfter, err := redisReplyInteger(values[1])
+	if err != nil {
+		return false, 0, err
+	}
+	return allowed == 1, retryAfter, nil
+}
+
+func (r successLimitReservation) release(ctx context.Context) error {
+	if r.member == "" {
+		return nil
+	}
+	if r.rdb != nil {
+		return r.rdb.ZRem(ctx, r.key, r.member).Err()
+	}
+	inMemoryRateLimiter.Release(r.key, r.member)
+	return nil
+}
+
+func checkAccessSourceLimit(c *gin.Context) bool {
+	userSetting, _ := common.GetContextKeyType[relaydto.UserSetting](c, constant.ContextKeyUserSetting)
+	accessLimits := setting.ResolveAccessSourceLimits(userSetting)
+	if !accessLimits.Enabled {
+		return true
+	}
+	decision, err := service.CheckAccessSource(c.Request.Context(), c.GetInt("id"), c.ClientIP(), accessLimits)
+	if err != nil {
+		logger.LogError(c.Request.Context(), "access source check failed: "+err.Error())
+		abortWithOpenAiMessage(c, http.StatusInternalServerError, "access_source_check_failed")
+		return false
+	}
+	if !decision.Allowed {
+		abortAccessSourceRejected(c, decision, accessLimits)
+		return false
+	}
+	return true
+}
+
+// AccessSourceLimit validates and records the source of a consuming request.
+func AccessSourceLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if checkAccessSourceLimit(c) {
+			c.Next()
+		}
+	}
+}
+
+// ModelRequestRateLimit applies access-source, concurrency, and request-rate limits.
+func ModelRequestRateLimit() gin.HandlerFunc {
+	trafficLimit := ModelRequestTrafficLimit()
+	return func(c *gin.Context) {
+		if !checkAccessSourceLimit(c) {
+			return
+		}
+		trafficLimit(c)
+	}
+}
+
+// ModelRequestTrafficLimit applies concurrency and request-rate limits without source tracking.
+func ModelRequestTrafficLimit() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		runModelRequestTrafficLimit(c, c.Next)
+	}
+}
+
+func runModelRequestTrafficLimit(c *gin.Context, next func()) {
+	userSetting, _ := common.GetContextKeyType[relaydto.UserSetting](c, constant.ContextKeyUserSetting)
+	concurrencyLimits := setting.ResolveModelRequestConcurrencyLimits(userSetting)
+	if concurrencyLimits.Enabled && (concurrencyLimits.AccountLimit > 0 || concurrencyLimits.IPLimit > 0) {
+		originalRequest := c.Request
+		limitedCtx, release, err := service.AcquireModelRequestConcurrency(
+			originalRequest.Context(),
+			c.GetInt("id"),
+			c.ClientIP(),
+			concurrencyLimits.AccountLimit,
+			concurrencyLimits.IPLimit,
+		)
+		if err != nil {
+			abortModelRequestConcurrency(c, err, concurrencyLimits)
+			return
+		}
+		c.Request = originalRequest.WithContext(limitedCtx)
+		defer func() {
+			cause := context.Cause(limitedCtx)
+			c.Request = originalRequest
+			release()
+			if errors.Is(cause, service.ErrModelConcurrencyUnavailable) {
+				logger.LogError(originalRequest.Context(), "model request concurrency lease failed: "+cause.Error())
+				if !c.Writer.Written() {
+					abortModelRequestConcurrency(c, cause, concurrencyLimits)
+				}
+			}
+		}()
+	}
+
+	if !setting.ModelRequestRateLimitEnabled {
+		next()
 		return
 	}
 
-	now := time.Now().UTC().Format(modelRateLimitTimeFormat)
-	rdb.LPush(ctx, key, now)
-	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	duration := rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
+	group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
+	if group == "" {
+		group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	}
+	accountLimits := setting.ResolveModelRequestRateLimits(group, userSetting)
+	userID := c.GetInt("id")
+	clientIP := c.ClientIP()
+	accountTotalKey := fmt.Sprintf("rateLimit:%d", userID)
+	accountSuccessKey := redisUserRateLimitKey(ModelRequestRateLimitSuccessCountMark, userID)
+	ipTotalKey := ModelRequestIPRateLimitCountMark + ":" + clientIP
+	ipSuccessKey := redisIPRateLimitKey(ModelRequestIPRateLimitSuccessMark, clientIP)
+	reservations := make([]successLimitReservation, 0, 2)
+	keepReservations := false
+	defer func() {
+		if keepReservations {
+			return
+		}
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Second)
+		defer cancel()
+		for _, reservation := range reservations {
+			if err := reservation.release(releaseCtx); err != nil {
+				logger.LogError(c.Request.Context(), "release success rate limit reservation failed: "+err.Error())
+			}
+		}
+	}()
+
+	if !takeAccountTotal(c, accountTotalKey, accountLimits.TotalCount, duration) {
+		return
+	}
+	accountReservation, allowed := takeSuccessLimit(c, accountSuccessKey, accountLimits.SuccessCount, duration, setting.ModelRequestRateLimitAccountSuccessErrorTemplateOptionKey, types.ErrorCodeRateLimitAccountSuccess)
+	if !allowed {
+		return
+	}
+	reservations = append(reservations, accountReservation)
+	if !takeIPTotal(c, ipTotalKey, setting.ModelRequestIPRateLimitCount, duration) {
+		return
+	}
+	ipReservation, allowed := takeSuccessLimit(c, ipSuccessKey, setting.ModelRequestIPRateLimitSuccessCount, duration, setting.ModelRequestRateLimitIPSuccessErrorTemplateOptionKey, types.ErrorCodeRateLimitIPSuccess)
+	if !allowed {
+		return
+	}
+	reservations = append(reservations, ipReservation)
+
+	next()
+	keepReservations = c.Writer.Status() < http.StatusBadRequest &&
+		(c.Writer.Written() || c.Request.Context().Err() == nil)
 }
 
-// Redis限流处理器
-func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
-		ctx := context.Background()
-		rdb := common.RDB
+func abortModelRequestConcurrency(c *gin.Context, err error, limits setting.ModelRequestConcurrencyLimits) {
+	status := http.StatusServiceUnavailable
+	code := types.ErrorCodeModelRequestConcurrencyUnavailable
+	message := i18n.T(c, i18n.MsgModelRequestConcurrencyUnavailable)
+	switch {
+	case errors.Is(err, service.ErrAccountConcurrencyLimit):
+		status = http.StatusTooManyRequests
+		code = types.ErrorCodeAccountConcurrencyLimit
+		message = renderRequestLimitError(c, setting.ModelRequestConcurrencyAccountErrorTemplateOptionKey, setting.RequestLimitErrorTemplateValues{
+			Limit: strconv.Itoa(limits.AccountLimit),
+		})
+	case errors.Is(err, service.ErrIPConcurrencyLimit):
+		status = http.StatusTooManyRequests
+		code = types.ErrorCodeIPConcurrencyLimit
+		message = renderRequestLimitError(c, setting.ModelRequestConcurrencyIPErrorTemplateOptionKey, setting.RequestLimitErrorTemplateValues{
+			Limit: strconv.Itoa(limits.IPLimit),
+		})
+	}
+	abortWithOpenAiMessage(c, status, message, code)
+}
 
-		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
-		if err != nil {
-			fmt.Println("检查成功请求数限制失败:", err.Error())
+func takeAccountTotal(c *gin.Context, key string, maxCount int, duration int64) bool {
+	if maxCount == 0 {
+		return true
+	}
+	if common.RedisEnabled {
+		if common.RDB == nil {
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-			return
+			return false
 		}
-		if !allowed {
-			abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到请求数限制：%d分钟内最多请求%d次", setting.ModelRequestRateLimitDurationMinutes, successMaxCount))
-			return
+		allowed, err := limiter.New(c.Request.Context(), common.RDB).Allow(
+			c.Request.Context(), key,
+			limiter.WithCapacity(rateLimitCapacity(maxCount, duration)),
+			limiter.WithRate(int64(maxCount)),
+			limiter.WithRequested(duration),
+		)
+		if err != nil {
+			logger.LogError(c.Request.Context(), "account total rate limit check failed: "+err.Error())
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return false
 		}
-
-		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
-		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", userId)
-			// 初始化
-			tb := limiter.New(ctx, rdb)
-			allowed, err = tb.Allow(
-				ctx,
-				totalKey,
-				limiter.WithCapacity(rateLimitCapacity(totalMaxCount, duration)),
-				limiter.WithRate(int64(totalMaxCount)),
-				limiter.WithRequested(duration),
-			)
-
-			if err != nil {
-				fmt.Println("检查总请求数限制失败:", err.Error())
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-				return
-			}
-
-			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
-			}
+		if allowed {
+			return true
 		}
-
-		// 4. 处理请求
-		c.Next()
-
-		// 5. 如果请求成功，记录成功请求
-		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+	} else {
+		inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+		if inMemoryRateLimiter.Request(ModelRequestRateLimitCountMark+key, maxCount, duration) {
+			return true
 		}
 	}
+	abortRateLimit(c, setting.ModelRequestRateLimitAccountTotalErrorTemplateOptionKey, maxCount, duration, types.ErrorCodeRateLimitAccountTotal)
+	return false
 }
 
-// 内存限流处理器
-func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
-
-	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
-		totalKey := ModelRequestRateLimitCountMark + userId
-		successKey := ModelRequestRateLimitSuccessCountMark + userId
-
-		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
-		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		}
-
-		// 2. 检查成功请求数限制
-		// 使用一个临时key来检查限制，这样可以避免实际记录
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
-			c.Status(http.StatusTooManyRequests)
-			c.Abort()
-			return
-		}
-
-		// 3. 处理请求
-		c.Next()
-
-		// 4. 如果请求成功，记录到实际的成功请求计数中
-		if c.Writer.Status() < 400 {
-			inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
-		}
+func takeSuccessLimit(c *gin.Context, key string, maxCount int, duration int64, templateKey string, code types.ErrorCode) (successLimitReservation, bool) {
+	if maxCount == 0 {
+		return successLimitReservation{}, true
 	}
+	member := common.GetUUID()
+	reservation := successLimitReservation{key: key, member: member}
+	retryAfter := duration
+	allowed := false
+	if common.RedisEnabled {
+		if common.RDB == nil {
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return successLimitReservation{}, false
+		}
+		reservation.rdb = common.RDB
+		var err error
+		allowed, retryAfter, err = reserveRedisSuccessLimit(c.Request.Context(), common.RDB, key, maxCount, duration, member)
+		if err != nil {
+			logger.LogError(c.Request.Context(), "success rate limit check failed: "+err.Error())
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return successLimitReservation{}, false
+		}
+	} else {
+		inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+		allowed = inMemoryRateLimiter.Reserve(key, maxCount, duration, member)
+	}
+	if allowed {
+		return reservation, true
+	}
+	abortRateLimit(c, templateKey, maxCount, retryAfter, code)
+	return successLimitReservation{}, false
 }
 
-// ModelRequestRateLimit 模型请求限流中间件
-func ModelRequestRateLimit() func(c *gin.Context) {
-	return func(c *gin.Context) {
-		// 在每个请求时检查是否启用限流
-		if !setting.ModelRequestRateLimitEnabled {
-			c.Next()
-			return
-		}
-
-		// 计算限流参数
-		duration := rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
-		totalMaxCount := setting.ModelRequestRateLimitCount
-		successMaxCount := setting.ModelRequestRateLimitSuccessCount
-
-		// 获取分组
-		group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
-		if group == "" {
-			group = common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-		}
-
-		//获取分组的限流配置
-		groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group)
-		if found {
-			totalMaxCount = groupTotalCount
-			successMaxCount = groupSuccessCount
-		}
-
-		// 根据存储类型选择并执行限流处理器
-		if common.RedisEnabled {
-			redisRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)
-		} else {
-			memoryRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)
-		}
+func takeIPTotal(c *gin.Context, key string, maxCount int, duration int64) bool {
+	if maxCount == 0 {
+		return true
 	}
+	retryAfter := duration
+	allowed := false
+	if common.RedisEnabled {
+		var err error
+		allowed, _, retryAfter, err = redisFixedWindowTake(c.Request.Context(), redisIPRateLimitKey(ModelRequestIPRateLimitCountMark, c.ClientIP()), maxCount, duration)
+		if err != nil {
+			logger.LogError(c.Request.Context(), "IP total rate limit check failed: "+err.Error())
+			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+			return false
+		}
+	} else {
+		inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+		allowed = inMemoryRateLimiter.Request(key, maxCount, duration)
+	}
+	if allowed {
+		return true
+	}
+	abortRateLimit(c, setting.ModelRequestRateLimitIPTotalErrorTemplateOptionKey, maxCount, retryAfter, types.ErrorCodeRateLimitIPTotal)
+	return false
+}
+
+func abortRateLimit(c *gin.Context, templateKey string, maxCount int, retryAfter int64, code types.ErrorCode) {
+	if retryAfter > 0 {
+		c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+	}
+	abortWithOpenAiMessage(c, http.StatusTooManyRequests, renderRequestLimitError(c, templateKey, setting.RequestLimitErrorTemplateValues{
+		Limit:      strconv.Itoa(maxCount),
+		Period:     setting.FormatRequestLimitDuration(rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)),
+		RetryAfter: setting.FormatRequestLimitDuration(retryAfter),
+	}), code)
+}
+
+func abortAccessSourceRejected(c *gin.Context, decision service.AccessSourceDecision, limits setting.AccessSourceLimits) {
+	status := http.StatusForbidden
+	templateKey := setting.AccessSourceAccountIPLimitErrorTemplateOptionKey
+	code := types.ErrorCodeAccessSourceAccountIPLimit
+	values := setting.RequestLimitErrorTemplateValues{
+		Limit:  strconv.Itoa(limits.MaxIPsPerUser),
+		Period: setting.FormatRequestLimitDuration(int64(limits.AssociationWindowHours) * 60 * 60),
+	}
+	switch decision.Reason {
+	case service.AccessSourceSwitchCooldown:
+		status = http.StatusTooManyRequests
+		templateKey = setting.AccessSourceSwitchCooldownErrorTemplateOptionKey
+		code = types.ErrorCodeAccessSourceSwitchCooldown
+		values = setting.RequestLimitErrorTemplateValues{
+			RetryAfter: setting.FormatRequestLimitDuration(decision.RetryAfterSeconds),
+		}
+		if decision.RetryAfterSeconds > 0 {
+			c.Header("Retry-After", strconv.FormatInt(decision.RetryAfterSeconds, 10))
+		}
+	case service.AccessSourceIPAccountLimit:
+		templateKey = setting.AccessSourceIPAccountLimitErrorTemplateOptionKey
+		code = types.ErrorCodeAccessSourceIPAccountLimit
+		values.Limit = strconv.Itoa(limits.MaxUsersPerIP)
+	}
+	abortWithOpenAiMessage(c, status, renderRequestLimitError(c, templateKey, values), code)
+}
+
+func renderRequestLimitError(c *gin.Context, templateKey string, values setting.RequestLimitErrorTemplateValues) string {
+	message, err := setting.RenderRequestLimitErrorTemplate(templateKey, values)
+	if err != nil {
+		logger.LogError(c.Request.Context(), "render request limit error template failed: "+err.Error())
+	}
+	return message
 }
 
 func rateLimitDurationSeconds(durationMinutes int) int64 {

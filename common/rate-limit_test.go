@@ -148,3 +148,20 @@ func TestInMemoryRateLimiterConcurrentInitializationAndRequests(t *testing.T) {
 	assert.Len(t, limiter.store, 1)
 	assert.Equal(t, 10, limiter.store["client"].requests.length)
 }
+
+// TestInMemoryRateLimiterReservationCanBeReleased 覆盖成功计数所需的按成员预留与释放，
+// 并固定零上限语义：上限为 0 表示该维度拒绝一切请求，因此调用方必须在维度关闭时
+// 直接跳过限流器，而不是传 0（见 middleware.runModelRequestTrafficLimit 的 maxCount == 0 守卫）。
+func TestInMemoryRateLimiterReservationCanBeReleased(t *testing.T) {
+	var limiter InMemoryRateLimiter
+	limiter.Init(0)
+
+	first := limiter.Reserve("success", 1, 60)
+	assert.NotNil(t, first)
+	assert.Nil(t, limiter.Reserve("success", 1, 60))
+	first.Complete(false)
+	assert.NotNil(t, limiter.Reserve("success", 1, 60))
+
+	assert.False(t, limiter.Request("zero-limit", 0, 60))
+	assert.True(t, limiter.Request("zero-limit", 1, 60))
+}

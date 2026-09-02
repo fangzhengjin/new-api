@@ -43,7 +43,7 @@ const rateLimitDialogSchema = z.object({
     .max(2147483647, 'Must be ≤ 2,147,483,647'),
   maxSuccess: z
     .number()
-    .min(1, 'Must be ≥ 1')
+    .min(0, 'Must be ≥ 0')
     .max(2147483647, 'Must be ≤ 2,147,483,647'),
 })
 
@@ -78,7 +78,7 @@ export function RateLimitDialog({
     defaultValues: {
       groupName: '',
       maxRequests: 0,
-      maxSuccess: 1,
+      maxSuccess: 0,
     },
   })
 
@@ -89,7 +89,7 @@ export function RateLimitDialog({
       form.reset({
         groupName: '',
         maxRequests: 0,
-        maxSuccess: 1,
+        maxSuccess: 0,
       })
     }
   }, [editData, form, open])
@@ -172,7 +172,7 @@ export function RateLimitDialog({
                       step={1}
                       {...field}
                       onChange={(e) =>
-                        field.onChange(parseInt(e.target.value) || 0)
+                        field.onChange(Number.parseInt(e.target.value) || 0)
                       }
                     />
                     <span className='text-muted-foreground text-sm'>
@@ -198,12 +198,12 @@ export function RateLimitDialog({
                   <div className='flex items-center gap-2'>
                     <Input
                       type='number'
-                      min={1}
+                      min={0}
                       max={2147483647}
                       step={1}
                       {...field}
                       onChange={(e) =>
-                        field.onChange(parseInt(e.target.value) || 1)
+                        field.onChange(Number.parseInt(e.target.value) || 0)
                       }
                     />
                     <span className='text-muted-foreground text-sm'>
@@ -212,7 +212,8 @@ export function RateLimitDialog({
                   </div>
                 </FormControl>
                 <FormDescription>
-                  {t('Only successful requests count toward this limit.')}
+                  {t('Only successful requests count toward this limit.')}{' '}
+                  {t('0 = unlimited')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -28,8 +28,8 @@ func TestInMemoryRateLimiterAllocatesTimestampsOnDemand(t *testing.T) {
 
 func TestInMemoryRateLimiterEnforcesWindowBoundary(t *testing.T) {
 	var queue rateLimitQueue
-	queue.append(100)
-	queue.append(100)
+	queue.append(100, "")
+	queue.append(100, "")
 
 	queue.removeExpired(159, 60)
 	assert.Equal(t, 2, queue.length)
@@ -43,9 +43,9 @@ func TestInMemoryRateLimiterEnforcesWindowBoundary(t *testing.T) {
 func TestInMemoryRateLimiterRemovesAllExpiredRequestsPerCall(t *testing.T) {
 	var queue rateLimitQueue
 	for range 5 {
-		queue.append(100)
+		queue.append(100, "")
 	}
-	queue.append(110)
+	queue.append(110, "")
 
 	queue.removeExpired(110, 10)
 	assert.Equal(t, 1, queue.length)
@@ -57,7 +57,7 @@ func TestInMemoryRateLimiterRemovesAllExpiredRequestsPerCall(t *testing.T) {
 func TestInMemoryRateLimiterKeepsNonExpiredRequests(t *testing.T) {
 	var queue rateLimitQueue
 	for range 3 {
-		queue.append(100)
+		queue.append(100, "")
 	}
 
 	queue.removeExpired(109, 10)
@@ -147,4 +147,20 @@ func TestInMemoryRateLimiterConcurrentInitializationAndRequests(t *testing.T) {
 	assert.EqualValues(t, 10, allowed.Load())
 	assert.Len(t, limiter.store, 1)
 	assert.Equal(t, 10, limiter.store["client"].requests.length)
+}
+
+// TestInMemoryRateLimiterReservationCanBeReleased 覆盖成功计数所需的按成员预留与释放，
+// 并固定零上限语义：上限为 0 表示该维度拒绝一切请求，因此调用方必须在维度关闭时
+// 直接跳过限流器，而不是传 0（见 middleware.runModelRequestTrafficLimit 的 maxCount == 0 守卫）。
+func TestInMemoryRateLimiterReservationCanBeReleased(t *testing.T) {
+	var limiter InMemoryRateLimiter
+	limiter.Init(0)
+
+	assert.True(t, limiter.Reserve("success", 1, 60, "request-one"))
+	assert.False(t, limiter.Reserve("success", 1, 60, "request-blocked"))
+	limiter.Release("success", "request-one")
+	assert.True(t, limiter.Reserve("success", 1, 60, "request-two"))
+
+	assert.False(t, limiter.Request("zero-limit", 0, 60))
+	assert.True(t, limiter.Request("zero-limit", 1, 60))
 }

@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AccessSourceLimitSection } from '../request-limits/access-source-limit-section'
+import { ConcurrencyLimitSection } from '../request-limits/concurrency-limit-section'
 import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
@@ -32,12 +34,68 @@ const SECURITY_SECTIONS = [
         defaultValues={{
           ModelRequestRateLimitEnabled: settings.ModelRequestRateLimitEnabled,
           ModelRequestRateLimitCount: settings.ModelRequestRateLimitCount,
+          ModelRequestIPRateLimitCount: settings.ModelRequestIPRateLimitCount,
+          ModelRequestIPRateLimitSuccessCount:
+            settings.ModelRequestIPRateLimitSuccessCount,
           ModelRequestRateLimitSuccessCount:
             settings.ModelRequestRateLimitSuccessCount,
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
+          ModelRequestRateLimitAccountTotalErrorTemplate:
+            settings.ModelRequestRateLimitAccountTotalErrorTemplate,
+          ModelRequestRateLimitAccountSuccessErrorTemplate:
+            settings.ModelRequestRateLimitAccountSuccessErrorTemplate,
+          ModelRequestRateLimitIPTotalErrorTemplate:
+            settings.ModelRequestRateLimitIPTotalErrorTemplate,
+          ModelRequestRateLimitIPSuccessErrorTemplate:
+            settings.ModelRequestRateLimitIPSuccessErrorTemplate,
         }}
+        defaultTemplates={settings.RequestLimitErrorTemplateDefaults}
+      />
+    ),
+  },
+  {
+    id: 'concurrency-limit',
+    titleKey: 'Concurrency Limits',
+    build: (settings: SecuritySettings) => (
+      <ConcurrencyLimitSection
+        defaultValues={{
+          ModelRequestConcurrencyLimitEnabled:
+            settings.ModelRequestConcurrencyLimitEnabled,
+          ModelRequestConcurrencyLimit: settings.ModelRequestConcurrencyLimit,
+          ModelRequestIPConcurrencyLimit:
+            settings.ModelRequestIPConcurrencyLimit,
+          ModelRequestConcurrencyAccountErrorTemplate:
+            settings.ModelRequestConcurrencyAccountErrorTemplate,
+          ModelRequestConcurrencyIPErrorTemplate:
+            settings.ModelRequestConcurrencyIPErrorTemplate,
+        }}
+        defaultTemplates={settings.RequestLimitErrorTemplateDefaults}
+      />
+    ),
+  },
+  {
+    id: 'access-source-limit',
+    titleKey: 'Access Source Limits',
+    build: (settings: SecuritySettings) => (
+      <AccessSourceLimitSection
+        defaultValues={{
+          AccessSourceLimitEnabled: settings.AccessSourceLimitEnabled,
+          AccessSourceAssociationWindowHours:
+            settings.AccessSourceAssociationWindowHours,
+          AccessSourceMaxIPsPerUser: settings.AccessSourceMaxIPsPerUser,
+          AccessSourceSwitchCooldownMinutes:
+            settings.AccessSourceSwitchCooldownMinutes,
+          AccessSourceMaxUsersPerIP: settings.AccessSourceMaxUsersPerIP,
+          AccessSourceSwitchCooldownErrorTemplate:
+            settings.AccessSourceSwitchCooldownErrorTemplate,
+          AccessSourceAccountIPLimitErrorTemplate:
+            settings.AccessSourceAccountIPLimitErrorTemplate,
+          AccessSourceIPAccountLimitErrorTemplate:
+            settings.AccessSourceIPAccountLimitErrorTemplate,
+        }}
+        defaultTemplates={settings.RequestLimitErrorTemplateDefaults}
       />
     ),
   },

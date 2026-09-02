@@ -227,7 +227,8 @@ func TestResponsesWSRequestRunnerUsesExistingMemoryRateLimit(t *testing.T) {
 	apiError := runner(httptest.NewRequest(http.MethodPost, "/v1/responses", nil), "limited", handle)
 	require.NotNil(t, apiError)
 	assert.Equal(t, http.StatusTooManyRequests, apiError.StatusCode)
-	assert.Equal(t, http.StatusText(http.StatusTooManyRequests), apiError.Error())
+	// 限流器的错误码必须原样透传给 WS 客户端；文案由本地错误模板渲染，不在此固定。
+	assert.Equal(t, types.ErrorCodeRateLimitAccountTotal, apiError.GetErrorCode())
 	assert.Equal(t, 1, called)
 }
 

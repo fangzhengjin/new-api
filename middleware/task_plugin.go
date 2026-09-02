@@ -325,7 +325,9 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 				len(taskIDs),
 				time.Since(hookStarted).Milliseconds(),
 			)
-			renderTaskPluginQuery(c, pinned, requestContext, taskIDs, pinned.Route.Render, true)
+			runModelRequestTrafficLimit(c, func() {
+				renderTaskPluginQuery(c, pinned, requestContext, taskIDs, pinned.Route.Render, true)
+			})
 		default:
 			logger.LogWarn(
 				c,

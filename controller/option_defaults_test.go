@@ -49,6 +49,7 @@ func TestGetOptionsIncludesRestorableBuiltInDefaults(t *testing.T) {
 	require.JSONEq(t, mustMarshalOptionDefault(t, model_setting.GetDefaultClaudeSettings()), values[model_setting.ClaudeSettingsDefaultOptionKey])
 	require.JSONEq(t, mustMarshalOptionDefault(t, setting.GetDefaultChats()), values[setting.ChatsDefaultOptionKey])
 	require.Equal(t, "3", values[setting.ChatMenuCollapseThresholdDefaultOptionKey])
+	require.JSONEq(t, mustMarshalOptionDefault(t, setting.GetDefaultRequestLimitErrorTemplates()), values[setting.RequestLimitErrorTemplateDefaultsOptionKey])
 }
 
 func mustMarshalOptionDefault(t *testing.T, value any) string {

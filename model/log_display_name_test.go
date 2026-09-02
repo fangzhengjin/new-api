@@ -29,20 +29,7 @@ func TestGetAllLogsEnrichesCurrentDisplayName(t *testing.T) {
 		Type:      LogTypeConsume,
 	}).Error)
 
-	logs, total, err := GetAllLogs(
-		LogTypeUnknown,
-		0,
-		0,
-		"",
-		"",
-		"",
-		0,
-		20,
-		0,
-		"",
-		"",
-		"",
-	)
+	logs, total, err := GetAllLogs(LogFilter{Type: LogTypeUnknown}, 0, 20)
 
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)

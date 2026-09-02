@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Settings02Icon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
 import type { Row } from '@tanstack/react-table'
 import {
   Pencil,
@@ -48,6 +50,7 @@ import {
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useAuthStore } from '@/stores/auth-store'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
@@ -65,6 +68,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { UserLimitSettingsDrawer } from './drawers/user-limit-settings-drawer'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -74,6 +78,7 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
+  const currentUser = useAuthStore((state) => state.auth.user)
   const cycleQuotaManagementEnabled = useSystemConfigStore(
     (state) => state.config.cycleQuotaManagementEnabled === true
   )
@@ -81,6 +86,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
+  const [limitSettingsOpen, setLimitSettingsOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
   const [whitelistDialogOpen, setWhitelistDialogOpen] = useState(false)
 
@@ -159,6 +165,9 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  const canManageLimits =
+    currentUser?.role === USER_ROLE.ROOT ||
+    (currentUser?.role ?? USER_ROLE.USER) > user.role
 
   if (isUserDeleted(user)) {
     return null
@@ -238,6 +247,19 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             </DropdownMenuShortcut>
           </DropdownMenuItem>
         )}
+
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            setLimitSettingsOpen(true)
+          }}
+          disabled={!canManageLimits}
+        >
+          {t('Limit Settings')}
+          <DropdownMenuShortcut>
+            <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
 
         <DropdownMenuItem
           onSelect={(event) => {
@@ -359,6 +381,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setBindingDialogOpen}
         userId={user.id}
         onUnbindSuccess={triggerRefresh}
+      />
+
+      <UserLimitSettingsDrawer
+        open={limitSettingsOpen}
+        onOpenChange={setLimitSettingsOpen}
+        user={user}
       />
 
       <UserSubscriptionsDialog

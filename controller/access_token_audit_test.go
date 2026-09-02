@@ -310,6 +310,7 @@ func verifyLocalOperationAuditVisibility(t *testing.T) {
 		"quota.plan.generate", "quota.plan.execute", "quota.plan.cancel", "quota.plan.regenerate", "quota.plan.notifications_retry",
 		"quota.temporary_request.approve", "quota.temporary_request.reject",
 		"user.quota_adjustment_plan", "user.quota_whitelist",
+		"user.limit_settings_update", "user.access_source_remove", "user.access_source_allow",
 	}
 	entries := make([]model.AuditLog, 0, len(localActions)+9)
 	for _, action := range localActions {

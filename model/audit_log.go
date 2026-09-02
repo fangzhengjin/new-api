@@ -168,6 +168,7 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 			"quota.plan.generate", "quota.plan.execute", "quota.plan.cancel", "quota.plan.regenerate", "quota.plan.notifications_retry",
 			"quota.temporary_request.approve", "quota.temporary_request.reject",
 			"user.quota_adjustment_plan", "user.quota_whitelist",
+			"user.limit_settings_update", "user.access_source_remove", "user.access_source_allow",
 		}
 		query = query.Where("(actor_role IN ? OR (category = ? AND action = ?) OR (actor_role = ? AND category = ? AND action IN ?) OR (actor_role = 0 AND user_id = 0 AND username = ? AND auth_method = ? AND category = ? AND action = ?))",
 			[]int{common.RoleCommonUser, common.RoleAdminUser}, AuditCategoryOperation, AuditActionQuotaBalanceAdjust, common.RoleRootUser, AuditCategoryOperation, localActions,

@@ -175,7 +175,9 @@ export function RateLimitVisualEditor({
             cellClassName: 'text-right',
             cell: (limit) => (
               <span className='font-mono'>
-                {limit.maxSuccess.toLocaleString()}
+                {limit.maxSuccess === 0
+                  ? t('Unlimited')
+                  : limit.maxSuccess.toLocaleString()}
               </span>
             ),
           },

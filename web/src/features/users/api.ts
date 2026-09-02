@@ -29,6 +29,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  UserLimitsData,
+  UserLimitOverrides,
 } from './types'
 
 // ============================================================================
@@ -91,6 +93,43 @@ export async function searchUsers(
  */
 export async function getUser(id: number): Promise<ApiResponse<User>> {
   const res = await api.get(`/api/user/${id}`)
+  return res.data
+}
+
+export async function getUserLimits(
+  id: number
+): Promise<ApiResponse<UserLimitsData>> {
+  const res = await api.get(`/api/user/${id}/limits`)
+  return res.data
+}
+
+export async function updateUserLimits(
+  id: number,
+  data: UserLimitOverrides
+): Promise<ApiResponse> {
+  const res = await api.put(`/api/user/${id}/limits`, data)
+  return res.data
+}
+
+export async function removeUserAccessSource(
+  id: number,
+  ip: string
+): Promise<ApiResponse> {
+  const res = await api.delete(`/api/user/${id}/access-sources`, {
+    data: { ip },
+  })
+  return res.data
+}
+
+export async function allowLatestUserAccessSource(
+  id: number,
+  eventId: string,
+  ip: string
+): Promise<ApiResponse> {
+  const res = await api.post(`/api/user/${id}/access-sources/allow`, {
+    event_id: eventId,
+    ip,
+  })
   return res.data
 }
 

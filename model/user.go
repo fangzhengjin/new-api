@@ -177,15 +177,39 @@ func (user *User) SetSetting(setting dto.UserSetting) {
 }
 
 func UpdateUserSetting(userId int, setting dto.UserSetting) error {
+	return PatchUserSetting(userId, func(current *dto.UserSetting) {
+		*current = setting
+	})
+}
+
+// PatchUserSetting serializes read-modify-write updates for the shared user settings document.
+func PatchUserSetting(userId int, patch func(*dto.UserSetting)) error {
 	if userId == 0 {
 		return errors.New("id 为空！")
 	}
-	settingBytes, err := common.Marshal(setting)
-	if err != nil {
-		return err
+	if patch == nil {
+		return errors.New("setting patch 为空！")
 	}
-	settingValue := string(settingBytes)
-	if err = DB.Model(&User{}).Where("id = ?", userId).Update("setting", settingValue).Error; err != nil {
+	settingValue := ""
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx).Select("id", "setting").Where("id = ?", userId).First(&user).Error; err != nil {
+			return err
+		}
+		setting := dto.UserSetting{}
+		if user.Setting != "" {
+			if err := common.Unmarshal([]byte(user.Setting), &setting); err != nil {
+				return fmt.Errorf("解析用户设置失败: %w", err)
+			}
+		}
+		patch(&setting)
+		settingBytes, err := common.Marshal(setting)
+		if err != nil {
+			return err
+		}
+		settingValue = string(settingBytes)
+		return tx.Model(&User{}).Where("id = ?", userId).Update("setting", settingValue).Error
+	}); err != nil {
 		return err
 	}
 	return updateUserSettingCache(userId, settingValue)

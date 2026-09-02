@@ -203,7 +203,10 @@ twofa.code_invalid: "验证码或备用码不正确"
 
 # Rate limit messages
 rate_limit.reached: "您已达到请求数限制：{{.Minutes}}分钟内最多请求{{.Max}}次"
-rate_limit.total_reached: "您已达到总请求数限制：{{.Minutes}}分钟内最多请求{{.Max}}次，包括失败次数"
+concurrency_limit.unavailable: "模型请求并发控制暂时不可用"
+access_source.pending_changed: "待处理来源已变化，请刷新后重试"
+access_source.current_cannot_remove: "当前来源不能解除关联"
+access_source.association_not_found: "来源关联不存在"
 
 # Setting messages
 setting.invalid_type: "无效的预警类型"

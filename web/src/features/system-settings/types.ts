@@ -403,9 +403,29 @@ export type OperationsSettings = {
 export type SecuritySettings = {
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
+  ModelRequestIPRateLimitCount: number
+  ModelRequestIPRateLimitSuccessCount: number
   ModelRequestRateLimitSuccessCount: number
   ModelRequestRateLimitDurationMinutes: number
   ModelRequestRateLimitGroup: string
+  ModelRequestRateLimitAccountTotalErrorTemplate: string
+  ModelRequestRateLimitAccountSuccessErrorTemplate: string
+  ModelRequestRateLimitIPTotalErrorTemplate: string
+  ModelRequestRateLimitIPSuccessErrorTemplate: string
+  ModelRequestConcurrencyLimitEnabled: boolean
+  ModelRequestConcurrencyLimit: number
+  ModelRequestIPConcurrencyLimit: number
+  ModelRequestConcurrencyAccountErrorTemplate: string
+  ModelRequestConcurrencyIPErrorTemplate: string
+  AccessSourceLimitEnabled: boolean
+  AccessSourceAssociationWindowHours: number
+  AccessSourceMaxIPsPerUser: number
+  AccessSourceSwitchCooldownMinutes: number
+  AccessSourceMaxUsersPerIP: number
+  AccessSourceSwitchCooldownErrorTemplate: string
+  AccessSourceAccountIPLimitErrorTemplate: string
+  AccessSourceIPAccountLimitErrorTemplate: string
+  RequestLimitErrorTemplateDefaults: string
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean
   SensitiveWords: string

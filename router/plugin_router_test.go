@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,12 +15,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	backendi18n "github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -721,13 +727,70 @@ func TestProductionPluginRoutePipelineRequiresTokenAuth(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "error")
 }
 
-func TestProductionPluginNativeQueryTraversesInnerRouter(t *testing.T) {
+func TestProductionPluginAccessSourceScopesQueriesAndPrecedesTrafficLimits(t *testing.T) {
+	require.NoError(t, backendi18n.Init())
 	previousDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, database.AutoMigrate(&model.Task{}))
 	model.DB = database
 	t.Cleanup(func() { model.DB = previousDB })
+	previousRedisEnabled := common.RedisEnabled
+	previousRDB := common.RDB
+	previousAccessSourceEnabled := setting.AccessSourceLimitEnabled
+	previousWindow := setting.AccessSourceAssociationWindowHours
+	previousMaxIPs := setting.AccessSourceMaxIPsPerUser
+	previousCooldown := setting.AccessSourceSwitchCooldownMinutes
+	previousMaxUsers := setting.AccessSourceMaxUsersPerIP
+	previousRateEnabled := setting.ModelRequestRateLimitEnabled
+	previousRateDuration := setting.ModelRequestRateLimitDurationMinutes
+	previousRateCount := setting.ModelRequestRateLimitCount
+	previousRateSuccessCount := setting.ModelRequestRateLimitSuccessCount
+	previousIPRateCount := setting.ModelRequestIPRateLimitCount
+	previousIPRateSuccessCount := setting.ModelRequestIPRateLimitSuccessCount
+	previousConcurrencyEnabled := setting.ModelRequestConcurrencyLimitEnabled
+	setting.ModelRequestRateLimitMutex.Lock()
+	previousGroupLimits := setting.ModelRequestRateLimitGroup
+	setting.ModelRequestRateLimitGroup = map[string][2]int{}
+	setting.ModelRequestRateLimitMutex.Unlock()
+	redisServer := miniredis.RunT(t)
+	requestTime := time.Now().Truncate(time.Second)
+	redisServer.SetTime(requestTime)
+	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	common.RedisEnabled = true
+	common.RDB = redisClient
+	setting.AccessSourceLimitEnabled = true
+	setting.AccessSourceAssociationWindowHours = 24
+	setting.AccessSourceMaxIPsPerUser = 1
+	setting.AccessSourceSwitchCooldownMinutes = 0
+	setting.AccessSourceMaxUsersPerIP = 0
+	setting.ModelRequestRateLimitEnabled = false
+	setting.ModelRequestConcurrencyLimitEnabled = false
+	t.Cleanup(func() {
+		_ = redisClient.Close()
+		common.RedisEnabled = previousRedisEnabled
+		common.RDB = previousRDB
+		setting.AccessSourceLimitEnabled = previousAccessSourceEnabled
+		setting.AccessSourceAssociationWindowHours = previousWindow
+		setting.AccessSourceMaxIPsPerUser = previousMaxIPs
+		setting.AccessSourceSwitchCooldownMinutes = previousCooldown
+		setting.AccessSourceMaxUsersPerIP = previousMaxUsers
+		setting.ModelRequestRateLimitEnabled = previousRateEnabled
+		setting.ModelRequestRateLimitDurationMinutes = previousRateDuration
+		setting.ModelRequestRateLimitCount = previousRateCount
+		setting.ModelRequestRateLimitSuccessCount = previousRateSuccessCount
+		setting.ModelRequestIPRateLimitCount = previousIPRateCount
+		setting.ModelRequestIPRateLimitSuccessCount = previousIPRateSuccessCount
+		setting.ModelRequestConcurrencyLimitEnabled = previousConcurrencyEnabled
+		setting.ModelRequestRateLimitMutex.Lock()
+		setting.ModelRequestRateLimitGroup = previousGroupLimits
+		setting.ModelRequestRateLimitMutex.Unlock()
+	})
+	decision, err := service.CheckAccessSource(context.Background(), 91, "198.51.100.10", setting.AccessSourceLimits{
+		Enabled: true, AssociationWindowHours: 24, MaxIPsPerUser: 1,
+	})
+	require.NoError(t, err)
+	require.True(t, decision.Allowed)
 	require.NoError(t, database.Create(&model.Task{
 		TaskID:    "task_native_router",
 		Platform:  constant.TaskPlatform("kling"),
@@ -743,30 +806,31 @@ func TestProductionPluginNativeQueryTraversesInnerRouter(t *testing.T) {
 
 	kling, found := jsplugin.DefaultRegistry.Get("kling")
 	require.True(t, found)
+	dynamic := compileRouterPlugin(t, "dynamic-source", "1.0.0", `[
+		{method: "POST", path: "/dynamic/source", type: "dynamic"}
+	]`)
 	authenticatedProductionHandlers := func(
 		generation *jsplugin.RoutingGeneration,
 		binding jsplugin.RouteBinding,
 	) []gin.HandlerFunc {
 		production := productionPluginRouteHandlers(generation, binding)
-		return []gin.HandlerFunc{
+		handlers := []gin.HandlerFunc{
 			production[0],
 			func(c *gin.Context) {
+				c.Set("id", 91)
 				common.SetContextKey(c, constant.ContextKeyUserId, 91)
 				common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
 				common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
 				c.Next()
 			},
-			production[2],
-			production[3],
-			production[4],
-			production[5],
-			production[6],
 		}
+		return append(handlers, production[2:]...)
 	}
-	outer, registry := newPluginRouterTest(t, []*jsplugin.LoadedPlugin{kling}, authenticatedProductionHandlers)
+	outer, registry := newPluginRouterTest(t, []*jsplugin.LoadedPlugin{kling, dynamic}, authenticatedProductionHandlers)
 	outer.NoRoute((&pluginRouteDispatcher{registry: registry}).dispatch)
 
 	request := httptest.NewRequest(http.MethodGet, "/kling/v1/videos/text2video/task_native_router", nil)
+	request.RemoteAddr = "192.0.2.10:1234"
 	recorder := httptest.NewRecorder()
 	outer.ServeHTTP(recorder, request)
 
@@ -775,6 +839,60 @@ func TestProductionPluginNativeQueryTraversesInnerRouter(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), `"task_status":"succeed"`)
 	assert.NotContains(t, recorder.Body.String(), "private_upstream_id")
 	assert.NotContains(t, recorder.Body.String(), "secret.example")
+
+	submitRequest := httptest.NewRequest(http.MethodPost, "/kling/v1/videos/text2video", strings.NewReader(`{"model":"kling-v1"}`))
+	submitRequest.RemoteAddr = "192.0.2.10:1234"
+	submitRequest.Header.Set("Content-Type", "application/json")
+	submitRecorder := httptest.NewRecorder()
+	outer.ServeHTTP(submitRecorder, submitRequest)
+
+	assert.Equal(t, http.StatusForbidden, submitRecorder.Code, submitRecorder.Body.String())
+	assert.Contains(t, submitRecorder.Body.String(), `"code":"access_source_account_ip_limit"`)
+
+	setting.AccessSourceMaxIPsPerUser = 2
+	setting.ModelRequestRateLimitEnabled = true
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	setting.ModelRequestRateLimitCount = 0
+	setting.ModelRequestRateLimitSuccessCount = 0
+	setting.ModelRequestIPRateLimitCount = 1
+	setting.ModelRequestIPRateLimitSuccessCount = 0
+	dynamicQuery := httptest.NewRequest(http.MethodPost, "/dynamic/source", strings.NewReader(`{"kind":"query"}`))
+	dynamicQuery.RemoteAddr = "192.0.2.10:1234"
+	dynamicQuery.Header.Set("Content-Type", "application/json")
+	dynamicQueryRecorder := httptest.NewRecorder()
+	outer.ServeHTTP(dynamicQueryRecorder, dynamicQuery)
+	require.Equal(t, http.StatusOK, dynamicQueryRecorder.Code, dynamicQueryRecorder.Body.String())
+
+	state, err := service.GetAccessSourceState(context.Background(), 91, setting.AccessSourceLimits{
+		Enabled: true, AssociationWindowHours: 24, MaxIPsPerUser: 2,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "198.51.100.10", state.CurrentIP)
+	assert.Equal(t, int64(1), state.AssociatedCount)
+
+	dynamicQueryRetry := httptest.NewRequest(http.MethodPost, "/dynamic/source", strings.NewReader(`{"kind":"query"}`))
+	dynamicQueryRetry.RemoteAddr = "192.0.2.10:1234"
+	dynamicQueryRetry.Header.Set("Content-Type", "application/json")
+	dynamicQueryRetryRecorder := httptest.NewRecorder()
+	outer.ServeHTTP(dynamicQueryRetryRecorder, dynamicQueryRetry)
+	assert.Equal(t, http.StatusTooManyRequests, dynamicQueryRetryRecorder.Code, dynamicQueryRetryRecorder.Body.String())
+
+	dynamicSubmit := httptest.NewRequest(http.MethodPost, "/dynamic/source", strings.NewReader(`{"kind":"submit"}`))
+	redisServer.SetTime(requestTime.Add(time.Second))
+	dynamicSubmit.RemoteAddr = "192.0.2.10:1234"
+	dynamicSubmit.Header.Set("Content-Type", "application/json")
+	dynamicSubmitRecorder := httptest.NewRecorder()
+	outer.ServeHTTP(dynamicSubmitRecorder, dynamicSubmit)
+	assert.Equal(t, http.StatusTooManyRequests, dynamicSubmitRecorder.Code, dynamicSubmitRecorder.Body.String())
+
+	state, err = service.GetAccessSourceState(context.Background(), 91, setting.AccessSourceLimits{
+		Enabled: true, AssociationWindowHours: 24, MaxIPsPerUser: 2,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "192.0.2.10", state.CurrentIP)
+	assert.Equal(t, requestTime.Add(time.Second).Unix(), state.CurrentLastSeenAt)
+	assert.Equal(t, int64(2), state.AssociatedCount)
+	assert.Nil(t, state.Pending)
 }
 
 func newPluginRouterTest(
@@ -865,7 +983,10 @@ export const meta = {
 	}),
 };
 export const native = {
-	decode: function(ctx) { return {kind: "submit", model: "model", requestBody: ctx.body.value}; },
+	decode: function(ctx) {
+		if (ctx.body.value && ctx.body.value.kind === "query") return {kind: "query", taskIds: []};
+		return {kind: "submit", model: "model", requestBody: ctx.body.value};
+	},
 	render: function(ctx, task) { return task; },
 	native: function(ctx, task) { return task; },
 };

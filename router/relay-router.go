@@ -62,7 +62,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter := router.Group("/pg")
 	playgroundRouter.Use(middleware.RouteTag("relay"))
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
-	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
+	playgroundRouter.Use(middleware.UserAuth(), middleware.AccessSourceLimit(), middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
@@ -70,11 +70,10 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
-	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
-		wsRouter.Use(middleware.Distribute())
+		wsRouter.Use(middleware.ModelRequestRateLimit(), middleware.Distribute())
 		wsRouter.GET("/realtime", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIRealtime)
 		})
@@ -82,7 +81,7 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		//http router
 		httpRouter := relayV1Router.Group("")
-		httpRouter.Use(middleware.Distribute())
+		httpRouter.Use(middleware.ModelRequestRateLimit(), middleware.Distribute())
 
 		// claude related routes
 		// TODO: /messages/count_tokens is disabled. The current controller.CountClaudeTokens
@@ -154,19 +153,23 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
 
-		// not implemented
-		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
-		httpRouter.GET("/files", controller.RelayNotImplemented)
-		httpRouter.POST("/files", controller.RelayNotImplemented)
-		httpRouter.DELETE("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id/content", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes/:id/cancel", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
-		httpRouter.DELETE("/models/:model", controller.RelayNotImplemented)
+	}
+	{
+		utilityRouter := relayV1Router.Group("")
+		utilityRouter.Use(middleware.ModelRequestTrafficLimit(), middleware.Distribute())
+		utilityRouter.POST("/messages/count_tokens", controller.CountClaudeTokens)
+		utilityRouter.POST("/images/variations", controller.RelayNotImplemented)
+		utilityRouter.GET("/files", controller.RelayNotImplemented)
+		utilityRouter.POST("/files", controller.RelayNotImplemented)
+		utilityRouter.DELETE("/files/:id", controller.RelayNotImplemented)
+		utilityRouter.GET("/files/:id", controller.RelayNotImplemented)
+		utilityRouter.GET("/files/:id/content", controller.RelayNotImplemented)
+		utilityRouter.POST("/fine-tunes", controller.RelayNotImplemented)
+		utilityRouter.GET("/fine-tunes", controller.RelayNotImplemented)
+		utilityRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)
+		utilityRouter.POST("/fine-tunes/:id/cancel", controller.RelayNotImplemented)
+		utilityRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
+		utilityRouter.DELETE("/models/:model", controller.RelayNotImplemented)
 	}
 
 	relayMjRouter := router.Group("/mj")
@@ -196,23 +199,28 @@ func SetRelayRouter(router *gin.Engine) {
 
 func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 	relayMjRouter.GET("/image/:id", relay.RelayMidjourneyImage)
-	relayMjRouter.Use(middleware.TokenAuth(), middleware.Distribute())
+	relayMjRouter.Use(middleware.TokenAuth())
 	{
-		relayMjRouter.POST("/submit/action", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/shorten", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/modal", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/imagine", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/change", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/simple-change", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/describe", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/blend", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/edits", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/video", controller.RelayMidjourney)
+		submitRouter := relayMjRouter.Group("")
+		submitRouter.Use(middleware.AccessSourceLimit(), middleware.Distribute())
+		submitRouter.POST("/submit/action", controller.RelayMidjourney)
+		submitRouter.POST("/submit/shorten", controller.RelayMidjourney)
+		submitRouter.POST("/submit/modal", controller.RelayMidjourney)
+		submitRouter.POST("/submit/imagine", controller.RelayMidjourney)
+		submitRouter.POST("/submit/change", controller.RelayMidjourney)
+		submitRouter.POST("/submit/simple-change", controller.RelayMidjourney)
+		submitRouter.POST("/submit/describe", controller.RelayMidjourney)
+		submitRouter.POST("/submit/blend", controller.RelayMidjourney)
+		submitRouter.POST("/submit/edits", controller.RelayMidjourney)
+		submitRouter.POST("/submit/video", controller.RelayMidjourney)
+		submitRouter.POST("/insight-face/swap", controller.RelayMidjourney)
 		//relayMjRouter.POST("/notify", controller.RelayMidjourney)
-		relayMjRouter.GET("/task/:id/fetch", controller.RelayMidjourney)
-		relayMjRouter.GET("/task/:id/image-seed", controller.RelayMidjourney)
-		relayMjRouter.POST("/task/list-by-condition", controller.RelayMidjourney)
-		relayMjRouter.POST("/insight-face/swap", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/upload-discord-images", controller.RelayMidjourney)
+
+		readRouter := relayMjRouter.Group("")
+		readRouter.Use(middleware.Distribute())
+		readRouter.GET("/task/:id/fetch", controller.RelayMidjourney)
+		readRouter.GET("/task/:id/image-seed", controller.RelayMidjourney)
+		readRouter.POST("/task/list-by-condition", controller.RelayMidjourney)
+		readRouter.POST("/submit/upload-discord-images", controller.RelayMidjourney)
 	}
 }

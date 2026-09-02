@@ -550,6 +550,10 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.topup_complete': 'Completed top-up order for the user',
   'user.reset_passkey': 'Reset the user passkey',
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
+  'user.limit_settings_update': 'Updated limit settings for user {{username}}',
+  'user.access_source_remove':
+    'Removed source IP {{ip}} from user {{username}}',
+  'user.access_source_allow': 'Allowed source IP {{ip}} for user {{username}}',
   // System settings
   'option.update': 'Updated system setting {{key}}',
   'option.payment_compliance': 'Confirmed payment compliance',

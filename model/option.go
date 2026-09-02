@@ -158,9 +158,22 @@ func InitOptionMap() {
 	common.OptionMap["QuotaRemindThreshold"] = strconv.Itoa(common.QuotaRemindThreshold)
 	common.OptionMap["PreConsumedQuota"] = strconv.Itoa(common.PreConsumedQuota)
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
+	common.OptionMap["ModelRequestIPRateLimitCount"] = strconv.Itoa(setting.ModelRequestIPRateLimitCount)
+	common.OptionMap["ModelRequestIPRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestIPRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap[setting.ModelRequestConcurrencyLimitEnabledOptionKey] = strconv.FormatBool(setting.ModelRequestConcurrencyLimitEnabled)
+	common.OptionMap[setting.ModelRequestConcurrencyLimitOptionKey] = strconv.Itoa(setting.ModelRequestConcurrencyLimit)
+	common.OptionMap[setting.ModelRequestIPConcurrencyLimitOptionKey] = strconv.Itoa(setting.ModelRequestIPConcurrencyLimit)
+	common.OptionMap[setting.AccessSourceLimitEnabledOptionKey] = strconv.FormatBool(setting.AccessSourceLimitEnabled)
+	common.OptionMap[setting.AccessSourceAssociationWindowHoursOptionKey] = strconv.Itoa(setting.AccessSourceAssociationWindowHours)
+	common.OptionMap[setting.AccessSourceMaxIPsPerUserOptionKey] = strconv.Itoa(setting.AccessSourceMaxIPsPerUser)
+	common.OptionMap[setting.AccessSourceSwitchCooldownMinutesOptionKey] = strconv.Itoa(setting.AccessSourceSwitchCooldownMinutes)
+	common.OptionMap[setting.AccessSourceMaxUsersPerIPOptionKey] = strconv.Itoa(setting.AccessSourceMaxUsersPerIP)
+	for key := range setting.GetDefaultRequestLimitErrorTemplates() {
+		common.OptionMap[key] = ""
+	}
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -262,13 +275,28 @@ func validateOptionValue(key string, value string) error {
 	if _, retired := retiredChatOptionKeys[key]; retired {
 		return fmt.Errorf("配置项 %s 已停用，请在 Chats 中配置", key)
 	}
+	if setting.IsRequestLimitErrorTemplateOptionKey(key) {
+		return setting.ValidateRequestLimitErrorTemplate(key, value)
+	}
 	switch key {
 	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
 	case "GroupRatio":
 		return ratio_setting.CheckGroupRatio(value)
+	case "ModelRequestRateLimitCount", "ModelRequestIPRateLimitCount", "ModelRequestIPRateLimitSuccessCount", "ModelRequestRateLimitSuccessCount":
+		return setting.CheckModelRequestRateLimitCount(value, 0)
+	case "ModelRequestRateLimitDurationMinutes":
+		return setting.CheckModelRequestRateLimitDurationMinutes(value)
 	case "ModelRequestRateLimitGroup":
 		return setting.CheckModelRequestRateLimitGroup(value)
+	case setting.ModelRequestConcurrencyLimitOptionKey, setting.ModelRequestIPConcurrencyLimitOptionKey:
+		return setting.CheckModelRequestConcurrencyLimit(value)
+	case setting.AccessSourceAssociationWindowHoursOptionKey:
+		return setting.CheckAccessSourceAssociationWindowHours(value)
+	case setting.AccessSourceMaxIPsPerUserOptionKey, setting.AccessSourceMaxUsersPerIPOptionKey:
+		return setting.CheckAccessSourceAssociationCount(value)
+	case setting.AccessSourceSwitchCooldownMinutesOptionKey:
+		return setting.CheckAccessSourceSwitchCooldownMinutes(value)
 	case "AutomaticDisableStatusCodes", "AutomaticRetryStatusCodes":
 		_, err := operation_setting.ParseHTTPStatusCodeRanges(value)
 		return err
@@ -283,7 +311,8 @@ func validateOptionValue(key string, value string) error {
 		return err
 	case "console_setting.overview_panel_order":
 		return console_setting.ValidateOverviewPanelOrder(value)
-	case CycleQuotaManagementOptionKey, "LogConsumeEnabled", "quota_setting.enable_free_model_pre_consume",
+	case CycleQuotaManagementOptionKey, "ModelRequestRateLimitEnabled", setting.ModelRequestConcurrencyLimitEnabledOptionKey, setting.AccessSourceLimitEnabledOptionKey,
+		"LogConsumeEnabled", "quota_setting.enable_free_model_pre_consume",
 		"channel_affinity_setting.renew_ttl_on_success",
 		"codex.client_version_check_enabled", "codex.desktop_client_version_check_enabled",
 		"codex.request_header_fallback_enabled", "claude.client_version_check_enabled",
@@ -300,6 +329,7 @@ func validateOptionValue(key string, value string) error {
 	case operation_setting.RequestHeaderRulesDefaultOptionKey,
 		operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
 		operation_setting.RequestHeaderSystemRulesOptionKey,
+		setting.RequestLimitErrorTemplateDefaultsOptionKey,
 		model_setting.CodexSettingsDefaultOptionKey,
 		model_setting.ClaudeSettingsDefaultOptionKey,
 		setting.ChatsDefaultOptionKey,
@@ -431,6 +461,23 @@ func updateOptionMap(key string, value string) (err error) {
 		key == model_setting.ClaudeSettingsDefaultOptionKey ||
 		key == setting.ChatsDefaultOptionKey ||
 		key == setting.ChatMenuCollapseThresholdDefaultOptionKey ||
+		key == setting.RequestLimitErrorTemplateDefaultsOptionKey ||
+		key == "ModelRequestRateLimitEnabled" ||
+		key == "ModelRequestRateLimitCount" ||
+		key == "ModelRequestIPRateLimitCount" ||
+		key == "ModelRequestIPRateLimitSuccessCount" ||
+		key == "ModelRequestRateLimitSuccessCount" ||
+		key == "ModelRequestRateLimitDurationMinutes" ||
+		key == "ModelRequestRateLimitGroup" ||
+		key == setting.ModelRequestConcurrencyLimitEnabledOptionKey ||
+		key == setting.ModelRequestConcurrencyLimitOptionKey ||
+		key == setting.ModelRequestIPConcurrencyLimitOptionKey ||
+		key == setting.AccessSourceAssociationWindowHoursOptionKey ||
+		key == setting.AccessSourceMaxIPsPerUserOptionKey ||
+		key == setting.AccessSourceSwitchCooldownMinutesOptionKey ||
+		key == setting.AccessSourceMaxUsersPerIPOptionKey ||
+		key == setting.AccessSourceLimitEnabledOptionKey ||
+		setting.IsRequestLimitErrorTemplateOptionKey(key) ||
 		key == "RequestHeaderAuditCapacityBytes" {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
@@ -538,6 +585,10 @@ func updateOptionMap(key string, value string) (err error) {
 			setting.CheckSensitiveOnPromptEnabled = boolValue
 		case "ModelRequestRateLimitEnabled":
 			setting.ModelRequestRateLimitEnabled = boolValue
+		case setting.ModelRequestConcurrencyLimitEnabledOptionKey:
+			setting.ModelRequestConcurrencyLimitEnabled = boolValue
+		case setting.AccessSourceLimitEnabledOptionKey:
+			setting.AccessSourceLimitEnabled = boolValue
 		case "StopOnSensitiveEnabled":
 			setting.StopOnSensitiveEnabled = boolValue
 		case "SMTPSSLEnabled":
@@ -711,12 +762,28 @@ func updateOptionMap(key string, value string) (err error) {
 		common.PreConsumedQuota, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitCount":
 		setting.ModelRequestRateLimitCount, _ = strconv.Atoi(value)
+	case "ModelRequestIPRateLimitCount":
+		setting.ModelRequestIPRateLimitCount, _ = strconv.Atoi(value)
+	case "ModelRequestIPRateLimitSuccessCount":
+		setting.ModelRequestIPRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitDurationMinutes":
 		setting.ModelRequestRateLimitDurationMinutes, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitSuccessCount":
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
+	case setting.ModelRequestConcurrencyLimitOptionKey:
+		setting.ModelRequestConcurrencyLimit, _ = strconv.Atoi(value)
+	case setting.ModelRequestIPConcurrencyLimitOptionKey:
+		setting.ModelRequestIPConcurrencyLimit, _ = strconv.Atoi(value)
+	case setting.AccessSourceAssociationWindowHoursOptionKey:
+		setting.AccessSourceAssociationWindowHours, _ = strconv.Atoi(value)
+	case setting.AccessSourceMaxIPsPerUserOptionKey:
+		setting.AccessSourceMaxIPsPerUser, _ = strconv.Atoi(value)
+	case setting.AccessSourceSwitchCooldownMinutesOptionKey:
+		setting.AccessSourceSwitchCooldownMinutes, _ = strconv.Atoi(value)
+	case setting.AccessSourceMaxUsersPerIPOptionKey:
+		setting.AccessSourceMaxUsersPerIP, _ = strconv.Atoi(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":

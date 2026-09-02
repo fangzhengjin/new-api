@@ -845,21 +845,14 @@ func UpdateSelf(c *gin.Context) {
 	// 检查是否是用户设置更新请求 (sidebar_modules 或 language)
 	if sidebarModules, sidebarExists := requestData["sidebar_modules"]; sidebarExists {
 		userId := c.GetInt("id")
-		user, err := model.GetUserById(userId, false)
-		if err != nil {
-			common.ApiError(c, err)
+		sidebarModulesStr, ok := sidebarModules.(string)
+		if !ok {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
-
-		// 获取当前用户设置
-		currentSetting := user.GetSetting()
-
-		// 更新sidebar_modules字段
-		if sidebarModulesStr, ok := sidebarModules.(string); ok {
-			currentSetting.SidebarModules = sidebarModulesStr
-		}
-
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+		if err := model.PatchUserSetting(userId, func(current *dto.UserSetting) {
+			current.SidebarModules = sidebarModulesStr
+		}); err != nil {
 			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 			return
 		}
@@ -871,21 +864,14 @@ func UpdateSelf(c *gin.Context) {
 	// 检查是否是语言偏好更新请求
 	if language, langExists := requestData["language"]; langExists {
 		userId := c.GetInt("id")
-		user, err := model.GetUserById(userId, false)
-		if err != nil {
-			common.ApiError(c, err)
+		langStr, ok := language.(string)
+		if !ok {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
-
-		// 获取当前用户设置
-		currentSetting := user.GetSetting()
-
-		// 更新language字段
-		if langStr, ok := language.(string); ok {
-			currentSetting.Language = langStr
-		}
-
-		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+		if err := model.PatchUserSetting(userId, func(current *dto.UserSetting) {
+			current.Language = langStr
+		}); err != nil {
 			common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 			return
 		}
@@ -1597,53 +1583,38 @@ func UpdateUserSetting(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	existingSettings := user.GetSetting()
-	upstreamModelUpdateNotifyEnabled := existingSettings.UpstreamModelUpdateNotifyEnabled
-	if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
-		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
-	}
-
-	// 构建设置
-	settings := dto.UserSetting{
-		NotifyType:                       req.QuotaWarningType,
-		QuotaWarningThreshold:            req.QuotaWarningThreshold,
-		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
-		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
-		RecordIpLog:                      req.RecordIpLog,
-	}
-
-	// 如果是webhook类型,添加webhook相关设置
-	if req.QuotaWarningType == dto.NotifyTypeWebhook {
-		settings.WebhookUrl = req.WebhookUrl
-		if req.WebhookSecret != "" {
+	if err := model.PatchUserSetting(user.Id, func(settings *dto.UserSetting) {
+		settings.NotifyType = req.QuotaWarningType
+		settings.QuotaWarningThreshold = req.QuotaWarningThreshold
+		if user.Role >= common.RoleAdminUser && req.UpstreamModelUpdateNotifyEnabled != nil {
+			settings.UpstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
+		}
+		settings.AcceptUnsetRatioModel = req.AcceptUnsetModelRatioModel
+		settings.RecordIpLog = req.RecordIpLog
+		settings.WebhookUrl = ""
+		settings.WebhookSecret = ""
+		settings.NotificationEmail = ""
+		settings.BarkUrl = ""
+		settings.GotifyUrl = ""
+		settings.GotifyToken = ""
+		settings.GotifyPriority = 0
+		switch req.QuotaWarningType {
+		case dto.NotifyTypeWebhook:
+			settings.WebhookUrl = req.WebhookUrl
 			settings.WebhookSecret = req.WebhookSecret
-		}
-	}
-
-	// 如果提供了通知邮箱，添加到设置中
-	if req.QuotaWarningType == dto.NotifyTypeEmail && req.NotificationEmail != "" {
-		settings.NotificationEmail = req.NotificationEmail
-	}
-
-	// 如果是Bark类型，添加Bark URL到设置中
-	if req.QuotaWarningType == dto.NotifyTypeBark {
-		settings.BarkUrl = req.BarkUrl
-	}
-
-	// 如果是Gotify类型，添加Gotify配置到设置中
-	if req.QuotaWarningType == dto.NotifyTypeGotify {
-		settings.GotifyUrl = req.GotifyUrl
-		settings.GotifyToken = req.GotifyToken
-		// Gotify优先级范围0-10，超出范围则使用默认值5
-		if req.GotifyPriority < 0 || req.GotifyPriority > 10 {
-			settings.GotifyPriority = 5
-		} else {
+		case dto.NotifyTypeEmail:
+			settings.NotificationEmail = req.NotificationEmail
+		case dto.NotifyTypeBark:
+			settings.BarkUrl = req.BarkUrl
+		case dto.NotifyTypeGotify:
+			settings.GotifyUrl = req.GotifyUrl
+			settings.GotifyToken = req.GotifyToken
 			settings.GotifyPriority = req.GotifyPriority
+			if settings.GotifyPriority < 0 || settings.GotifyPriority > 10 {
+				settings.GotifyPriority = 5
+			}
 		}
-	}
-
-	// 更新用户设置
-	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
+	}); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
 		return
 	}

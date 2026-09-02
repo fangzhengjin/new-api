@@ -121,6 +121,10 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/user/:id/reset_passkey":               accessTokenScopeRule("user:write"),
 	"GET /api/user/2fa/stats":                          accessTokenScopeRule("user:read"),
 	"DELETE /api/user/:id/2fa":                         accessTokenScopeRule("user:write"),
+	"GET /api/user/:id/limits":                         accessTokenScopeRule("user:read"),
+	"PUT /api/user/:id/limits":                         accessTokenScopeRule("user:write"),
+	"DELETE /api/user/:id/access-sources":              accessTokenScopeRule("user:write"),
+	"POST /api/user/:id/access-sources/allow":          accessTokenScopeRule("user:write"),
 
 	// router/api-router.go: /api/subscription
 	"GET /api/subscription/plans":                                    accessTokenScopeRule("wallet:read"),

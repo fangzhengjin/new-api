@@ -242,3 +242,70 @@ func TestLogFormattingPreservesLargeIntegerLexemes(t *testing.T) {
 		assert.Equal(t, unprivileged, adminLogs[0].Other)
 	})
 }
+
+func TestFormatUserLogsFiltersModelMappingByVisibilityMarker(t *testing.T) {
+	tests := []struct {
+		name    string
+		visible any
+		want    bool
+	}{
+		{name: "legacy mapping keeps its existing visibility", want: true},
+		{name: "explicitly hidden", visible: false, want: false},
+		{name: "explicitly visible", visible: true, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			other := map[string]interface{}{
+				"is_model_mapped":     true,
+				"upstream_model_name": "upstream-model",
+			}
+			if tt.visible != nil {
+				other["model_mapping_visible_to_users"] = tt.visible
+			}
+			logs := []*Log{{Other: common.MapToJsonStr(other)}}
+
+			formatUserLogs(logs, 0)
+
+			parsed, err := common.StrToMap(logs[0].Other)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, parsed["is_model_mapped"] == true)
+			assert.Equal(t, tt.want, parsed["upstream_model_name"] == "upstream-model")
+			assert.NotContains(t, parsed, "model_mapping_visible_to_users")
+		})
+	}
+
+	adminLogs := []*Log{{Other: common.MapToJsonStr(map[string]interface{}{
+		"is_model_mapped":     true,
+		"upstream_model_name": "upstream-model",
+	})}}
+	FormatAdminLogs(adminLogs)
+	adminOther, err := common.StrToMap(adminLogs[0].Other)
+	require.NoError(t, err)
+	assert.Equal(t, true, adminOther["is_model_mapped"])
+	assert.Equal(t, "upstream-model", adminOther["upstream_model_name"])
+}
+
+func TestFormatUserLogsHiddenMappingAlsoStripsResponseModel(t *testing.T) {
+	// 隐藏映射时 response_model 的嵌套 upstream_model 同样携带映射目标名，
+	// 用户投影必须一并剔除，否则按条目隐藏被观测字段旁路。
+	other := map[string]interface{}{
+		"is_model_mapped":                true,
+		"upstream_model_name":            "upstream-secret",
+		"model_mapping_visible_to_users": false,
+		"response_model": map[string]any{
+			"requested_model": "public-model",
+			"upstream_model":  "upstream-secret",
+			"returned_model":  "upstream-secret",
+		},
+	}
+	logs := []*Log{{Other: common.MapToJsonStr(other)}}
+
+	formatUserLogs(logs, 0)
+
+	parsed, err := common.StrToMap(logs[0].Other)
+	require.NoError(t, err)
+	assert.NotContains(t, parsed, "is_model_mapped")
+	assert.NotContains(t, parsed, "upstream_model_name")
+	assert.NotContains(t, parsed, "response_model")
+}

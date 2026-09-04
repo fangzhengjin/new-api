@@ -7524,6 +7524,9 @@
     "、": "、",
     "，": "，",
     "，and ": "，并",
-    "A successful request extends the binding lifetime.": "成功请求会延长绑定存活时间。"
+    "A successful request extends the binding lifetime.": "成功请求会延长绑定存活时间。",
+    "Visible to users": "对用户可见",
+    "No enabled API keys found. Create or enable one first.": "未找到已启用的 API 密钥，请先创建或启用。",
+    "Failed to load API key": "加载 API 密钥失败"
   }
 }

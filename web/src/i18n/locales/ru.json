@@ -7524,6 +7524,9 @@
     "、": ", ",
     "，": ", ",
     "，and ": " и ",
-    "A successful request extends the binding lifetime.": "Успешный запрос продлевает срок жизни привязки."
+    "A successful request extends the binding lifetime.": "Успешный запрос продлевает срок жизни привязки.",
+    "Visible to users": "Видимо пользователям",
+    "No enabled API keys found. Create or enable one first.": "Активные API-ключи не найдены. Сначала создайте или включите ключ.",
+    "Failed to load API key": "Не удалось загрузить API-ключ"
   }
 }

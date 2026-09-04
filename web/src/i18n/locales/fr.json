@@ -7524,6 +7524,9 @@
     "、": ", ",
     "，": ", ",
     "，and ": " et ",
-    "A successful request extends the binding lifetime.": "Une requête réussie prolonge la durée de vie de l'association."
+    "A successful request extends the binding lifetime.": "Une requête réussie prolonge la durée de vie de l'association.",
+    "Visible to users": "Visible par les utilisateurs",
+    "No enabled API keys found. Create or enable one first.": "Aucune clé API activée trouvée. Créez-en une ou activez-en une d'abord.",
+    "Failed to load API key": "Échec du chargement de la clé API"
   }
 }

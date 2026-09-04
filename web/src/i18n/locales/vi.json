@@ -7524,6 +7524,9 @@
     "、": ", ",
     "，": ", ",
     "，and ": " và ",
-    "A successful request extends the binding lifetime.": "Yêu cầu thành công sẽ kéo dài thời gian sống của liên kết."
+    "A successful request extends the binding lifetime.": "Yêu cầu thành công sẽ kéo dài thời gian sống của liên kết.",
+    "Visible to users": "Hiển thị với người dùng",
+    "No enabled API keys found. Create or enable one first.": "Không tìm thấy API key đang bật. Hãy tạo hoặc bật trước.",
+    "Failed to load API key": "Không tải được API key"
   }
 }

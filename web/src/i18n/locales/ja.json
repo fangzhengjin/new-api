@@ -7524,6 +7524,9 @@
     "、": "、",
     "，": "、",
     "，and ": "、",
-    "A successful request extends the binding lifetime.": "リクエスト成功時にバインディングの有効期間を延長します。"
+    "A successful request extends the binding lifetime.": "リクエスト成功時にバインディングの有効期間を延長します。",
+    "Visible to users": "ユーザーに表示",
+    "No enabled API keys found. Create or enable one first.": "有効な API キーが見つかりません。先に作成または有効化してください。",
+    "Failed to load API key": "API キーの読み込みに失敗しました"
   }
 }

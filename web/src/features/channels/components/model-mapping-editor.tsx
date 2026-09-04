@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next'
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -39,6 +40,9 @@ type ModelMappingEditorProps = {
   disabled?: boolean
   sourceModelOptions?: string[]
   targetModelOptions?: string[]
+  userHiddenModelMappings?: string[]
+  onUserHiddenModelMappingsChange?: (models: string[]) => void
+  userHiddenModelMappingsDisabled?: boolean
 }
 
 type MappingRow = {
@@ -76,10 +80,32 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
   const [jsonError, setJsonError] = useState<string | null>(null)
   const nextRowIdRef = useRef(0)
   const duplicateSources = useMemo(() => getDuplicateSources(rows), [rows])
+  const showUserVisibility = props.onUserHiddenModelMappingsChange != null
 
   const createRowId = () => {
     nextRowIdRef.current += 1
     return `mapping-${nextRowIdRef.current}`
+  }
+
+  const reconcileHiddenMappings = (sourceModels: string[]) => {
+    if (
+      !props.onUserHiddenModelMappingsChange ||
+      props.userHiddenModelMappingsDisabled
+    ) {
+      return
+    }
+    const sources = new Set(
+      sourceModels.map((model) => model.trim()).filter(Boolean)
+    )
+    const current = props.userHiddenModelMappings || []
+    const next = current.filter((model) => sources.has(model))
+    if (
+      next.length === current.length &&
+      next.every((model, index) => model === current[index])
+    ) {
+      return
+    }
+    props.onUserHiddenModelMappingsChange(next)
   }
 
   const parseJsonToRows = (json: string): boolean => {
@@ -87,6 +113,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       if (!json.trim()) {
         setRows([])
         setJsonError(null)
+        reconcileHiddenMappings([])
         return true
       }
       const parsed = JSON.parse(json)
@@ -100,6 +127,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
         setJsonError(t('Model mapping values must be strings'))
         return false
       }
+      reconcileHiddenMappings(entries.map(([from]) => from))
       setRows((previousRows) => {
         const remainingRows = [...previousRows]
         return entries.map(([from, to], index) => {
@@ -167,6 +195,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
     }
 
     const json = convertRowsToJson(updatedRows)
+    reconcileHiddenMappings(updatedRows.map((row) => row.from))
     setJsonError(null)
     setJsonValue(json)
     props.onChange(json)
@@ -179,6 +208,18 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       to: '',
     }
     syncRows([...rows, newRow])
+  }
+
+  const handleVisibilityChange = (source: string, visible: boolean) => {
+    const model = source.trim()
+    if (!model || props.userHiddenModelMappingsDisabled) return
+    const hiddenModels = new Set(props.userHiddenModelMappings || [])
+    if (visible) {
+      hiddenModels.delete(model)
+    } else {
+      hiddenModels.add(model)
+    }
+    props.onUserHiddenModelMappingsChange?.([...hiddenModels])
   }
 
   const handleDeleteRow = (id: string) => {
@@ -274,15 +315,28 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
         <TabsContent value='visual' className='space-y-2'>
           {rows.length > 0 ? (
             <div className='space-y-2'>
-              <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
+              <div
+                className={
+                  showUserVisibility
+                    ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem_2.5rem] gap-2 text-sm font-medium'
+                    : 'grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'
+                }
+              >
                 <div>{t('Request Model Name')}</div>
                 <div>{t('Upstream Model Name')}</div>
+                {showUserVisibility && (
+                  <div className='text-center'>{t('User Visible')}</div>
+                )}
                 <div className='w-10' />
               </div>
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className='grid grid-cols-[1fr_1fr_auto] gap-2'
+                  className={
+                    showUserVisibility
+                      ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem_2.5rem] gap-2'
+                      : 'grid grid-cols-[1fr_1fr_auto] gap-2'
+                  }
                 >
                   <Input
                     value={row.from}
@@ -302,6 +356,26 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                     disabled={props.disabled}
                     list={targetListId}
                   />
+                  {showUserVisibility && (
+                    <div className='flex h-10 items-center justify-center'>
+                      <Checkbox
+                        checked={
+                          !props.userHiddenModelMappings?.includes(
+                            row.from.trim()
+                          )
+                        }
+                        onCheckedChange={(checked) =>
+                          handleVisibilityChange(row.from, checked === true)
+                        }
+                        disabled={
+                          props.disabled ||
+                          props.userHiddenModelMappingsDisabled ||
+                          !row.from.trim()
+                        }
+                        aria-label={`${t('User Visible')}: ${row.from || t('Original Model')}`}
+                      />
+                    </div>
+                  )}
                   <Button
                     type='button'
                     variant='ghost'

@@ -299,17 +299,21 @@ func UpdateAbilityStatusByTag(tag string, status bool) error {
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {
-	ability := Ability{}
+	return updateAbilityRoutingFields(DB.Model(&Ability{}).Where("tag = ?", tag), newTag, priority, weight)
+}
+
+func updateAbilityRoutingFields(query *gorm.DB, newTag *string, priority *int64, weight *uint) error {
+	updates := make(map[string]any, 3)
 	if newTag != nil {
-		ability.Tag = newTag
+		updates["tag"] = *newTag
 	}
 	if priority != nil {
-		ability.Priority = priority
+		updates["priority"] = *priority
 	}
 	if weight != nil {
-		ability.Weight = *weight
+		updates["weight"] = *weight
 	}
-	return DB.Model(&Ability{}).Where("tag = ?", tag).Updates(ability).Error
+	return query.Updates(updates).Error
 }
 
 var fixLock = sync.Mutex{}

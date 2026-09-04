@@ -16,11 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createInstance } from 'i18next'
+import { useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
-import { expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import en from '@/i18n/locales/en.json'
 import zh from '@/i18n/locales/zh.json'
@@ -83,4 +84,144 @@ test('language changes preserve draft mappings and explain the same direction in
   expect(onChange).toHaveBeenLastCalledWith(
     '{\n  "client-alias": "provider-model"\n}'
   )
+})
+
+describe('model mapping visibility', () => {
+  test('shows mappings by default and lets an administrator hide one', async () => {
+    const onVisibilityChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ModelMappingEditor
+        value='{"request-model":"upstream-model"}'
+        onChange={() => undefined}
+        userHiddenModelMappings={[]}
+        onUserHiddenModelMappingsChange={onVisibilityChange}
+      />
+    )
+
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'User Visible: request-model',
+    })
+    expect(checkbox).toBeChecked()
+    checkbox.focus()
+    await user.keyboard(' ')
+
+    expect(onVisibilityChange).toHaveBeenCalledWith(['request-model'])
+  })
+
+  test('renaming a hidden source creates a visible mapping', async () => {
+    function Harness() {
+      const [value, setValue] = useState('{"request-model":"upstream-model"}')
+      const [hidden, setHidden] = useState(['request-model'])
+      return (
+        <ModelMappingEditor
+          value={value}
+          onChange={setValue}
+          userHiddenModelMappings={hidden}
+          onUserHiddenModelMappingsChange={setHidden}
+        />
+      )
+    }
+    render(<Harness />)
+
+    const source = await screen.findByDisplayValue('request-model')
+    fireEvent.change(source, { target: { value: 'renamed-model' } })
+
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'User Visible: renamed-model',
+      })
+    ).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Mapping' }))
+    const sourceInputs = screen.getAllByPlaceholderText('gpt-3.5-turbo')
+    const newSource = sourceInputs.at(-1)
+    if (!newSource) throw new Error('new mapping source input not found')
+    fireEvent.change(newSource, {
+      target: { value: 'request-model' },
+    })
+
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'User Visible: request-model',
+      })
+    ).toBeChecked()
+  })
+
+  test('re-adding a source removed in JSON mode creates a visible mapping', async () => {
+    function Harness() {
+      const [value, setValue] = useState('{"request-model":"upstream-model"}')
+      const [hidden, setHidden] = useState(['request-model'])
+      return (
+        <ModelMappingEditor
+          value={value}
+          onChange={setValue}
+          userHiddenModelMappings={hidden}
+          onUserHiddenModelMappingsChange={setHidden}
+        />
+      )
+    }
+    render(<Harness />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'JSON' }))
+    fireEvent.input(screen.getByLabelText('Model Mapping'), {
+      target: { value: '{"renamed-model":"upstream-model"}' },
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Visual' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Mapping' }))
+
+    const sourceInputs = screen.getAllByPlaceholderText('gpt-3.5-turbo')
+    const newSource = sourceInputs.at(-1)
+    if (!newSource) throw new Error('new mapping source input not found')
+    fireEvent.change(newSource, {
+      target: { value: 'request-model' },
+    })
+
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'User Visible: request-model',
+      })
+    ).toBeChecked()
+  })
+
+  test('disables user visibility when sensitive channel settings are locked', async () => {
+    const onVisibilityChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ModelMappingEditor
+        value='{"request-model":"upstream-model"}'
+        onChange={() => undefined}
+        userHiddenModelMappings={[]}
+        onUserHiddenModelMappingsChange={onVisibilityChange}
+        userHiddenModelMappingsDisabled
+      />
+    )
+
+    const checkbox = await screen.findByRole('checkbox', {
+      name: 'User Visible: request-model',
+    })
+    expect(checkbox).toHaveAttribute('aria-disabled', 'true')
+    await user.click(checkbox)
+    expect(onVisibilityChange).not.toHaveBeenCalled()
+  })
+
+  test('keeps hidden settings unchanged when mappings change while sensitive settings are locked', async () => {
+    const onVisibilityChange = vi.fn()
+    render(
+      <ModelMappingEditor
+        value='{"request-model":"upstream-model"}'
+        onChange={() => undefined}
+        userHiddenModelMappings={['request-model']}
+        onUserHiddenModelMappingsChange={onVisibilityChange}
+        userHiddenModelMappingsDisabled
+      />
+    )
+
+    fireEvent.change(await screen.findByDisplayValue('request-model'), {
+      target: { value: 'renamed-model' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete mapping' }))
+
+    expect(onVisibilityChange).not.toHaveBeenCalled()
+  })
 })

@@ -30,6 +30,7 @@ import { useTranslation } from 'react-i18next'
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -69,6 +70,9 @@ type ModelMappingEditorProps = {
   onCommit?: (value: string) => void
   draftRequest?: ModelMappingDraftRequest | null
   onDraftRequestHandled?: () => void
+  userHiddenModelMappings?: string[]
+  onUserHiddenModelMappingsChange?: (models: string[]) => void
+  userHiddenModelMappingsDisabled?: boolean
 }
 
 type MappingRow = {
@@ -295,6 +299,18 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
     props.onChange(json)
   }
 
+  const handleVisibilityChange = (source: string, visible: boolean) => {
+    const model = source.trim()
+    if (!model || props.userHiddenModelMappingsDisabled) return
+    const hiddenModels = new Set(props.userHiddenModelMappings || [])
+    if (visible) {
+      hiddenModels.delete(model)
+    } else {
+      hiddenModels.add(model)
+    }
+    props.onUserHiddenModelMappingsChange?.([...hiddenModels])
+  }
+
   const handleAddRow = () => {
     const newRow: MappingRow = {
       id: createRowId(),
@@ -462,12 +478,12 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
                 <div>{t('Request Model Name')}</div>
                 <div>{t('Upstream Model Name')}</div>
-                <div className='w-10' />
+                <div className='w-10' title={t('Visible to users')} />
               </div>
               {visibleRows.map((row) => (
                 <div
                   key={row.id}
-                  className='grid grid-cols-[1fr_1fr_auto] gap-2'
+                  className='grid grid-cols-[1fr_1fr_auto] items-center gap-2'
                 >
                   <ComboboxInput
                     id={rowInputId(row.id, 'from')}
@@ -495,6 +511,22 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                     disabled={props.disabled}
                     aria-label={t('Upstream Model Name')}
                   />
+                  <div className='flex w-10 items-center justify-center'>
+                    <Checkbox
+                      checked={
+                        !props.userHiddenModelMappings?.includes(
+                          row.from.trim()
+                        )
+                      }
+                      onCheckedChange={(checked) =>
+                        handleVisibilityChange(row.from, checked === true)
+                      }
+                      disabled={
+                        props.disabled || props.userHiddenModelMappingsDisabled
+                      }
+                      aria-label={t('Visible to users')}
+                    />
+                  </div>
                   <Button
                     type='button'
                     variant='ghost'

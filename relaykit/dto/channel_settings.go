@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -11,13 +12,14 @@ import (
 )
 
 type ChannelSettings struct {
-	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptMode       string `json:"system_prompt_mode,omitempty"`
+	TaskPluginKey           string   `json:"task_plugin_key,omitempty"`
+	ForceFormat             bool     `json:"force_format,omitempty"`
+	ThinkingToContent       bool     `json:"thinking_to_content,omitempty"`
+	Proxy                   string   `json:"proxy"`
+	PassThroughBodyEnabled  bool     `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt            string   `json:"system_prompt,omitempty"`
+	SystemPromptMode        string   `json:"system_prompt_mode,omitempty"`
+	UserHiddenModelMappings []string `json:"user_hidden_model_mappings,omitempty"`
 	// SystemPromptOverride is kept for compatibility with older channel settings.
 	// A true value maps to prepend when SystemPromptMode is absent.
 	SystemPromptOverride bool `json:"system_prompt_override,omitempty"`
@@ -33,6 +35,12 @@ type ChannelSettings struct {
 	// ConcurrencyWaitTimeoutSeconds controls how long a request waits for a slot.
 	// Nil uses the default; zero fails immediately.
 	ConcurrencyWaitTimeoutSeconds *int `json:"concurrency_wait_timeout_seconds,omitempty"`
+}
+
+// IsModelMappingVisibleToUsers reports whether ordinary users may see a
+// mapped model name in logs and API responses.
+func (s *ChannelSettings) IsModelMappingVisibleToUsers(model string) bool {
+	return s == nil || !slices.Contains(s.UserHiddenModelMappings, model)
 }
 
 const (

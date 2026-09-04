@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,6 +46,13 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	if c.Writer == nil {
 		return
 	}
+	rewritten, err := relaycommon.RewriteResponseModel(data, relaycommon.GetUserResponseModelOverride(c))
+	if err != nil {
+		logger.LogError(c, err.Error())
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to rewrite response model"})
+		return
+	}
+	data = rewritten
 
 	body := io.NopCloser(bytes.NewBuffer(data))
 
@@ -71,7 +79,7 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 		c.Writer.WriteHeader(http.StatusOK)
 	}
 
-	_, err := io.Copy(c.Writer, body)
+	_, err = io.Copy(c.Writer, body)
 	if err != nil {
 		logger.LogError(c, fmt.Sprintf("failed to copy response body: %s", err.Error()))
 	}

@@ -37,6 +37,7 @@ import {
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
 } from './advanced-custom'
+import { extractMappingSourceModels } from './model-mapping-validation'
 
 // ============================================================================
 // Form Validation Schema
@@ -223,6 +224,7 @@ export const channelFormSchema = z
         isOptionalModelMapping,
         'Model mapping must be a JSON object with string values'
       ),
+    user_hidden_model_mappings: z.array(z.string()).optional(),
     priority: z.number().optional(),
     weight: z.number().optional(),
     test_model: z.string().optional(),
@@ -442,6 +444,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   models: '',
   group: ['default'],
   model_mapping: '',
+  user_hidden_model_mappings: [],
   priority: 0,
   weight: 0,
   test_model: '',
@@ -515,6 +518,7 @@ export function transformChannelToFormDefaults(
     system_prompt_mode: 'none' as NonNullable<
       ChannelFormValues['system_prompt_mode']
     >,
+    user_hidden_model_mappings: [] as string[],
   }
 
   if (channel.setting) {
@@ -546,6 +550,13 @@ export function transformChannelToFormDefaults(
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_mode: systemPromptMode,
+        user_hidden_model_mappings: Array.isArray(
+          parsed.user_hidden_model_mappings
+        )
+          ? parsed.user_hidden_model_mappings.filter(
+              (model: unknown): model is string => typeof model === 'string'
+            )
+          : [],
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -656,7 +667,16 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj: Record<string, unknown> = {
+  let settingObj: Record<string, unknown> = {}
+  try {
+    const parsed = parseOptionalJson(formData.setting)
+    if (isJsonObjectValue(parsed)) settingObj = parsed
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to parse existing channel setting:', error)
+  }
+
+  Object.assign(settingObj, {
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
         ? formData.task_plugin_key?.trim() || ''
@@ -668,6 +688,18 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt: formData.system_prompt || '',
     system_prompt_mode: formData.system_prompt_mode || 'none',
     system_prompt_override: formData.system_prompt_mode === 'prepend',
+  })
+
+  const mappingSources = new Set(
+    extractMappingSourceModels(formData.model_mapping || '')
+  )
+  const userHiddenModelMappings = [
+    ...new Set(formData.user_hidden_model_mappings || []),
+  ].filter((model) => mappingSources.has(model))
+  if (userHiddenModelMappings.length > 0) {
+    settingObj.user_hidden_model_mappings = userHiddenModelMappings
+  } else {
+    delete settingObj.user_hidden_model_mappings
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)
@@ -677,6 +709,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       : normalizeHttp2ConnectionShards(formData.http2_connection_shards)
 
   // Omit defaults so unchanged channels keep equivalent JSON.
+  delete settingObj.http_protocol
+  delete settingObj.http2_connection_shards
   if (protocol === HTTP_PROTOCOL_HTTP1) {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1
   } else if (shards > 1) {
@@ -688,6 +722,9 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.concurrency_wait_timeout_seconds =
       formData.concurrency_wait_timeout_seconds ??
       DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS
+  } else {
+    delete settingObj.max_concurrency
+    delete settingObj.concurrency_wait_timeout_seconds
   }
 
   return JSON.stringify(settingObj)

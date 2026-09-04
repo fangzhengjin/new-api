@@ -227,6 +227,18 @@ func formatLogOtherJSON(value string, visibility logOtherVisibility) string {
 
 	changed := false
 	if visibility == logOtherVisibilityUser {
+		if rawVisible, exists := values["model_mapping_visible_to_users"]; exists {
+			var visible bool
+			if err := common.Unmarshal(rawVisible, &visible); err == nil && !visible {
+				delete(values, "is_model_mapped")
+				delete(values, "upstream_model_name")
+				// response_model 的嵌套 upstream_model/returned_model 携带同一映射
+				// 目标名，隐藏映射时必须一并剔除，否则用户仍能从观测字段读到上游模型。
+				delete(values, "response_model")
+			}
+			delete(values, "model_mapping_visible_to_users")
+			changed = true
+		}
 		for _, key := range []string{logOtherAdminInfoKey, logOtherRootInfoKey, logOtherAuditInfoKey} {
 			if _, exists := values[key]; exists {
 				delete(values, key)

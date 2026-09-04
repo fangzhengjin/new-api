@@ -306,6 +306,7 @@ const SENSITIVE_FORM_FIELDS = [
   'responses_websocket_enabled',
   'system_prompt',
   'system_prompt_mode',
+  'user_hidden_model_mappings',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -598,6 +599,7 @@ export function ChannelMutateDrawer({
   const currentKey = formValues.key
   const currentModels = formValues.models
   const currentModelMapping = formValues.model_mapping
+  const currentUserHiddenModelMappings = formValues.user_hidden_model_mappings
   const awsKeyType = formValues.aws_key_type
   const vertexKeyType = formValues.vertex_key_type
   const upstreamModelUpdateCheckEnabled =
@@ -2575,6 +2577,13 @@ export function ChannelMutateDrawer({
               <ModelMappingEditor
                 value={field.value || ''}
                 onChange={field.onChange}
+                userHiddenModelMappings={currentUserHiddenModelMappings || []}
+                onUserHiddenModelMappingsChange={(models) =>
+                  form.setValue('user_hidden_model_mappings', models, {
+                    shouldDirty: true,
+                  })
+                }
+                userHiddenModelMappingsDisabled={sensitiveLocked}
                 disabled={isSubmitting}
                 sourceModelOptions={currentModelsArray}
                 targetModelOptions={modelOptions.map((option) => option.value)}

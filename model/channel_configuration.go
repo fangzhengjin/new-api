@@ -98,6 +98,9 @@ func ApplyDiscoveredChannel(channel *Channel, snapshotHash string, syncConfigura
 	created := channel.Id == 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if created {
+			if _, err := channel.ReconcileUserHiddenModelMappings(); err != nil {
+				return err
+			}
 			if err := tx.Create(channel).Error; err != nil {
 				return err
 			}
@@ -147,6 +150,11 @@ func ApplyDiscoveredChannel(channel *Channel, snapshotHash string, syncConfigura
 			"channel_info": channel.ChannelInfo,
 		}
 		if syncConfiguration {
+			channel.Setting = current.Setting
+			settingChanged, err := channel.ReconcileUserHiddenModelMappings()
+			if err != nil {
+				return err
+			}
 			latestSettings := current.GetOtherSettings()
 			desiredSettings := channel.GetOtherSettings()
 			latestSettings.AdvancedCustom = desiredSettings.AdvancedCustom
@@ -165,6 +173,9 @@ func ApplyDiscoveredChannel(channel *Channel, snapshotHash string, syncConfigura
 			updates["model_mapping"] = channel.ModelMapping
 			updates["test_model"] = channel.TestModel
 			updates["settings"] = channel.OtherSettings
+			if settingChanged {
+				updates["setting"] = channel.Setting
+			}
 		}
 		if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error; err != nil {
 			return err
@@ -277,10 +288,18 @@ func ApplyChannelNormalizations(taskID string, expectedTaskResult string, update
 
 			channel.Models = modelsText
 			channel.ModelMapping = common.GetPointer(mappingText)
-			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
+			settingChanged, err := channel.ReconcileUserHiddenModelMappings()
+			if err != nil {
+				return err
+			}
+			updates := map[string]any{
 				"models":        modelsText,
 				"model_mapping": mappingText,
-			}).Error; err != nil {
+			}
+			if settingChanged {
+				updates["setting"] = channel.Setting
+			}
+			if err := tx.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error; err != nil {
 				return err
 			}
 			if err := channel.UpdateAbilities(tx); err != nil {

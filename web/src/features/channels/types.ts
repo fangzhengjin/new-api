@@ -86,6 +86,7 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_mode?: 'none' | 'prepend' | 'append' | 'override'
+  user_hidden_model_mappings?: string[]
   /** Legacy compatibility: true maps to system_prompt_mode=prepend. */
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string

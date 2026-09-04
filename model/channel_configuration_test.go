@@ -192,6 +192,40 @@ func TestApplyDiscoveredChannelReplaceWithoutSyncPreservesLatestConfiguration(t 
 	assert.Equal(t, latestTestModel, *saved.TestModel)
 }
 
+func TestApplyDiscoveredChannelReconcilesUserHiddenModelMappings(t *testing.T) {
+	truncateTables(t)
+	baseURL := "https://api.example.test"
+	mapping := `{"removed":"upstream-a","kept":"upstream-b"}`
+	channel := Channel{
+		Type:         constant.ChannelTypeOpenAI,
+		Key:          "secret",
+		Status:       common.ChannelStatusEnabled,
+		Name:         "mapped channel",
+		BaseURL:      &baseURL,
+		Models:       "removed,kept",
+		Group:        "default",
+		ModelMapping: &mapping,
+	}
+	channel.SetSetting(dto.ChannelSettings{
+		UserHiddenModelMappings: []string{"removed", "kept"},
+	})
+	require.NoError(t, DB.Create(&channel).Error)
+	require.NoError(t, channel.AddAbilities(nil))
+	snapshotHash, err := ChannelConfigurationSnapshot(&channel)
+	require.NoError(t, err)
+
+	desired := channel
+	desired.Models = "kept"
+	nextMapping := `{"kept":"upstream-b"}`
+	desired.ModelMapping = &nextMapping
+	_, err = ApplyDiscoveredChannel(&desired, snapshotHash, true, false)
+	require.NoError(t, err)
+
+	var saved Channel
+	require.NoError(t, DB.First(&saved, channel.Id).Error)
+	assert.Equal(t, []string{"kept"}, saved.GetSetting().UserHiddenModelMappings)
+}
+
 func TestApplyChannelNormalizationsRollsBackOnSnapshotConflict(t *testing.T) {
 	truncateTables(t)
 	baseURL := "https://api.example.test"
@@ -238,4 +272,46 @@ func TestApplyChannelNormalizationsRollsBackOnSnapshotConflict(t *testing.T) {
 	var savedTask SystemTask
 	require.NoError(t, DB.First(&savedTask, task.ID).Error)
 	assert.Equal(t, task.Result, savedTask.Result)
+}
+
+func TestApplyChannelNormalizationsReconcilesUserHiddenModelMappings(t *testing.T) {
+	truncateTables(t)
+	baseURL := "https://api.example.test"
+	mapping := `{"removed":"upstream-a","kept":"upstream-b"}`
+	channel := Channel{
+		Type:         constant.ChannelTypeOpenAI,
+		Key:          "secret",
+		Status:       common.ChannelStatusEnabled,
+		Name:         "mapped channel",
+		BaseURL:      &baseURL,
+		Models:       "removed,kept",
+		Group:        "default",
+		ModelMapping: &mapping,
+	}
+	channel.SetSetting(dto.ChannelSettings{
+		UserHiddenModelMappings: []string{"removed", "kept"},
+	})
+	require.NoError(t, DB.Create(&channel).Error)
+	require.NoError(t, channel.AddAbilities(nil))
+	snapshotHash, err := ChannelConfigurationSnapshot(&channel)
+	require.NoError(t, err)
+	task := SystemTask{
+		TaskID: "normalize-visibility",
+		Type:   SystemTaskTypeChannelNormalize,
+		Status: SystemTaskStatusSucceeded,
+		Result: `{"summary":{"scanned":1}}`,
+	}
+	require.NoError(t, DB.Create(&task).Error)
+
+	_, err = ApplyChannelNormalizations(task.TaskID, task.Result, map[string]any{"applied_at": 1}, []ChannelNormalizationMutation{{
+		ChannelID:     channel.Id,
+		SnapshotHash:  snapshotHash,
+		RemoveModels:  []string{"removed"},
+		MappingRemove: []string{"removed"},
+	}})
+	require.NoError(t, err)
+
+	var saved Channel
+	require.NoError(t, DB.First(&saved, channel.Id).Error)
+	assert.Equal(t, []string{"kept"}, saved.GetSetting().UserHiddenModelMappings)
 }

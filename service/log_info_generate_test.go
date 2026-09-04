@@ -9,6 +9,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -75,6 +77,46 @@ func TestGenerateTextOtherInfoWritesReasoningEffort(t *testing.T) {
 			other := GenerateTextOtherInfo(c, info, 0, 0, 0, 0, 0, 0, 0).Snapshot()
 
 			assert.Equal(t, test.expected, other["reasoning_effort"])
+		})
+	}
+}
+
+func TestGenerateTextOtherInfoMarksUserVisibleModelMapping(t *testing.T) {
+	tests := []struct {
+		name        string
+		relayFormat types.RelayFormat
+		hidden      []string
+		want        bool
+	}{
+		{name: "visible by default", relayFormat: types.RelayFormatOpenAI, want: true},
+		{name: "hidden source", relayFormat: types.RelayFormatOpenAI, hidden: []string{"request-model"}},
+		{name: "different source remains visible", relayFormat: types.RelayFormatOpenAI, hidden: []string{"other-model"}, want: true},
+		{name: "unsupported format remains visible", relayFormat: types.RelayFormatOpenAIAlphaSearch, hidden: []string{"request-model"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			now := time.Unix(100, 0)
+			info := &relaycommon.RelayInfo{
+				StartTime:         now,
+				FirstResponseTime: now,
+				OriginModelName:   "request-model",
+				RelayFormat:       tt.relayFormat,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					IsModelMapped:     true,
+					UpstreamModelName: "upstream-model",
+					ChannelSetting:    dto.ChannelSettings{UserHiddenModelMappings: tt.hidden},
+				},
+			}
+
+			other := GenerateTextOtherInfo(c, info, 0, 0, 0, 0, 0, 0, 0).Snapshot()
+
+			assert.Equal(t, true, other["is_model_mapped"])
+			assert.Equal(t, "upstream-model", other["upstream_model_name"])
+			visible, ok := other["model_mapping_visible_to_users"].(bool)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, visible)
 		})
 	}
 }

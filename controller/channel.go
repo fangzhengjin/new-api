@@ -1162,7 +1162,7 @@ func UpdateChannel(c *gin.Context) {
 			// 覆盖模式：直接使用新密钥（默认行为，不需要特殊处理）
 		}
 	}
-	err = channel.Update()
+	err = channel.UpdateWithModelMappingReconciliation()
 	if err != nil {
 		common.ApiError(c, err)
 		return

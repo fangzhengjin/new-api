@@ -192,6 +192,15 @@ func AppendRequestHeadersAdminInfo(ctx *gin.Context, other *model.LogOther) {
 	other.SetAdmin("request_headers", requestHeaders)
 }
 
+func appendModelMappingLogInfo(other *model.LogOther, relayInfo *relaycommon.RelayInfo) {
+	if other == nil || relayInfo == nil || !relayInfo.IsModelMapped {
+		return
+	}
+	other.SetPublic("is_model_mapped", true)
+	other.SetPublic("upstream_model_name", relayInfo.UpstreamModelName)
+	other.SetPublic("model_mapping_visible_to_users", !relayInfo.ShouldHideModelMappingFromUsers())
+}
+
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) *model.LogOther {
 	other := model.NewLogOther()
@@ -217,10 +226,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 			other.SetPublic("reasoning_effort", effort)
 		}
 	}
-	if relayInfo.IsModelMapped {
-		other.SetPublic("is_model_mapped", true)
-		other.SetPublic("upstream_model_name", relayInfo.UpstreamModelName)
-	}
+	appendModelMappingLogInfo(other, relayInfo)
 
 	isSystemPromptOverwritten := common.GetContextKeyBool(ctx, constant.ContextKeySystemPromptOverride)
 	if isSystemPromptOverwritten {

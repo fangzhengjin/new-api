@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
@@ -45,6 +46,87 @@ func TestRelayInfoGetFinalRequestRelayFormatFallsBackToRelayFormat(t *testing.T)
 func TestRelayInfoGetFinalRequestRelayFormatNilReceiver(t *testing.T) {
 	var info *RelayInfo
 	require.Equal(t, types.RelayFormat(""), info.GetFinalRequestRelayFormat())
+}
+
+func TestRelayInfoUserResponseModelVisibility(t *testing.T) {
+	newInfo := func(format types.RelayFormat, hidden bool) *RelayInfo {
+		settings := dto.ChannelSettings{}
+		if hidden {
+			settings.UserHiddenModelMappings = []string{"requested"}
+		}
+		return &RelayInfo{
+			OriginModelName: "requested",
+			RelayFormat:     format,
+			ChannelMeta: &ChannelMeta{
+				IsModelMapped:     true,
+				UpstreamModelName: "upstream",
+				ChannelSetting:    settings,
+			},
+		}
+	}
+
+	for _, format := range []types.RelayFormat{
+		types.RelayFormatOpenAI,
+		types.RelayFormatClaude,
+		types.RelayFormatGemini,
+		types.RelayFormatOpenAIResponses,
+		types.RelayFormatOpenAIResponsesCompaction,
+	} {
+		t.Run(string(format), func(t *testing.T) {
+			info := newInfo(format, true)
+			assert.True(t, info.ShouldHideModelMappingFromUsers())
+			assert.Equal(t, "requested", info.GetUserResponseModelOverride())
+			assert.Equal(t, "requested", info.GetUserResponseModelName())
+		})
+	}
+
+	for _, format := range []types.RelayFormat{
+		types.RelayFormatOpenAIAlphaSearch,
+		types.RelayFormatOpenAIRealtime,
+		types.RelayFormatOpenAIAudio,
+		types.RelayFormatOpenAIImage,
+		types.RelayFormatEmbedding,
+		types.RelayFormatRerank,
+		types.RelayFormatTask,
+	} {
+		t.Run(string(format), func(t *testing.T) {
+			info := newInfo(format, true)
+			assert.False(t, info.ShouldHideModelMappingFromUsers())
+			assert.Empty(t, info.GetUserResponseModelOverride())
+			assert.Equal(t, "upstream", info.GetUserResponseModelName())
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		relayMode int
+		request   dto.Request
+	}{
+		{name: "legacy embedding mode", relayMode: relayconstant.RelayModeEmbeddings},
+		{name: "native embedding request", request: &dto.GeminiEmbeddingRequest{}},
+		{name: "native batch embedding request", request: &dto.GeminiBatchEmbeddingRequest{}},
+	} {
+		t.Run("gemini "+test.name, func(t *testing.T) {
+			info := newInfo(types.RelayFormatGemini, true)
+			info.RelayMode = test.relayMode
+			info.Request = test.request
+
+			assert.False(t, info.ShouldHideModelMappingFromUsers())
+			assert.Empty(t, info.GetUserResponseModelOverride())
+			assert.Equal(t, "upstream", info.GetUserResponseModelName())
+		})
+	}
+
+	visible := newInfo(types.RelayFormatOpenAI, false)
+	assert.False(t, visible.ShouldHideModelMappingFromUsers())
+	assert.Empty(t, visible.GetUserResponseModelOverride())
+	assert.Equal(t, "upstream", visible.GetUserResponseModelName())
+
+	notMapped := newInfo(types.RelayFormatOpenAI, true)
+	notMapped.IsModelMapped = false
+	assert.False(t, notMapped.ShouldHideModelMappingFromUsers())
+	assert.Empty(t, notMapped.GetUserResponseModelOverride())
+	assert.Equal(t, "upstream", notMapped.GetUserResponseModelName())
 }
 
 func TestRelayInfoMetaTypedNilReceiver(t *testing.T) {

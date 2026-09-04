@@ -43,6 +43,14 @@ func TestChannelSettingsValidateSystemPromptMode(t *testing.T) {
 	require.Error(t, (&ChannelSettings{SystemPromptMode: " PREPEND "}).ValidateSystemPromptMode())
 }
 
+func TestChannelSettingsModelMappingVisibility(t *testing.T) {
+	settings := ChannelSettings{UserHiddenModelMappings: []string{"private-model"}}
+
+	assert.True(t, settings.IsModelMappingVisibleToUsers("public-model"))
+	assert.False(t, settings.IsModelMappingVisibleToUsers("private-model"))
+	assert.True(t, (*ChannelSettings)(nil).IsModelMappingVisibleToUsers("public-model"))
+}
+
 func TestAdvancedCustomValidateResponsesToChatConverterPath(t *testing.T) {
 	valid := &AdvancedCustomConfig{
 		Routes: []AdvancedCustomRoute{

@@ -888,6 +888,49 @@ func (info *RelayInfo) GetUpstreamModelName() string {
 	return info.UpstreamModelName
 }
 
+// ShouldHideModelMappingFromUsers reports whether this text mapping must be
+// hidden from ordinary users in both logs and responses.
+func (info *RelayInfo) ShouldHideModelMappingFromUsers() bool {
+	if info == nil || info.ChannelMeta == nil || !info.IsModelMapped {
+		return false
+	}
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI,
+		types.RelayFormatClaude,
+		types.RelayFormatOpenAIResponses,
+		types.RelayFormatOpenAIResponsesCompaction:
+	case types.RelayFormatGemini:
+		if info.RelayMode == relayconstant.RelayModeEmbeddings {
+			return false
+		}
+		switch info.Request.(type) {
+		case *dto.GeminiEmbeddingRequest, *dto.GeminiBatchEmbeddingRequest:
+			return false
+		}
+	default:
+		return false
+	}
+	return !info.ChannelSetting.IsModelMappingVisibleToUsers(info.OriginModelName)
+}
+
+// GetUserResponseModelOverride returns the requested model name only when the
+// selected mapping must be hidden from ordinary users.
+func (info *RelayInfo) GetUserResponseModelOverride() string {
+	if info.ShouldHideModelMappingFromUsers() {
+		return info.OriginModelName
+	}
+	return ""
+}
+
+// GetUserResponseModelName returns the model name for converted responses
+// that must populate a model field themselves.
+func (info *RelayInfo) GetUserResponseModelName() string {
+	if override := info.GetUserResponseModelOverride(); override != "" {
+		return override
+	}
+	return info.GetUpstreamModelName()
+}
+
 func (info *RelayInfo) HasChannelMeta() bool { return info != nil && info.ChannelMeta != nil }
 
 func (info *RelayInfo) GetChannelID() int {

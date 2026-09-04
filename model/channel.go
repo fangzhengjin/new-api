@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/samber/lo"
+	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -464,6 +466,11 @@ func BatchInsertChannels(channels []Channel) error {
 	if len(channels) == 0 {
 		return nil
 	}
+	for index := range channels {
+		if _, err := channels[index].ReconcileUserHiddenModelMappings(); err != nil {
+			return err
+		}
+	}
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return tx.Error
@@ -586,6 +593,61 @@ func MarshalChannelModelMapping(mapping map[string]string) (string, error) {
 	return string(data), nil
 }
 
+// ReconcileUserHiddenModelMappings removes entries that no longer belong to
+// the channel's current model mapping.
+func (channel *Channel) ReconcileUserHiddenModelMappings() (bool, error) {
+	settings := dto.ChannelSettings{}
+	if channel.Setting != nil && strings.TrimSpace(*channel.Setting) != "" {
+		if err := common.UnmarshalJsonStr(*channel.Setting, &settings); err != nil {
+			return false, err
+		}
+	}
+	mapping, err := ParseChannelModelMapping(channel)
+	if err != nil {
+		return false, err
+	}
+	if len(settings.UserHiddenModelMappings) == 0 {
+		return false, nil
+	}
+
+	seen := make(map[string]struct{}, len(settings.UserHiddenModelMappings))
+	hidden := make([]string, 0, len(settings.UserHiddenModelMappings))
+	for _, modelName := range settings.UserHiddenModelMappings {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			continue
+		}
+		if _, exists := mapping[modelName]; !exists {
+			continue
+		}
+		if _, exists := seen[modelName]; exists {
+			continue
+		}
+		seen[modelName] = struct{}{}
+		hidden = append(hidden, modelName)
+	}
+
+	if slices.Equal(hidden, settings.UserHiddenModelMappings) {
+		return false, nil
+	}
+
+	settingData := []byte(*channel.Setting)
+	if len(hidden) == 0 {
+		settingData, err = sjson.DeleteBytes(settingData, "user_hidden_model_mappings")
+	} else {
+		hiddenData, marshalErr := common.Marshal(hidden)
+		if marshalErr != nil {
+			return false, fmt.Errorf("failed to marshal user hidden model mappings: %w", marshalErr)
+		}
+		settingData, err = sjson.SetRawBytes(settingData, "user_hidden_model_mappings", hiddenData)
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to update user hidden model mappings: %w", err)
+	}
+	channel.Setting = common.GetPointer(string(settingData))
+	return true, nil
+}
+
 func (channel *Channel) GetStatusCodeMapping() string {
 	if channel.StatusCodeMapping == nil {
 		return ""
@@ -594,6 +656,9 @@ func (channel *Channel) GetStatusCodeMapping() string {
 }
 
 func (channel *Channel) Insert() error {
+	if _, err := channel.ReconcileUserHiddenModelMappings(); err != nil {
+		return err
+	}
 	var err error
 	err = DB.Create(channel).Error
 	if err != nil {
@@ -604,6 +669,16 @@ func (channel *Channel) Insert() error {
 }
 
 func (channel *Channel) Update() error {
+	return channel.update(false)
+}
+
+// UpdateWithModelMappingReconciliation updates an edit request and keeps its
+// model mapping visibility setting consistent with the effective mapping.
+func (channel *Channel) UpdateWithModelMappingReconciliation() error {
+	return channel.update(true)
+}
+
+func (channel *Channel) update(reconcileModelMapping bool) error {
 	// If this is a multi-key channel, recalculate MultiKeySize based on the current key list to avoid inconsistency after editing keys
 	if channel.ChannelInfo.IsMultiKey {
 		var keyStr string
@@ -643,7 +718,41 @@ func (channel *Channel) Update() error {
 		}
 	}
 	var err error
-	err = DB.Model(channel).Updates(channel).Error
+	if !reconcileModelMapping {
+		err = DB.Model(channel).Updates(channel).Error
+	} else {
+		switch {
+		case channel.ModelMapping != nil && channel.Setting != nil:
+			if _, err = channel.ReconcileUserHiddenModelMappings(); err == nil {
+				err = DB.Model(channel).Updates(channel).Error
+			}
+		case channel.ModelMapping == nil && channel.Setting == nil:
+			err = DB.Model(channel).Updates(channel).Error
+		default:
+			err = DB.Transaction(func(tx *gorm.DB) error {
+				current := Channel{Id: channel.Id}
+				if err := lockForUpdate(tx).Select("model_mapping", "setting").First(&current).Error; err != nil {
+					return err
+				}
+
+				effective := *channel
+				if effective.ModelMapping == nil {
+					effective.ModelMapping = current.ModelMapping
+				}
+				if effective.Setting == nil {
+					effective.Setting = current.Setting
+				}
+				settingChanged, err := effective.ReconcileUserHiddenModelMappings()
+				if err != nil {
+					return err
+				}
+				if channel.Setting != nil || settingChanged {
+					channel.Setting = effective.Setting
+				}
+				return tx.Model(channel).Updates(channel).Error
+			})
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -899,6 +1008,53 @@ func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *
 	}
 	if headerOverride != nil {
 		updateData.HeaderOverride = headerOverride
+	}
+
+	if modelMapping != nil {
+		return DB.Transaction(func(tx *gorm.DB) error {
+			var channels []Channel
+			if err := lockForUpdate(tx).Select("id", "setting").Where("tag = ?", tag).Find(&channels).Error; err != nil {
+				return err
+			}
+			channelIDs := make([]int, len(channels))
+			for index := range channels {
+				channelIDs[index] = channels[index].Id
+			}
+			if len(channelIDs) == 0 {
+				return nil
+			}
+			if err := tx.Model(&Channel{}).Where("id IN ?", channelIDs).Updates(updateData).Error; err != nil {
+				return err
+			}
+			for index := range channels {
+				channels[index].ModelMapping = modelMapping
+				changed, err := channels[index].ReconcileUserHiddenModelMappings()
+				if err != nil {
+					return err
+				}
+				if changed {
+					if err := tx.Model(&Channel{}).Where("id = ?", channels[index].Id).Update("setting", channels[index].Setting).Error; err != nil {
+						return err
+					}
+				}
+			}
+			if shouldReCreateAbilities {
+				var updatedChannels []Channel
+				if err := tx.Omit("key").Where("id IN ?", channelIDs).Find(&updatedChannels).Error; err != nil {
+					return err
+				}
+				for index := range updatedChannels {
+					if err := updatedChannels[index].UpdateAbilities(tx); err != nil {
+						return fmt.Errorf("failed to update abilities for channel %d: %w", updatedChannels[index].Id, err)
+					}
+				}
+				return nil
+			}
+			if err := updateAbilityRoutingFields(tx.Model(&Ability{}).Where("channel_id IN ?", channelIDs), newTag, priority, weight); err != nil {
+				return fmt.Errorf("failed to update abilities for channels by tag %s: %w", tag, err)
+			}
+			return nil
+		})
 	}
 
 	err := DB.Model(&Channel{}).Where("tag = ?", tag).Updates(updateData).Error

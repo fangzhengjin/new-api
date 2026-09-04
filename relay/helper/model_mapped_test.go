@@ -6,6 +6,7 @@ import (
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,4 +39,33 @@ func TestModelMappedHelperAppliesOnlyOneMapping(t *testing.T) {
 			assert.Equal(t, tt.upstream, request.Model)
 		})
 	}
+}
+
+func TestModelMappedHelperCapturesResponseOverrideOnlyForHiddenTextMapping(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("model_mapping", `{"requested":"upstream"}`)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested",
+		RelayFormat:     types.RelayFormatOpenAI,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "requested",
+			ChannelSetting: dto.ChannelSettings{
+				UserHiddenModelMappings: []string{"requested"},
+			},
+		},
+	}
+
+	require.NoError(t, ModelMappedHelper(c, info, nil))
+	assert.Equal(t, "requested", relaycommon.GetUserResponseModelOverride(c))
+
+	c.Set("model_mapping", `{}`)
+	info.ChannelMeta.IsModelMapped = false
+	info.ChannelMeta.UpstreamModelName = info.OriginModelName
+	require.NoError(t, ModelMappedHelper(c, info, nil))
+	assert.Empty(t, relaycommon.GetUserResponseModelOverride(c))
+
+	c.Set("model_mapping", `{"requested":"upstream"}`)
+	info.RelayFormat = types.RelayFormatOpenAIImage
+	require.NoError(t, ModelMappedHelper(c, info, nil))
+	assert.Empty(t, relaycommon.GetUserResponseModelOverride(c))
 }

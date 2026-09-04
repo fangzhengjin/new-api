@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -179,6 +180,17 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 }
 
+func rewriteResponseModel(c *gin.Context, data string) (string, error) {
+	rewritten, err := relaycommon.RewriteResponseModel(
+		[]byte(data),
+		relaycommon.GetUserResponseModelOverride(c),
+	)
+	if err != nil {
+		return "", err
+	}
+	return string(rewritten), nil
+}
+
 func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if requestContextDone(c) {
 		return nil
@@ -186,11 +198,14 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 
 	jsonData, err := common.Marshal(resp)
 	if err != nil {
-		common.SysError(common.LogText("error marshalling stream response: %s", err.Error()))
-	} else {
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
+		return fmt.Errorf("error marshalling stream response: %w", err)
 	}
+	data, err := rewriteResponseModel(c, string(jsonData))
+	if err != nil {
+		return err
+	}
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
+	c.Render(-1, common.CustomEvent{Data: "data: " + data})
 	_ = FlushWriter(c)
 	return nil
 }
@@ -200,8 +215,13 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
 		return
 	}
 
+	rewritten, err := rewriteResponseModel(c, data)
+	if err != nil {
+		logger.LogError(c, err.Error())
+		return
+	}
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", rewritten)})
 	_ = FlushWriter(c)
 }
 
@@ -210,8 +230,12 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
+	rewritten, err := rewriteResponseModel(c, data)
+	if err != nil {
+		return err
+	}
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", rewritten)})
 	return FlushWriter(c)
 }
 
@@ -224,7 +248,11 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: "data: " + str})
+	rewritten, err := rewriteResponseModel(c, str)
+	if err != nil {
+		return err
+	}
+	c.Render(-1, common.CustomEvent{Data: "data: " + rewritten})
 	return FlushWriter(c)
 }
 

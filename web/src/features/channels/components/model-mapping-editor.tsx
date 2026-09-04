@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Code, ListPlus, Plus, Table, Trash2 } from 'lucide-react'
 import {
+  Fragment,
   useEffect,
   useEffectEvent,
   useId,
@@ -30,6 +31,7 @@ import { useTranslation } from 'react-i18next'
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -69,6 +71,9 @@ type ModelMappingEditorProps = {
   onCommit?: (value: string) => void
   draftRequest?: ModelMappingDraftRequest | null
   onDraftRequestHandled?: () => void
+  userHiddenModelMappings?: string[]
+  onUserHiddenModelMappingsChange?: (models: string[]) => void
+  userHiddenModelMappingsDisabled?: boolean
 }
 
 type MappingRow = {
@@ -295,6 +300,18 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
     props.onChange(json)
   }
 
+  const handleVisibilityChange = (source: string, visible: boolean) => {
+    const model = source.trim()
+    if (!model || props.userHiddenModelMappingsDisabled) return
+    const hiddenModels = new Set(props.userHiddenModelMappings || [])
+    if (visible) {
+      hiddenModels.delete(model)
+    } else {
+      hiddenModels.add(model)
+    }
+    props.onUserHiddenModelMappingsChange?.([...hiddenModels])
+  }
+
   const handleAddRow = () => {
     const newRow: MappingRow = {
       id: createRowId(),
@@ -459,55 +476,78 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                   )}
                 </div>
               )}
-              <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
-                <div>{t('Request Model Name')}</div>
-                <div>{t('Upstream Model Name')}</div>
-                <div className='w-10' />
-              </div>
-              {visibleRows.map((row) => (
-                <div
-                  key={row.id}
-                  className='grid grid-cols-[1fr_1fr_auto] gap-2'
-                >
-                  <ComboboxInput
-                    id={rowInputId(row.id, 'from')}
-                    options={sourceOptions}
-                    value={row.from}
-                    onValueChange={(value) =>
-                      handleRowChange(row.id, 'from', value)
-                    }
-                    placeholder='gpt-3.5-turbo'
-                    emptyText='No matching items'
-                    allowCustomValue
-                    disabled={props.disabled}
-                    aria-label={t('Request Model Name')}
-                  />
-                  <ComboboxInput
-                    id={rowInputId(row.id, 'to')}
-                    options={targetOptions}
-                    value={row.to}
-                    onValueChange={(value) =>
-                      handleRowChange(row.id, 'to', value)
-                    }
-                    placeholder='gpt-3.5-turbo-0125'
-                    emptyText='No matching items'
-                    allowCustomValue
-                    disabled={props.disabled}
-                    aria-label={t('Upstream Model Name')}
-                  />
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => handleDeleteRow(row.id)}
-                    disabled={props.disabled}
-                    className='h-10 w-10'
-                    aria-label={t('Delete mapping')}
-                  >
-                    <Trash2 className='h-4 w-4' aria-hidden='true' />
-                  </Button>
+              {/* One shared grid keeps every column aligned: `auto` tracks take
+                  the widest cell across the header and all rows. */}
+              <div className='grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2'>
+                <div className='text-sm font-medium'>
+                  {t('Request Model Name')}
                 </div>
-              ))}
+                <div className='text-sm font-medium'>
+                  {t('Upstream Model Name')}
+                </div>
+                <div className='justify-self-center whitespace-nowrap text-sm font-medium'>
+                  {t('Visible to users')}
+                </div>
+                <div />
+                {visibleRows.map((row) => (
+                  <Fragment key={row.id}>
+                    <ComboboxInput
+                      id={rowInputId(row.id, 'from')}
+                      options={sourceOptions}
+                      value={row.from}
+                      onValueChange={(value) =>
+                        handleRowChange(row.id, 'from', value)
+                      }
+                      placeholder='gpt-3.5-turbo'
+                      emptyText='No matching items'
+                      allowCustomValue
+                      disabled={props.disabled}
+                      aria-label={t('Request Model Name')}
+                    />
+                    <ComboboxInput
+                      id={rowInputId(row.id, 'to')}
+                      options={targetOptions}
+                      value={row.to}
+                      onValueChange={(value) =>
+                        handleRowChange(row.id, 'to', value)
+                      }
+                      placeholder='gpt-3.5-turbo-0125'
+                      emptyText='No matching items'
+                      allowCustomValue
+                      disabled={props.disabled}
+                      aria-label={t('Upstream Model Name')}
+                    />
+                    <div className='flex items-center justify-center'>
+                      <Checkbox
+                        checked={
+                          !props.userHiddenModelMappings?.includes(
+                            row.from.trim()
+                          )
+                        }
+                        onCheckedChange={(checked) =>
+                          handleVisibilityChange(row.from, checked === true)
+                        }
+                        disabled={
+                          props.disabled ||
+                          props.userHiddenModelMappingsDisabled
+                        }
+                        aria-label={t('Visible to users')}
+                      />
+                    </div>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      onClick={() => handleDeleteRow(row.id)}
+                      disabled={props.disabled}
+                      className='h-10 w-10'
+                      aria-label={t('Delete mapping')}
+                    >
+                      <Trash2 className='h-4 w-4' aria-hidden='true' />
+                    </Button>
+                  </Fragment>
+                ))}
+              </div>
               {visibleRows.length === 0 && (
                 <p className='text-muted-foreground py-3 text-center text-sm'>
                   {t('No matching items')}

@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -10,7 +11,111 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 )
+
+// NormalizeEntryModelModifiers expands explicit model parameters into native
+// JSON fields without invoking provider conversion or altering unrelated fields.
+func NormalizeEntryModelModifiers(body []byte, model string, format types.RelayFormat) ([]byte, string, error) {
+	if model_setting.ShouldPreserveThinkingSuffix(model) {
+		return body, model, nil
+	}
+	spec := reasoning.ParseModelModifiers(model)
+	if !spec.HasModifiers() {
+		if strings.HasPrefix(model, "@") {
+			// The parser preserves empty-base names; a temporary base lets it
+			// distinguish an actual modifier chain from an opaque @ name.
+			if probe := reasoning.ParseModelModifiers("_" + model); probe.HasModifiers() && probe.Base == "_" {
+				return nil, "", fmt.Errorf("model is required before modifiers")
+			}
+		}
+		return body, model, nil
+	}
+	if strings.TrimSpace(spec.Base) == "" {
+		return nil, "", fmt.Errorf("model is required before modifiers")
+	}
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(body, &fields); err != nil {
+		return nil, "", err
+	}
+	for _, modifier := range spec.Modifiers {
+		var field, child string
+		var value any
+		switch modifier.Key {
+		case "effort":
+			effort, err := reasoning.ParseEffort(modifier.Value)
+			if err != nil || effort == "" {
+				return nil, "", fmt.Errorf("invalid effort modifier %q: expected none/minimal/low/medium/high/xhigh/max", modifier.Value)
+			}
+			value = string(effort)
+			switch format {
+			case types.RelayFormatOpenAI:
+				field = "reasoning_effort"
+			case types.RelayFormatOpenAIResponses:
+				field, child = "reasoning", "effort"
+			case types.RelayFormatClaude:
+				field, child = "output_config", "effort"
+			default:
+				return nil, "", fmt.Errorf("unsupported model modifier protocol %q", format)
+			}
+		case "thinking":
+			if format != types.RelayFormatClaude {
+				return nil, "", fmt.Errorf("@thinking is only supported by Messages")
+			}
+			mode := strings.ToLower(strings.TrimSpace(modifier.Value))
+			switch mode {
+			case "on", "enabled":
+				value = "enabled"
+			case "off", "disabled":
+				value = "disabled"
+			case "adaptive":
+				value = "adaptive"
+			default:
+				return nil, "", fmt.Errorf("invalid thinking modifier %q: expected on/off/enabled/disabled/adaptive", modifier.Value)
+			}
+			field, child = "thinking", "type"
+		case "temperature", "topp":
+			number, ok := parseFiniteFloat(modifier.Value)
+			if !ok {
+				return nil, "", fmt.Errorf("invalid %s modifier: expected a finite number", modifier.Key)
+			}
+			field, value = "temperature", number
+			if modifier.Key == "topp" {
+				field = "top_p"
+			}
+		default:
+			return nil, "", modelModifierClientError(fmt.Sprintf("unsupported model modifier %q", modifier.Key))
+		}
+		encoded, err := common.Marshal(value)
+		if err != nil {
+			return nil, "", err
+		}
+		if child != "" {
+			nested := make(map[string]json.RawMessage)
+			if raw, exists := fields[field]; exists {
+				if common.GetJsonType(raw) != "object" {
+					return nil, "", fmt.Errorf("%s must be a JSON object", field)
+				}
+				if err := common.Unmarshal(raw, &nested); err != nil {
+					return nil, "", err
+				}
+			}
+			nested[child] = encoded
+			encoded, err = common.Marshal(nested)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+		fields[field] = encoded
+	}
+	encodedModel, err := common.Marshal(spec.Base)
+	if err != nil {
+		return nil, "", err
+	}
+	fields["model"] = encodedModel
+	encoded, err := common.Marshal(fields)
+	return encoded, spec.Base, err
+}
 
 type parsedModelModifiers struct {
 	base           string

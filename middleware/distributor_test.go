@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
@@ -16,6 +18,157 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEntryModelModifiers(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, tc := range []struct {
+		name, path, body, want string
+		invalid                bool
+	}{
+		{"chat", "/v1/chat/completions", `{"model":"qwen@effort:high@effort:MAX","reasoning_effort":"low","extra":9007199254740993,"temperature":0}`, `{"model":"qwen","reasoning_effort":"max","extra":9007199254740993,"temperature":0}`, false},
+		{"responses", "/v1/responses", `{"model":"qwen@effort:none","reasoning":{"effort":"high","summary":"auto"}}`, `{"model":"qwen","reasoning":{"effort":"none","summary":"auto"}}`, false},
+		{"messages", "/v1/messages", `{"model":"qwen@thinking:on@effort:max","thinking":{"budget_tokens":4096},"output_config":{"format":"test"}}`, `{"model":"qwen","thinking":{"type":"enabled","budget_tokens":4096},"output_config":{"format":"test","effort":"max"}}`, false},
+		{"independent", "/v1/messages", `{"model":"qwen@effort:max@thinking:off"}`, `{"model":"qwen","thinking":{"type":"disabled"},"output_config":{"effort":"max"}}`, false},
+		{"reverse", "/v1/messages", `{"model":"qwen@thinking:off@effort:max"}`, `{"model":"qwen","thinking":{"type":"disabled"},"output_config":{"effort":"max"}}`, false},
+		{"adaptive", "/v1/messages", `{"model":"qwen@thinking:adaptive"}`, `{"model":"qwen","thinking":{"type":"adaptive"}}`, false},
+		{"enabled", "/v1/messages", `{"model":"qwen@thinking:enabled"}`, `{"model":"qwen","thinking":{"type":"enabled"}}`, false},
+		{"disabled", "/v1/messages", `{"model":"qwen@thinking:on@thinking:disabled"}`, `{"model":"qwen","thinking":{"type":"disabled"}}`, false},
+		{"native", "/v1/messages", `{"model":"qwen","thinking":{"type":"adaptive"}}`, `{"model":"qwen","thinking":{"type":"adaptive"}}`, false},
+		{"other endpoint", "/v1/images/generations", `{"model":"qwen@thinking:on"}`, `{"model":"qwen@thinking:on"}`, false},
+		{"chat thinking", "/v1/chat/completions", `{"model":"qwen@thinking:off@effort:max"}`, "", true},
+		{"responses thinking", "/v1/responses", `{"model":"qwen@thinking:adaptive"}`, "", true},
+		{"bad effort", "/v1/messages", `{"model":"qwen@effort:typo"}`, "", true},
+		{"empty effort", "/v1/responses", `{"model":"qwen@effort:"}`, "", true},
+		{"bad thinking", "/v1/messages", `{"model":"qwen@thinking:4096"}`, "", true},
+		{"empty thinking", "/v1/messages", `{"model":"qwen@thinking:"}`, "", true},
+		{"bad parent", "/v1/messages", `{"model":"qwen@thinking:on","thinking":false}`, "", true},
+		{"bad reasoning", "/v1/responses", `{"model":"qwen@effort:max","reasoning":[]}`, "", true},
+		{"unknown", "/v1/messages", `{"model":"qwen@unknown:yes"}`, "", true},
+		{"empty model", "/v1/messages", `{"model":"@effort:max"}`, "", true},
+		{"empty model and effort", "/v1/messages", `{"model":"@effort:"}`, "", true},
+		{"empty model chain", "/v1/messages", `{"model":"@thinking:on@effort:max"}`, "", true},
+		{"opaque at name", "/v1/messages", `{"model":"@vendor/model"}`, `{"model":"@vendor/model"}`, false},
+		{"opaque effort name", "/v1/messages", `{"model":"@effort"}`, `{"model":"@effort"}`, false},
+		{"opaque with modifier", "/v1/chat/completions", `{"model":"@vendor/model@effort:max"}`, `{"model":"@vendor/model","reasoning_effort":"max"}`, false},
+		{"sampling chat", "/v1/chat/completions", `{"model":"qwen@temperature:0.2@temperature:0@topp:0@effort:max","temperature":1,"top_p":1}`, `{"model":"qwen","temperature":0,"top_p":0,"reasoning_effort":"max"}`, false},
+		{"sampling responses", "/v1/responses", `{"model":"qwen@temperature:0.2@topp:0.8@effort:low"}`, `{"model":"qwen","temperature":0.2,"top_p":0.8,"reasoning":{"effort":"low"}}`, false},
+		{"sampling messages", "/v1/messages", `{"model":"qwen@temperature:0.2@topp:0.8@thinking:on@effort:max"}`, `{"model":"qwen","temperature":0.2,"top_p":0.8,"thinking":{"type":"enabled"},"output_config":{"effort":"max"}}`, false},
+		{"invalid temperature", "/v1/messages", `{"model":"qwen@temperature:NaN"}`, "", true},
+		{"invalid topp", "/v1/responses", `{"model":"qwen@topp:Inf"}`, "", true},
+		{"empty temperature", "/v1/chat/completions", `{"model":"qwen@temperature:"}`, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			t.Cleanup(func() { common.CleanupBodyStorage(c) })
+			model, err := getModelFromRequest(c)
+			if tc.invalid {
+				require.Error(t, err)
+				storage, storageErr := common.GetBodyStorage(c)
+				require.NoError(t, storageErr)
+				body, readErr := storage.Bytes()
+				require.NoError(t, readErr)
+				assert.Equal(t, tc.body, string(body))
+				return
+			}
+			require.NoError(t, err)
+			storage, err := common.GetBodyStorage(c)
+			require.NoError(t, err)
+			body, err := storage.Bytes()
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(body))
+			if strings.Contains(tc.body, "9007199254740993") {
+				assert.Contains(t, string(body), "9007199254740993")
+			}
+			again, err := getModelFromRequest(c)
+			require.NoError(t, err)
+			assert.Equal(t, model, again)
+			current, err := common.GetBodyStorage(c)
+			require.NoError(t, err)
+			assert.Same(t, storage, current)
+		})
+	}
+}
+
+func TestInvalidEntryModifierStopsDistribution(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/v1/chat/completions", BodyStorageCleanup(), Distribute(), func(c *gin.Context) { t.Error("invalid modifier reached downstream") })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"qwen@thinking:on"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestEntryModifierPassthroughAndExemption(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	previous, blacklist := settings.PassThroughRequestEnabled, settings.ThinkingModelBlacklist
+	t.Cleanup(func() { settings.PassThroughRequestEnabled, settings.ThinkingModelBlacklist = previous, blacklist })
+	settings.PassThroughRequestEnabled = true
+	settings.ThinkingModelBlacklist = []string{"opaque@effort:max"}
+	for _, modelName := range []string{"opaque@effort:max", "qwen@effort:max", "qwen-max"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		body := fmt.Sprintf(`{"model":%q}`, modelName)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{PassThroughBodyEnabled: true})
+		t.Cleanup(func() { common.CleanupBodyStorage(c) })
+		request, err := getModelFromRequest(c)
+		require.NoError(t, err)
+		storage, err := common.GetBodyStorage(c)
+		require.NoError(t, err)
+		payload, err := storage.Bytes()
+		require.NoError(t, err)
+		if modelName == "qwen@effort:max" {
+			assert.Equal(t, "qwen", request.Model)
+			assert.JSONEq(t, `{"model":"qwen","reasoning":{"effort":"max"}}`, string(payload))
+			assert.Equal(t, int64(len(payload)), c.Request.ContentLength)
+		} else {
+			assert.Equal(t, modelName, request.Model)
+			assert.Equal(t, body, string(payload))
+		}
+		c.Set(contextKeyTaskPluginEndpointModel, *request)
+		cached, err := getModelFromRequest(c)
+		require.NoError(t, err)
+		assert.Equal(t, request, cached)
+	}
+}
+
+func TestEntryEffortNativeFields(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+			t.Run(path+"/"+effort, func(t *testing.T) {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(fmt.Sprintf(`{"model":"qwen@effort:%s"}`, effort)))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				_, err := getModelFromRequest(c)
+				require.NoError(t, err)
+				switch path {
+				case "/v1/chat/completions":
+					var req dto.GeneralOpenAIRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					assert.Equal(t, effort, req.ReasoningEffort)
+					assert.Nil(t, req.ReasoningConversion)
+				case "/v1/responses":
+					var req dto.OpenAIResponsesRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					require.NotNil(t, req.Reasoning)
+					assert.Equal(t, effort, req.Reasoning.Effort)
+					assert.Nil(t, req.ReasoningConversion)
+				case "/v1/messages":
+					var req dto.ClaudeRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					assert.JSONEq(t, fmt.Sprintf(`{"effort":%q}`, effort), string(req.OutputConfig))
+					assert.Nil(t, req.Thinking)
+				}
+			})
+		}
+	}
+}
 
 func TestChannelMatchesExpectedTaskPluginUsesGenericChannelSetting(t *testing.T) {
 	channel := &model.Channel{Type: constant.ChannelTypeTaskPlugin}

@@ -145,6 +145,7 @@ func fetchJSON[T any](ctx context.Context, url string, out *upstreamEnvelope[T])
 		resp, err := getHTTPClient().Do(req)
 		if err != nil {
 			lastErr = err
+			getHTTPClient().CloseIdleConnections()
 			// backoff with jitter
 			sleep := baseDelay * time.Duration(1<<attempt)
 			jitter := time.Duration(rand.Intn(150)) * time.Millisecond
@@ -160,6 +161,7 @@ func fetchJSON[T any](ctx context.Context, url string, out *upstreamEnvelope[T])
 				buf, err := io.ReadAll(limited)
 				if err != nil {
 					lastErr = err
+					getHTTPClient().CloseIdleConnections()
 					return
 				}
 				if int64(len(buf)) > maxBytes {

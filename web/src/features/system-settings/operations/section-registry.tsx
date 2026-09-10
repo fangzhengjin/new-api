@@ -109,6 +109,11 @@ const OPERATIONS_SECTIONS = [
           'log_setting.max_range_days':
             settings['log_setting.max_range_days'] ?? 365,
         }}
+        defaultRules={settings.RequestHeaderRules}
+        builtInRules={settings.RequestHeaderRulesDefault}
+        cdnRuleGroups={settings.RequestHeaderCDNRuleGroups}
+        systemRules={settings.RequestHeaderSystemRules}
+        capacityBytes={settings.RequestHeaderAuditCapacityBytes}
       />
     ),
   },

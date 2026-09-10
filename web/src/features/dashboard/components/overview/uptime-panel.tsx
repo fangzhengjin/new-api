@@ -125,7 +125,7 @@ export function UptimePanel() {
         </Button>
       }
     >
-      <ScrollArea className='h-80'>
+      <ScrollArea autoHide className='h-80'>
         <div>
           {groups.map((group, groupIdx) => (
             <div key={group.categoryName}>

@@ -28,6 +28,7 @@ export type UserPermissions = {
 }
 
 export interface AuthUser {
+  setup_guide_completed?: boolean
   has_password?: boolean
   id: number
   username: string

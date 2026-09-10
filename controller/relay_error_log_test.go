@@ -96,4 +96,9 @@ func TestRecordRelayErrorLogUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, userOther, key)
 	}
+
+	recordRelayErrorLog(ctx, apiErr, nil, nil)
+	var contextChannelLog model.Log
+	require.NoError(t, database.Where("channel_id = ?", 202).First(&contextChannelLog).Error)
+	assert.Equal(t, 202, contextChannelLog.ChannelId)
 }

@@ -130,6 +130,10 @@ func GetOptions(c *gin.Context) {
 			Value: operation_setting.DefaultRequestHeaderRulesJSON(),
 		},
 		&model.Option{
+			Key:   operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
+			Value: operation_setting.CDNRequestHeaderRuleGroupsJSON(),
+		},
+		&model.Option{
 			Key:   operation_setting.RequestHeaderSystemRulesOptionKey,
 			Value: operation_setting.SystemRequestHeaderRulesJSON(),
 		},
@@ -333,6 +337,12 @@ func validateOptionUpdate(c *gin.Context, key string, value string, values map[s
 		}
 	case "codex.request_header_model_patterns", "claude.request_header_model_patterns":
 		err = model_setting.ValidateClientIdentityModelPatterns(value)
+		if err != nil {
+			common.ApiError(c, err)
+			return false
+		}
+	case "codex.error_response_mappings":
+		err = model_setting.ValidateCodexErrorResponseMappings(value)
 		if err != nil {
 			common.ApiError(c, err)
 			return false

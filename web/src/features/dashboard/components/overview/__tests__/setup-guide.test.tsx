@@ -107,74 +107,72 @@ async function renderOverview() {
 }
 
 describe('overview setup guide', () => {
-  it('shows usage first and only a header entry when setup is complete', async () => {
+  it('shows usage without a guide or reopen entry when setup is complete', async () => {
     await renderOverview()
+    await waitFor(() => expect(client.isFetching()).toBe(0))
 
-    const toggle = await screen.findByRole('button', { name: 'Setup guide' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(
       screen.getAllByRole('heading').map((heading) => heading.textContent)
     ).toEqual(['Overview', 'Usage at a glance'])
-    expect(screen.queryByText('Setup guide complete')).not.toBeInTheDocument()
-    expect(screen.queryByText('Setup progress: 3/3')).not.toBeInTheDocument()
-    for (const name of ['API Keys', 'Channels', 'Usage Logs', 'Pricing']) {
+    expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
+    for (const name of [
+      'Setup guide',
+      'Show setup guide',
+      'Hide setup guide',
+    ]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
-    const panel = document.getElementById(
-      toggle.getAttribute('aria-controls') ?? ''
-    )
-    expect(panel).toBeInTheDocument()
-    expect(panel).not.toBeVisible()
   })
 
-  it('toggles the completed guide with the keyboard and restores focus after hiding it', async () => {
-    const user = userEvent.setup()
-    await renderOverview()
-    const toggle = await screen.findByRole('button', { name: 'Setup guide' })
-
-    await user.tab()
-    expect(toggle).toHaveFocus()
-    await user.keyboard('{Enter}')
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(
-      document.getElementById(toggle.getAttribute('aria-controls') ?? '')
-    ).toBeVisible()
-    expect(
-      screen.getByRole('heading', {
-        name: 'Build on your API gateway in minutes',
-      })
-    ).toBeVisible()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /^API Keys/ })).toBeVisible()
-    )
-
-    await user.keyboard(' ')
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(toggle).toHaveFocus()
-    await user.click(toggle)
-    await user.click(screen.getByRole('button', { name: 'Hide setup guide' }))
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(toggle).toHaveFocus()
-  })
-
-  it('restores the completed guide preference after remounting', async () => {
-    const user = userEvent.setup()
+  it('keeps a completed guide hidden despite a stored expanded preference after remounting', async () => {
+    window.localStorage.setItem(storageKey, 'expanded')
     const first = await renderOverview()
-    await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+    expect(
+      screen.queryByRole('button', { name: 'Hide setup guide' })
+    ).not.toBeInTheDocument()
     first.unmount()
 
-    const second = await renderOverview()
-    expect(
-      await screen.findByRole('button', { name: 'Setup guide' })
-    ).toHaveAttribute('aria-expanded', 'true')
-    await user.click(screen.getByRole('button', { name: 'Hide setup guide' }))
-    second.unmount()
+    await renderOverview()
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+    for (const name of [
+      'Setup guide',
+      'Show setup guide',
+      'Hide setup guide',
+    ]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+  })
 
+  it('hides an expanded guide when the remaining setup step completes', async () => {
+    useAuthStore.getState().auth.setUser({
+      id: 1,
+      username: 'dashboard-user',
+      role: 1,
+      quota: 1000000,
+    })
+    window.localStorage.setItem(storageKey, 'expanded')
     await renderOverview()
     expect(
-      await screen.findByRole('button', { name: 'Setup guide' })
-    ).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('Setup guide complete')).not.toBeInTheDocument()
+      await screen.findByRole('button', { name: 'Hide setup guide' })
+    ).toBeVisible()
+
+    act(() => {
+      useAuthStore.getState().auth.setUser({
+        id: 1,
+        username: 'dashboard-user',
+        role: 1,
+        quota: 1000000,
+        request_count: 1,
+      })
+    })
+    for (const name of [
+      'Setup guide',
+      'Show setup guide',
+      'Hide setup guide',
+    ]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
   })
 
   it('keeps the existing progress banner when an incomplete guide is manually collapsed', async () => {
@@ -222,8 +220,8 @@ describe('overview setup guide', () => {
       })
     })
     expect(
-      await screen.findByRole('button', { name: 'Setup guide' })
-    ).toHaveAttribute('aria-expanded', 'false')
+      screen.queryByRole('button', { name: 'Setup guide' })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
   })
 
@@ -236,6 +234,26 @@ describe('overview setup guide', () => {
     ).toBeVisible()
     expect(
       screen.queryByRole('button', { name: 'Setup guide' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps account completion hidden after key lookup failure on another device', async () => {
+    window.localStorage.clear()
+    keyLookupError = new Error('Key lookup unavailable')
+    useAuthStore.getState().auth.setUser({
+      id: 1,
+      username: 'dashboard-user',
+      role: 1,
+      setup_guide_completed: true,
+    })
+    await renderOverview()
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+    expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Show setup guide' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Hide setup guide' })
     ).not.toBeInTheDocument()
   })
 })

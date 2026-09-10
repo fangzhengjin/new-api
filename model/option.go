@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -259,12 +260,24 @@ func validateOptionValue(key string, value string) error {
 	case "Chats", "PayMethods":
 		var entries []map[string]string
 		return common.UnmarshalJsonStr(value, &entries)
+	case "console_setting.overview_panel_order":
+		return console_setting.ValidateOverviewPanelOrder(value)
+	case "CompanyQuotaModeEnabled", "quota_setting.enable_free_model_pre_consume",
+		"channel_affinity_setting.renew_ttl_on_success",
+		"codex.client_version_check_enabled", "codex.desktop_client_version_check_enabled",
+		"codex.request_header_fallback_enabled", "claude.client_version_check_enabled",
+		"claude.request_header_fallback_enabled":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("配置项 %s 必须为 true 或 false", key)
+		}
+		return nil
 	case operation_setting.RequestHeaderRulesOptionKey:
 		return operation_setting.ValidateRequestHeaderRulesJSON(value)
 	case operation_setting.LegacyRequestHeaderIgnoredHeadersKey,
 		operation_setting.LegacyRequestHeaderBlockedHeadersKey:
 		return fmt.Errorf("配置项 %s 已合并到 %s", key, operation_setting.RequestHeaderRulesOptionKey)
 	case operation_setting.RequestHeaderRulesDefaultOptionKey,
+		operation_setting.RequestHeaderCDNRuleGroupsOptionKey,
 		operation_setting.RequestHeaderSystemRulesOptionKey,
 		"RequestHeaderAuditCapacityBytes":
 		return fmt.Errorf("配置项 %s 为只读", key)
@@ -279,6 +292,8 @@ func validateOptionValue(key string, value string) error {
 	case "codex.request_header_fallback_os", "codex.request_header_fallback_os_version",
 		"codex.request_header_fallback_architecture", "codex.request_header_fallback_terminal":
 		return model_setting.ValidateCodexUserAgentComponent(value)
+	case "codex.error_response_mappings":
+		return model_setting.ValidateCodexErrorResponseMappings(value)
 	case "UserUsableGroups":
 		var groups map[string]string
 		return common.UnmarshalJsonStr(value, &groups)
@@ -388,6 +403,7 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	if key == operation_setting.RequestHeaderRulesOptionKey ||
 		key == operation_setting.RequestHeaderRulesDefaultOptionKey ||
+		key == operation_setting.RequestHeaderCDNRuleGroupsOptionKey ||
 		key == operation_setting.RequestHeaderSystemRulesOptionKey ||
 		key == "RequestHeaderAuditCapacityBytes" {
 		if err := validateOptionValue(key, value); err != nil {

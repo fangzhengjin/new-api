@@ -16,6 +16,31 @@ const (
 
 var clientVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
+func isCodexCLIProduct(productName string) bool {
+	switch strings.ToLower(productName) {
+	case "codex-tui", "codex_cli_rs", "codex-cli":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsCodexUserAgent reports whether the User-Agent starts with a supported
+// Codex CLI or Codex Desktop product token.
+func IsCodexUserAgent(userAgent string) bool {
+	userAgent = strings.TrimSpace(userAgent)
+	const desktopPrefix = "codex desktop/"
+	if strings.HasPrefix(strings.ToLower(userAgent), desktopPrefix) {
+		versionText := userAgent[len(desktopPrefix):]
+		versionText, _, _ = strings.Cut(versionText, " ")
+		return versionText != ""
+	}
+
+	product, _, _ := strings.Cut(userAgent, " ")
+	productName, versionText, ok := strings.Cut(product, "/")
+	return ok && versionText != "" && isCodexCLIProduct(productName)
+}
+
 // OutdatedClientVersion describes a recognized client whose version is below
 // the configured minimum.
 type OutdatedClientVersion struct {
@@ -65,8 +90,7 @@ func CheckClientVersion(userAgent string, checkClaudeCode, checkCodex bool) *Out
 			return nil
 		}
 		rawVersion = versionText
-		switch strings.ToLower(productName) {
-		case "codex-tui", "codex_cli_rs", "codex-cli":
+		if isCodexCLIProduct(productName) {
 			if !checkCodex {
 				return nil
 			}
@@ -76,7 +100,7 @@ func CheckClientVersion(userAgent string, checkClaudeCode, checkCodex bool) *Out
 			}
 			clientName = "Codex CLI"
 			minimumVersion = settings.MinimumClientVersion
-		case "claude-cli":
+		} else if strings.EqualFold(productName, "claude-cli") {
 			if !checkClaudeCode {
 				return nil
 			}
@@ -86,7 +110,7 @@ func CheckClientVersion(userAgent string, checkClaudeCode, checkCodex bool) *Out
 			}
 			clientName = "Claude Code"
 			minimumVersion = settings.MinimumClientVersion
-		default:
+		} else {
 			return nil
 		}
 	}

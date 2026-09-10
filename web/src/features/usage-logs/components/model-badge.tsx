@@ -131,19 +131,23 @@ export function ModelBadge(props: ModelBadgeProps) {
 
   const content = (
     <>
-      <ModelBadgeContent {...props} copyable={false} />
+      {/* Badge and redirect icon stay one unbreakable flex item so wrapping
+          containers never push the icon onto its own line. */}
+      <span className='inline-flex max-w-full min-w-0 items-center gap-1'>
+        <ModelBadgeContent {...props} copyable={false} />
+        {!mismatch && props.actualModel && (
+          <Route
+            className='text-muted-foreground size-3 shrink-0'
+            aria-hidden='true'
+          />
+        )}
+      </span>
       {mismatch && (
         <StatusBadge
           icon={AlertTriangle}
           label={responseModelLabel}
           variant='warning'
           copyable={false}
-        />
-      )}
-      {!mismatch && props.actualModel && (
-        <Route
-          className='text-muted-foreground size-3 shrink-0'
-          aria-hidden='true'
         />
       )}
     </>

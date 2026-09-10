@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -96,6 +97,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				return
 			}
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			if writeCodexMappedErrorResponse(c, relayFormat, newAPIError) {
+				return
+			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
@@ -112,6 +116,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 	}()
+
+	checkCodexVersion := relayFormat == types.RelayFormatOpenAIResponses ||
+		relayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		relayFormat == types.RelayFormatOpenAIAlphaSearch
+	if outdated := model_setting.CheckClientVersion(c.Request.UserAgent(), relayFormat == types.RelayFormatClaude, checkCodexVersion); outdated != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(outdated.Message()),
+			types.ErrorCodeClientVersionTooLow,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+		service.RecordRelayErrorLog(c, newAPIError, nil, nil)
+		return
+	}
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {
@@ -259,6 +277,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
 	}
+}
+
+func writeCodexMappedErrorResponse(c *gin.Context, relayFormat types.RelayFormat, newAPIError *types.NewAPIError) bool {
+	if relayFormat != types.RelayFormatOpenAIResponses || newAPIError == nil || newAPIError.UpstreamStatusCode == 0 {
+		return false
+	}
+	rewrite, matched := model_setting.MatchCodexErrorResponse(
+		c.Request.UserAgent(),
+		c.Request.URL.Path,
+		newAPIError.UpstreamStatusCode,
+		newAPIError.ToOpenAIError().Message,
+	)
+	if !matched {
+		return false
+	}
+	c.JSON(rewrite.StatusCode, gin.H{
+		"error": gin.H{
+			"type":    rewrite.Type,
+			"code":    rewrite.Code,
+			"message": rewrite.Message,
+		},
+	})
+	return true
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.

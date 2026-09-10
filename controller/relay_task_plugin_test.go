@@ -473,6 +473,10 @@ func setupTaskSubmissionDatabase(t *testing.T, migrate bool, events *[]string) *
 	previousDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	// :memory: 库按连接隔离，渠道自动禁用等后台写入会另起连接，必须固定单连接。
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, database.Callback().Create().Before("gorm:create").Register("test:task-submit-order", func(*gorm.DB) {
 		*events = append(*events, "insert")
 	}))

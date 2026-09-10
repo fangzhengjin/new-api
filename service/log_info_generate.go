@@ -3,6 +3,9 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,6 +16,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -102,6 +106,90 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, other)
+	AppendRequestHeadersAdminInfo(ctx, other)
+}
+
+type requestHeaderAuditOmission struct {
+	Name       string `json:"name"`
+	ByteLength int    `json:"byte_length"`
+}
+
+type requestHeaderAuditSnapshot struct {
+	Headers map[string]string
+	Omitted []requestHeaderAuditOmission
+}
+
+func snapshotRequestHeadersForAudit(headers http.Header) requestHeaderAuditSnapshot {
+	rules := operation_setting.GetRequestHeaderRules()
+
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	snapshot := requestHeaderAuditSnapshot{Headers: map[string]string{}}
+	usedBytes := 0
+	for _, name := range names {
+		if !operation_setting.ResolveRequestHeaderPolicy(name, rules).Record {
+			continue
+		}
+		value := strings.Join(headers[name], ", ")
+		if value == "" {
+			continue
+		}
+		if usedBytes+len(name)+len(value) > operation_setting.RequestHeaderAuditCapacityBytes {
+			omissionBytes := len(name) + len(strconv.Itoa(len(value)))
+			if usedBytes+omissionBytes <= operation_setting.RequestHeaderAuditCapacityBytes {
+				snapshot.Omitted = append(snapshot.Omitted, requestHeaderAuditOmission{
+					Name:       name,
+					ByteLength: len(value),
+				})
+				usedBytes += omissionBytes
+			}
+			continue
+		}
+		snapshot.Headers[name] = value
+		usedBytes += len(name) + len(value)
+	}
+	return snapshot
+}
+
+// CaptureUpstreamRequestHeadersAudit stores the bounded, filtered header
+// snapshot immediately before the application hands the request to transport.
+func CaptureUpstreamRequestHeadersAudit(ctx *gin.Context, headers http.Header) {
+	if ctx == nil {
+		return
+	}
+	common.SetContextKey(ctx, constant.ContextKeyUpstreamRequestHeadersAudit, snapshotRequestHeadersForAudit(headers))
+}
+
+// AppendRequestHeadersAdminInfo records bounded, filtered inbound and
+// outbound request headers for administrator-only log diagnostics.
+func AppendRequestHeadersAdminInfo(ctx *gin.Context, other *model.LogOther) {
+	if ctx == nil || other == nil {
+		return
+	}
+
+	requestHeaders := map[string]interface{}{}
+	omitted := map[string]interface{}{}
+	if ctx.Request != nil {
+		incoming := snapshotRequestHeadersForAudit(ctx.Request.Header)
+		requestHeaders["incoming"] = incoming.Headers
+		if len(incoming.Omitted) > 0 {
+			omitted["incoming"] = incoming.Omitted
+		}
+	}
+	if outgoing, ok := common.GetContextKeyType[requestHeaderAuditSnapshot](ctx, constant.ContextKeyUpstreamRequestHeadersAudit); ok {
+		requestHeaders["outgoing"] = outgoing.Headers
+		if len(outgoing.Omitted) > 0 {
+			omitted["outgoing"] = outgoing.Omitted
+		}
+	}
+	if len(omitted) > 0 {
+		requestHeaders["omitted"] = omitted
+	}
+	other.SetAdmin("request_headers", requestHeaders)
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,

@@ -39,6 +39,7 @@ type ErrorCode string
 
 const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
+	ErrorCodeClientVersionTooLow    ErrorCode = "client_version_too_low"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
@@ -97,7 +98,9 @@ type NewAPIError struct {
 	errorType      ErrorType
 	errorCode      ErrorCode
 	StatusCode     int
-	Metadata       json.RawMessage
+	// UpstreamStatusCode is the original HTTP status parsed from an upstream response.
+	UpstreamStatusCode int
+	Metadata           json.RawMessage
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

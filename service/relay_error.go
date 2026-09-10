@@ -105,10 +105,16 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	}
 }
 
-// RecordRelayErrorLog writes the channel error log row for a relay failure.
+// RecordRelayErrorLog writes the channel error log row for a relay failure. A nil
+// channelError falls back to the channel recorded on the request context, so paths
+// that only know the failure (for example channel tests) still attribute the log.
 func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo, channelError *types.ChannelError) {
 	if !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
 		return
+	}
+	channelId := c.GetInt("channel_id")
+	if channelError != nil {
+		channelId = channelError.ChannelId
 	}
 	userId := c.GetInt("id")
 	tokenName := c.GetString("token_name")
@@ -129,5 +135,5 @@ func RecordRelayErrorLog(c *gin.Context, err *types.NewAPIError, relayInfo *rela
 		startTime = time.Now()
 	}
 	useTimeSeconds := int(time.Since(startTime).Seconds())
-	model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 }

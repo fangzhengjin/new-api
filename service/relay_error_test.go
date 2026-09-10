@@ -202,4 +202,10 @@ func TestRecordRelayErrorLogUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, userOther, key)
 	}
+
+	// 没有渠道快照时必须回退到上下文记录的渠道，否则该次失败会写成无主错误日志。
+	RecordRelayErrorLog(ctx, apiErr, nil, nil)
+	var contextChannelLog model.Log
+	require.NoError(t, database.Where("channel_id = ?", 202).First(&contextChannelLog).Error)
+	assert.Equal(t, 202, contextChannelLog.ChannelId)
 }

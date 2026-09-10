@@ -63,10 +63,11 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
           {t('Details')}
         </Button>
       }
-      contentClassName='min-w-0 sm:max-w-lg max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)]'
+      contentClassName='min-w-0 overflow-hidden max-sm:max-h-[calc(100dvh-1.5rem)] max-sm:w-[calc(100vw-1.5rem)] max-sm:max-w-[calc(100vw-1.5rem)] max-sm:p-4 sm:max-w-4xl lg:max-w-5xl'
+      headerClassName='max-sm:gap-1'
       titleClassName='text-base'
-      contentHeight='auto'
-      bodyClassName='space-y-3'
+      contentHeight='min(72dvh, 720px)'
+      bodyClassName='pr-2 sm:pr-4'
     >
       <div className='min-w-0 space-y-1.5'>
         <p className='text-sm leading-relaxed font-medium break-words'>

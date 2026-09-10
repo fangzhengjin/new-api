@@ -995,6 +995,7 @@ function ChannelTestDialogContent({
                 id='endpoint-type'
                 className='w-full min-w-0'
                 placeholder={t('Auto detect (default)')}
+                openOnFocus={false}
               />
               <p className='text-muted-foreground text-xs'>
                 {t(

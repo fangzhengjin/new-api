@@ -329,6 +329,20 @@ async function openDetails(log: AuditLog = entry) {
   }
 }
 
+it('uses the common log dialog width, bounded height and internal scrolling', async () => {
+  const { dialog } = await openDetails()
+  expect(dialog).toHaveClass(
+    'sm:max-w-4xl',
+    'lg:max-w-5xl',
+    'max-sm:w-[calc(100vw-1.5rem)]',
+    'overflow-hidden'
+  )
+  expect(dialog.style.getPropertyValue('--dialog-content-height')).toBe(
+    'min(72dvh, 720px)'
+  )
+  expect(dialog.querySelector('.overflow-y-auto')).toHaveClass('min-h-0')
+})
+
 it('renders the channel update as a readable summary and compact operation rows without JSON or empty token fields', async () => {
   const { dialog } = await openDetails()
   expect(

@@ -382,6 +382,57 @@ func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
 	assert.Contains(t, log.Content, "size: 2.00")
 }
 
+func TestLogTaskConsumptionIncludesRelayRetryTargets(t *testing.T) {
+	truncate(t)
+	const userID, channelID = 42, 42
+	seedUser(t, userID, 10_000)
+	seedChannel(t, channelID)
+	firstKeyIndex := 1
+	finalKeyIndex := 3
+	task := makeTask(userID, channelID, 100, 0, BillingSourceWallet, 0)
+	info := &relaycommon.RelayInfo{
+		UserId:          userID,
+		OriginModelName: "test-model",
+		UsingGroup:      "default",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId:            channelID,
+			ChannelIsMultiKey:    true,
+			ChannelMultiKeyIndex: finalKeyIndex,
+		},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "GENERATE"},
+		PriceData: types.PriceData{
+			Quota:          100,
+			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
+		},
+		RetryTargets: []relaycommon.RelayRetryTarget{
+			{ChannelId: channelID, MultiKeyIndex: &firstKeyIndex, StatusCode: http.StatusTooManyRequests, Error: "rate limited"},
+			{ChannelId: channelID, MultiKeyIndex: &finalKeyIndex},
+		},
+	}
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	ctx.Set("token_name", "test_token")
+	ctx.Set("use_channel", []string{"42", "42"})
+	LogTaskConsumption(ctx, info, task)
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok)
+	targets, ok := adminInfo["retry_targets"].([]any)
+	require.True(t, ok)
+	require.Len(t, targets, 2)
+	firstTarget, ok := targets[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(firstKeyIndex), firstTarget["multi_key_index"])
+	assert.Equal(t, float64(http.StatusTooManyRequests), firstTarget["status_code"])
+	assert.Equal(t, "rate limited", firstTarget["error"])
+}
+
 func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
 	task := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
 	task.TaskID = "task_public"

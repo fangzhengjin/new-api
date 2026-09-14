@@ -259,8 +259,8 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
 		}
 	} else {
-		retry := &service.RetryParam{Ctx: c, TokenGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), ModelName: modelName, RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0)}
-		for ; retry.GetRetry() <= common.RetryTimes; retry.IncreaseRetry() {
+		retry := &service.RetryParam{Ctx: c, TokenGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), ModelName: modelName}
+		for attempt := 0; attempt <= common.RetryTimes; attempt++ {
 			var channel *appmodel.Channel
 			channel, apiErr = selectResponsesWSChannel(c, modelName, retry)
 			if apiErr != nil {
@@ -281,7 +281,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 					return apiErr
 				}
 			}
-			info.RetryIndex = retry.GetRetry()
+			info.RetryIndex = attempt
 			var payload []byte
 			payload, apiErr = buildResponsesWSCreatePayload(c, info, create.Request, create.Generate)
 			if apiErr != nil {
@@ -296,7 +296,8 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				service.ResetStatusCode(apiErr, c.GetString("status_code_mapping"))
 				info.LastError = apiErr
 				service.ProcessChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, info.ApiKey, channel.GetAutoBan()), apiErr, info)
-				if service.ShouldRetryRelayError(c, apiErr, common.RetryTimes-retry.GetRetry()) {
+				if service.ShouldRetryRelayError(c, apiErr, common.RetryTimes-attempt) {
+					retry.ExcludeChannel(channel.Id)
 					continue
 				}
 				return apiErr
@@ -856,7 +857,9 @@ func selectResponsesWSChannel(c *gin.Context, modelName string, retryParam *serv
 		usingGroup = retryParam.TokenGroup
 	}
 
-	if retryParam.GetRetry() == 0 {
+	// 本地重试模型改用排除集合跟踪已试过的渠道：尚未排除任何渠道即首次选择，
+	// 此时才允许按会话亲和性锁定渠道。
+	if len(retryParam.ExcludedChannels()) == 0 {
 		if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelName, usingGroup); found {
 			preferred, err := appmodel.CacheGetChannel(preferredChannelID)
 			affinitySatisfied := false

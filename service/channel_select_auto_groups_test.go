@@ -102,13 +102,10 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip", "default"})
 	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
 
-	retry := 0
 	param := &RetryParam{
-		Ctx:         ctx,
-		TokenGroup:  "auto",
-		ModelName:   modelName,
-		RequestPath: "/v1/chat/completions",
-		Retry:       &retry,
+		Ctx:        ctx,
+		TokenGroup: "auto",
+		ModelName:  modelName,
 	}
 
 	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
@@ -119,11 +116,40 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Equal(t, "vip", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
 	assert.Empty(t, setting.GetAutoGroups(), "the selection must not depend on the global Auto list")
 
-	param.IncreaseRetry()
+	param.ExcludeChannel(first.Id)
 	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	assert.Equal(t, 2102, second.Id)
 	assert.Equal(t, "default", selectedGroup)
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+}
+
+func TestCacheGetRandomSatisfiedChannelSelectsNextPriorityAfterExclusion(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	const modelName = "request-local-exclusion-model"
+	createChannelSelectAutoGroupsChannel(t, db, 2201, "default", modelName)
+	createChannelSelectAutoGroupsChannel(t, db, 2202, "default", modelName)
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 2201).Update("priority", 100).Error)
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 2201).Update("priority", 100).Error)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	param := &RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  modelName,
+	}
+
+	first, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Equal(t, 2201, first.Id)
+
+	param.ExcludeChannel(first.Id)
+	second, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Equal(t, 2202, second.Id)
 }

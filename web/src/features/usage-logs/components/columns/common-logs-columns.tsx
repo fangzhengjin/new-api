@@ -58,6 +58,9 @@ import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
   decodeBillingExprB64,
+  getDistinctUserDisplayName,
+  getLogTokenSummary,
+  getRetryTargetChain,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
@@ -398,13 +401,10 @@ export function useCommonLogsColumns(
 
             const other = parseLogOther(log.other)
             const affinity = other?.admin_info?.channel_affinity
-            const rawUseChannel = other?.admin_info?.use_channel ?? []
-            const useChannel = Array.isArray(rawUseChannel)
-              ? rawUseChannel.map(String).filter(Boolean)
-              : []
-            const hasRetryChain = useChannel.length > 1
+            const retryTargets = getRetryTargetChain(other?.admin_info, t('Key'))
+            const hasRetryChain = retryTargets.length > 1
             const channelChain = hasRetryChain
-              ? useChannel.join(' → ')
+              ? retryTargets.join(' → ')
               : undefined
             const channelDisplay = log.channel_name
               ? `${log.channel_name} #${log.channel}`
@@ -555,11 +555,17 @@ export function useCommonLogsColumns(
             const log = row.original
 
             if (!log.username) return null
+            const displayName = sensitiveVisible
+              ? getDistinctUserDisplayName(log)
+              : ''
+            const showTooltip =
+              sensitiveVisible &&
+              (log.username.length > 12 || displayName.length > 12)
 
             return (
               <button
                 type='button'
-                className='flex items-center gap-1.5 text-left'
+                className='flex min-w-0 items-center gap-1.5 text-left'
                 onClick={(e) => {
                   e.stopPropagation()
                   setSelectedUserId(log.user_id)
@@ -587,14 +593,30 @@ export function useCommonLogsColumns(
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <span className='text-muted-foreground max-w-[100px] truncate text-sm hover:underline' />
+                        <div className='group flex max-w-[120px] min-w-0 flex-col gap-0.5' />
                       }
                     >
-                      {sensitiveVisible ? log.username : '••••'}
+                      <span className='text-muted-foreground truncate text-sm group-hover:underline'>
+                        {sensitiveVisible ? log.username : '••••'}
+                      </span>
+                      {displayName ? (
+                        <span className='text-muted-foreground/70 truncate text-xs'>
+                          {displayName}
+                        </span>
+                      ) : null}
                     </TooltipTrigger>
-                    {sensitiveVisible && log.username.length > 12 && (
-                      <TooltipContent side='top'>{log.username}</TooltipContent>
-                    )}
+                    {showTooltip ? (
+                      <TooltipContent side='top'>
+                        <div className='flex flex-col gap-0.5'>
+                          <span>{log.username}</span>
+                          {displayName ? (
+                            <span className='text-muted-foreground text-xs'>
+                              {displayName}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TooltipContent>
+                    ) : null}
                   </Tooltip>
                 </TooltipProvider>
               </button>
@@ -681,7 +703,6 @@ export function useCommonLogsColumns(
               <ModelBadge
                 modelName={modelInfo.name}
                 actualModel={modelInfo.actualModel}
-                responseModel={modelInfo.responseModel}
               />
             </div>
           )
@@ -723,36 +744,28 @@ export function useCommonLogsColumns(
 
           const other = parseLogOther(log.other)
 
-          const promptTokens = log.prompt_tokens || 0
-          const completionTokens = log.completion_tokens || 0
-          if (promptTokens === 0 && completionTokens === 0) {
+          const tokenSummary = getLogTokenSummary(log, other)
+          if (tokenSummary.inputTotal === 0 && tokenSummary.outputTotal === 0) {
             return <span className='text-muted-foreground text-xs'>-</span>
           }
-
-          const cacheReadTokens = other?.cache_tokens || 0
-          const cacheWrite5m = other?.cache_creation_tokens_5m || 0
-          const cacheWrite1h = other?.cache_creation_tokens_1h || 0
-          const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
-          const cacheWriteTokens = hasSplitCache
-            ? cacheWrite5m + cacheWrite1h
-            : other?.cache_creation_tokens || 0
 
           return (
             <div className='flex flex-col gap-0.5'>
               <span className='font-mono text-xs font-medium tabular-nums'>
-                {promptTokens.toLocaleString()} /{' '}
-                {completionTokens.toLocaleString()}
+                {tokenSummary.inputTotal.toLocaleString()} /{' '}
+                {tokenSummary.outputTotal.toLocaleString()}
               </span>
-              {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
+              {(tokenSummary.cacheRead > 0 || tokenSummary.cacheWrite > 0) && (
                 <div className='flex items-center gap-1 text-[11px]'>
-                  {cacheReadTokens > 0 && (
+                  <span className='text-muted-foreground/60'>{t('Cache')}</span>
+                  {tokenSummary.cacheRead > 0 && (
                     <span className='text-muted-foreground/60'>
-                      {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
+                      ↓ {tokenSummary.cacheRead.toLocaleString()}
                     </span>
                   )}
-                  {cacheWriteTokens > 0 && (
+                  {tokenSummary.cacheWrite > 0 && (
                     <span className='text-muted-foreground/60'>
-                      ↑ {cacheWriteTokens.toLocaleString()}
+                      ↑ {tokenSummary.cacheWrite.toLocaleString()}
                     </span>
                   )}
                 </div>
@@ -772,6 +785,7 @@ export function useCommonLogsColumns(
           const other = parseLogOther(log.other)
           return (
             <LogCostDisplay
+              logType={log.type}
               quota={quota}
               other={other}
               showBillingSource={showBillingSource}

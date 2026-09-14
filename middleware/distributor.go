@@ -101,11 +101,9 @@ func Distribute() func(c *gin.Context) {
 			usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 			var selectErr *service.ChannelSelectError
 			channel, _, selectErr = service.SelectChannelForRequest(c, modelRequest.Model, &service.RetryParam{
-				Ctx:         c,
-				ModelName:   modelRequest.Model,
-				TokenGroup:  usingGroup,
-				RequestPath: c.Request.URL.Path,
-				Retry:       common.GetPointer(0),
+				Ctx:        c,
+				ModelName:  modelRequest.Model,
+				TokenGroup: usingGroup,
 			})
 			if selectErr != nil {
 				if selectErr.FilterKind == taskdto.FilterTaskPluginIdentity {
@@ -545,7 +543,8 @@ func getTaskOriginModelName(c *gin.Context) string {
 	return ""
 }
 
-func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) *types.NewAPIError {
+// SetupContextForSelectedChannel stores one available channel/key target in the request context.
+func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string, excludedKeyIndexes ...map[int]struct{}) *types.NewAPIError {
 	c.Set("original_model", modelName) // for retry
 	expectedPlugin := c.GetString("expected_task_plugin_key")
 	if channel == nil {
@@ -585,6 +584,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 			}
 		}
 	}
+	previousChannelId := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
@@ -616,7 +616,11 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	var excluded map[int]struct{}
+	if len(excludedKeyIndexes) > 0 {
+		excluded = excludedKeyIndexes[0]
+	}
+	key, index, newAPIError := channel.GetNextEnabledKeyExcluding(excluded)
 	if newAPIError != nil {
 		return newAPIError
 	}
@@ -629,7 +633,16 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	}
 	// c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, channel.GetBaseURL())
+	// A locked channel may carry no base URL of its own, and refresh paths re-run
+	// this for the channel that is already selected. Keeping the resolved value in
+	// that case avoids replacing it with an empty string. When a retry switches to
+	// a different channel the previous value must not survive, or the request
+	// would be sent to the old channel's host.
+	if baseURL := channel.GetBaseURL(); baseURL != "" {
+		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, baseURL)
+	} else if previousChannelId != channel.Id {
+		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "")
+	}
 
 	common.SetContextKey(c, constant.ContextKeySystemPromptOverride, false)
 

@@ -78,6 +78,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
+	var streamErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -85,15 +86,27 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
-			sr.Error(err)
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			sr.Stop(streamErr)
 			return
 		}
 		if streamResponse.Response != nil {
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+		// 上游改写后的数据只发一次；发送失败必须中止流并带回错误，不能像上游
+		// sendResponsesStreamData 那样忽略错误，否则客户端断连会被记成成功计费。
+		if data != "" {
+			if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				sr.Stop(streamErr)
+				return
+			}
+		}
 		accumulator.Observe(&streamResponse)
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()

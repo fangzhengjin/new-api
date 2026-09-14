@@ -76,6 +76,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
+	var streamErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -83,22 +84,33 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			logger.LogError(c, common.LogText("failed to unmarshal stream response: %s", err.Error()))
+			// 坏行按软错误继续扫描；streamErr 先记下，若流最终完整投递则清除，
+			// 未完成时向调用方返回，保证坏行后中断的流不会记成成功计费。
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			sr.Error(err)
 			return
 		}
 		if streamResponse.Response != nil {
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
+		// 发送失败必须中止流并带回错误，否则客户端断连会被记成成功计费。
+		// sr.Stop 只收底层错误，包装错误仅向调用方返回，避免 MarkFailed
+		// 改写 ResponseOutcome。
 		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
 		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			sr.Stop(err)
 			return
 		}
 		if (streamResponse.Type == "response.completed" || streamResponse.Type == "response.done") &&
 			streamResponse.Response != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
 			sr.Done()
+			streamErr = nil
 		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()

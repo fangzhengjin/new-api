@@ -36,6 +36,8 @@ export function policyLabel(t: TFunction, value: string): string {
       return t('Session rule matched')
     case 'channel_selected':
       return t('Channel selected')
+    case 'client_canceled':
+      return t('Request canceled by client')
     case 'request_completed':
       return t('Request completed')
     case 'stream_not_successful':

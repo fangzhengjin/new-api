@@ -369,7 +369,6 @@ func RouteTaskPluginEndpoint() gin.HandlerFunc {
 		group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 		channel, _, selectErr := service.SelectChannelForRequest(c, request.Model, &service.RetryParam{
 			Ctx: c, ModelName: request.Model, TokenGroup: group,
-			RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0),
 		})
 		c.Set(contextKeyTaskPluginEndpointSelection, taskPluginEndpointSelection{
 			Generation: generation, Channel: channel, Model: request.Model,

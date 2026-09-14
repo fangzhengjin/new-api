@@ -251,7 +251,7 @@ func TestResponsesWSChannelRoutingRequiresExplicitOptIn(t *testing.T) {
 	require.Nil(t, apiErr)
 	require.NotNil(t, channel)
 	assert.Equal(t, enabled.Id, channel.Id)
-	httpChannel, err := model.GetRandomSatisfiedChannel("default", "ws-model", 0, nil)
+	httpChannel, err := model.GetRandomSatisfiedChannel("default", "ws-model", 0, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, httpChannel)
 	assert.Equal(t, legacy.Id, httpChannel.Id)
@@ -317,7 +317,7 @@ func TestSelectResponsesWSChannelHonorsStrictSessionBinding(t *testing.T) {
 	t.Cleanup(func() { service.ClearCurrentChannelAffinityCache(seed) })
 
 	strict := newSessionContext()
-	channel, apiErr := selectResponsesWSChannel(strict, "ws-model", &service.RetryParam{Ctx: strict, ModelName: "ws-model", TokenGroup: "default", Retry: common.GetPointer(0)})
+	channel, apiErr := selectResponsesWSChannel(strict, "ws-model", &service.RetryParam{Ctx: strict, ModelName: "ws-model", TokenGroup: "default"})
 	require.NotNil(t, apiErr)
 	assert.Nil(t, channel)
 	assert.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
@@ -328,7 +328,7 @@ func TestSelectResponsesWSChannelHonorsStrictSessionBinding(t *testing.T) {
 	affinity.SessionMode = "prefer"
 	service.RecordChannelAffinity(seed, bound.Id)
 	prefer := newSessionContext()
-	channel, apiErr = selectResponsesWSChannel(prefer, "ws-model", &service.RetryParam{Ctx: prefer, ModelName: "ws-model", TokenGroup: "default", Retry: common.GetPointer(0)})
+	channel, apiErr = selectResponsesWSChannel(prefer, "ws-model", &service.RetryParam{Ctx: prefer, ModelName: "ws-model", TokenGroup: "default"})
 	require.Nil(t, apiErr)
 	require.NotNil(t, channel)
 	assert.Equal(t, fallback.Id, channel.Id)

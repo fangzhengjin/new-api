@@ -4,6 +4,16 @@ import (
 	"strings"
 )
 
+// NormalizeRelayPath maps the playground entry (/pg/...) to its equivalent
+// /v1/... relay path. The playground posts to the same endpoints as API-key
+// callers, so channel filters and relay info must agree on one endpoint identity.
+func NormalizeRelayPath(path string) string {
+	if after, ok := strings.CutPrefix(path, "/pg/"); ok {
+		return "/v1/" + after
+	}
+	return path
+}
+
 const (
 	RelayModeUnknown = iota
 	RelayModeChatCompletions

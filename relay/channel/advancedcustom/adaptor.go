@@ -384,13 +384,16 @@ func (a *Adaptor) resolve(c *gin.Context, info *relaycommon.RelayInfo) error {
 }
 
 func incomingRequestPath(c *gin.Context, info *relaycommon.RelayInfo) string {
+	// RequestURLPath is normalized to the /v1 identity (GenRelayInfo rewrites
+	// the playground /pg entry), so path matching must consume it instead of
+	// the raw playground URL the gin context still carries.
+	if info != nil && info.RequestURLPath != "" {
+		return strings.Split(info.RequestURLPath, "?")[0]
+	}
 	if c != nil && c.Request != nil && c.Request.URL != nil {
 		return c.Request.URL.Path
 	}
-	if info == nil {
-		return ""
-	}
-	return strings.Split(info.RequestURLPath, "?")[0]
+	return ""
 }
 
 func (a *Adaptor) routeURL(info *relaycommon.RelayInfo) (string, error) {

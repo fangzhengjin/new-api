@@ -43,7 +43,7 @@ func Distribute() func(c *gin.Context) {
 		constraints := service.GetChannelConstraints(c)
 		constraints.AddFilter(taskdto.ChannelFilter{
 			Kind:        taskdto.FilterRequestPath,
-			RequestPath: c.Request.URL.Path,
+			RequestPath: relayconstant.NormalizeRelayPath(c.Request.URL.Path),
 		})
 		service.AppendTaskPluginIdentityFilter(c, c.GetString("expected_task_plugin_key"))
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)

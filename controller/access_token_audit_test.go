@@ -931,6 +931,13 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		path := t.TempDir() + "/audit.db"
 		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 		require.NoError(t, err)
+		// An open SQLite handle keeps Windows from deleting the TempDir; the
+		// non-sqlite branch below registers the same cleanup for its handle.
+		t.Cleanup(func() {
+			if connection, dbErr := db.DB(); dbErr == nil {
+				_ = connection.Close()
+			}
+		})
 		return db, path
 	}
 	require.NotEmpty(t, dsn)
@@ -1129,6 +1136,11 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 	common.IsMasterNode = true
 	common.RedisEnabled = false
 	t.Cleanup(func() {
+		// InitDB reopens the sqlite file without closing the previous handle,
+		// and an open handle keeps Windows from deleting the TempDir.
+		if connection, dbErr := model.DB.DB(); dbErr == nil {
+			_ = connection.Close()
+		}
 		common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLite
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousMain, previousLog)
@@ -1172,9 +1184,23 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: model.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
 					}
 					for range 2 {
+						superseded := model.DB
 						require.NoError(t, model.InitDB())
 						require.NoError(t, model.InitLogDB())
+						if superseded != nil && superseded != db && superseded != model.DB {
+							if connection, connErr := superseded.DB(); connErr == nil {
+								_ = connection.Close()
+							}
+						}
 					}
+					// Registered after TempDir so the handle closes before the
+					// subtest directory is removed; the outer cleanup only acts
+					// as a fallback for later subtests.
+					t.Cleanup(func() {
+						if connection, dbErr := model.DB.DB(); dbErr == nil {
+							_ = connection.Close()
+						}
+					})
 					if !upgrade {
 						require.NoError(t, db.Create(&model.User{Username: "fresh-owner", Password: "placeholder", AffCode: "fresh-aff"}).Error)
 					}

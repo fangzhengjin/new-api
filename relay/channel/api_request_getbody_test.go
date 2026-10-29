@@ -391,6 +391,7 @@ func runResetOnFirstStreamServer(ln net.Listener, expectRetry bool) <-chan h2Ser
 					return
 				}
 				if !expectRetry {
+					drainH2ConnBeforeClose(conn)
 					break attempts
 				}
 				continue
@@ -428,15 +429,18 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 
 			if attempt == 0 {
 				err = framer.WriteGoAway(0, http2.ErrCodeNo, nil)
-				conn.Close()
 				if err != nil {
+					conn.Close()
 					res.err = err
 					return
 				}
+				drainH2ConnBeforeClose(conn)
+				conn.Close()
 				continue
 			}
 
 			err = writeH2TestResponse(framer, streamID)
+			drainH2ConnBeforeClose(conn)
 			conn.Close()
 			if err != nil {
 				res.err = err
@@ -445,6 +449,16 @@ func runGoAwayAfterFirstRequestServer(ln net.Listener) <-chan h2ServerResult {
 		}
 	}()
 	return resCh
+}
+
+// drainH2ConnBeforeClose consumes inbound bytes until the peer closes or the
+// deadline passes. Closing a TCP connection that still has unread inbound
+// data makes Windows send RST, which the client surfaces instead of the
+// graceful GOAWAY or RST_STREAM frame this server just wrote.
+func drainH2ConnBeforeClose(conn net.Conn) {
+	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_, _ = io.Copy(io.Discard, conn)
+	_ = conn.SetReadDeadline(time.Time{})
 }
 
 func newH2PriorKnowledgeClient(ln net.Listener) (*http.Client, *http2.Transport) {

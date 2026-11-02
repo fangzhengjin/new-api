@@ -202,6 +202,7 @@ func TestAdaptorSetupRequestHeaderAddsClaudeDefaultHeaders(t *testing.T) {
 		},
 	})
 	info.RelayFormat = types.RelayFormatClaude
+	info.RequestURLPath = "/v1/messages"
 	c := advancedCustomGinContext("/v1/messages")
 	header := http.Header{}
 
@@ -226,6 +227,40 @@ func TestAdaptorReturnsErrorWhenNoRouteMatchesPath(t *testing.T) {
 	_, err := adaptor.GetRequestURL(info)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not support request path")
+}
+
+// The playground entry reaches the adaptor with a gin context that still
+// carries the raw /pg path, while info.RequestURLPath holds the normalized
+// /v1 identity written by GenRelayInfo. Route resolution must consume the
+// normalized path, so a channel declaring /v1/chat/completions serves
+// playground traffic too.
+func TestAdaptorResolvesRouteFromNormalizedPlaygroundPath(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{
+		Routes: []dto.AdvancedCustomRoute{
+			{
+				IncomingPath: "/v1/chat/completions",
+				UpstreamPath: "/compatible-mode/v1/chat/completions",
+				Converter:    relayconvert.ConverterNone,
+			},
+		},
+	})
+	info.RequestURLPath = "/v1/chat/completions"
+	c := advancedCustomGinContext("/pg/chat/completions")
+
+	converted, err := adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{
+		Model: "gpt-test",
+		Messages: []dto.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	require.NoError(t, err)
+	_, ok := converted.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://fallback.example/compatible-mode/v1/chat/completions", requestURL)
 }
 
 func TestAdaptorReplacesModelPlaceholderInRouteURL(t *testing.T) {

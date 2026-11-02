@@ -331,7 +331,11 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	if channelType == constant.ChannelTypeAdvancedCustom &&
 		!channelMeta.ChannelSetting.PassThroughBodyEnabled &&
 		c.Request != nil && c.Request.URL != nil {
-		route, matched := channelMeta.ChannelOtherSettings.AdvancedCustom.MatchPathForModel(c.Request.URL.Path, info.OriginModelName)
+		// NormalizeRelayPath matches the route resolution in the advancedcustom
+		// adaptor: both must see the same endpoint identity, so a pass-through
+		// route declared on /v1 also applies to the playground /pg entry.
+		playgroundNormalized := relayconstant.NormalizeRelayPath(c.Request.URL.Path)
+		route, matched := channelMeta.ChannelOtherSettings.AdvancedCustom.MatchPathForModel(playgroundNormalized, info.OriginModelName)
 		if matched && route.PassThroughBodyEnabled {
 			channelMeta.ChannelSetting.PassThroughBodyEnabled = true
 		}
@@ -703,8 +707,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 
 	if strings.HasPrefix(c.Request.URL.Path, "/pg") {
 		info.IsPlayground = true
-		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
-		info.RequestURLPath = "/v1" + info.RequestURLPath
+		info.RequestURLPath = relayconstant.NormalizeRelayPath(info.RequestURLPath)
 	}
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)

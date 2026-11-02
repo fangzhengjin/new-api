@@ -13,12 +13,168 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestEntryModelModifiers(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, tc := range []struct {
+		name, path, body, want string
+		invalid                bool
+	}{
+		{"chat", "/v1/chat/completions", `{"model":"qwen@effort:high@effort:MAX","reasoning_effort":"low","extra":9007199254740993,"temperature":0}`, `{"model":"qwen","reasoning_effort":"max","extra":9007199254740993,"temperature":0}`, false},
+		{"responses", "/v1/responses", `{"model":"qwen@effort:none","reasoning":{"effort":"high","summary":"auto"}}`, `{"model":"qwen","reasoning":{"effort":"none","summary":"auto"}}`, false},
+		{"messages", "/v1/messages", `{"model":"qwen@thinking:on@effort:max","thinking":{"budget_tokens":4096},"output_config":{"format":"test"}}`, `{"model":"qwen","thinking":{"type":"enabled","budget_tokens":4096},"output_config":{"format":"test","effort":"max"}}`, false},
+		{"independent", "/v1/messages", `{"model":"qwen@effort:max@thinking:off"}`, `{"model":"qwen","thinking":{"type":"disabled"},"output_config":{"effort":"max"}}`, false},
+		{"reverse", "/v1/messages", `{"model":"qwen@thinking:off@effort:max"}`, `{"model":"qwen","thinking":{"type":"disabled"},"output_config":{"effort":"max"}}`, false},
+		{"adaptive", "/v1/messages", `{"model":"qwen@thinking:adaptive"}`, `{"model":"qwen","thinking":{"type":"adaptive"}}`, false},
+		{"enabled", "/v1/messages", `{"model":"qwen@thinking:enabled"}`, `{"model":"qwen","thinking":{"type":"enabled"}}`, false},
+		{"disabled", "/v1/messages", `{"model":"qwen@thinking:on@thinking:disabled"}`, `{"model":"qwen","thinking":{"type":"disabled"}}`, false},
+		{"native", "/v1/messages", `{"model":"qwen","thinking":{"type":"adaptive"}}`, `{"model":"qwen","thinking":{"type":"adaptive"}}`, false},
+		{"other endpoint", "/v1/images/generations", `{"model":"qwen@thinking:on"}`, `{"model":"qwen@thinking:on"}`, false},
+		{"chat thinking", "/v1/chat/completions", `{"model":"qwen@thinking:off@effort:max"}`, "", true},
+		{"responses thinking", "/v1/responses", `{"model":"qwen@thinking:adaptive"}`, "", true},
+		{"bad effort", "/v1/messages", `{"model":"qwen@effort:typo"}`, "", true},
+		{"empty effort", "/v1/responses", `{"model":"qwen@effort:"}`, "", true},
+		{"bad thinking", "/v1/messages", `{"model":"qwen@thinking:4096"}`, "", true},
+		{"empty thinking", "/v1/messages", `{"model":"qwen@thinking:"}`, "", true},
+		{"bad parent", "/v1/messages", `{"model":"qwen@thinking:on","thinking":false}`, "", true},
+		{"bad reasoning", "/v1/responses", `{"model":"qwen@effort:max","reasoning":[]}`, "", true},
+		{"unknown", "/v1/messages", `{"model":"qwen@unknown:yes"}`, "", true},
+		{"empty model", "/v1/messages", `{"model":"@effort:max"}`, "", true},
+		{"empty model and effort", "/v1/messages", `{"model":"@effort:"}`, "", true},
+		{"empty model chain", "/v1/messages", `{"model":"@thinking:on@effort:max"}`, "", true},
+		{"opaque at name", "/v1/messages", `{"model":"@vendor/model"}`, `{"model":"@vendor/model"}`, false},
+		{"opaque effort name", "/v1/messages", `{"model":"@effort"}`, `{"model":"@effort"}`, false},
+		{"opaque with modifier", "/v1/chat/completions", `{"model":"@vendor/model@effort:max"}`, `{"model":"@vendor/model","reasoning_effort":"max"}`, false},
+		{"sampling chat", "/v1/chat/completions", `{"model":"qwen@temperature:0.2@temperature:0@topp:0@effort:max","temperature":1,"top_p":1}`, `{"model":"qwen","temperature":0,"top_p":0,"reasoning_effort":"max"}`, false},
+		{"sampling responses", "/v1/responses", `{"model":"qwen@temperature:0.2@topp:0.8@effort:low"}`, `{"model":"qwen","temperature":0.2,"top_p":0.8,"reasoning":{"effort":"low"}}`, false},
+		{"sampling messages", "/v1/messages", `{"model":"qwen@temperature:0.2@topp:0.8@thinking:on@effort:max"}`, `{"model":"qwen","temperature":0.2,"top_p":0.8,"thinking":{"type":"enabled"},"output_config":{"effort":"max"}}`, false},
+		{"invalid temperature", "/v1/messages", `{"model":"qwen@temperature:NaN"}`, "", true},
+		{"invalid topp", "/v1/responses", `{"model":"qwen@topp:Inf"}`, "", true},
+		{"empty temperature", "/v1/chat/completions", `{"model":"qwen@temperature:"}`, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			t.Cleanup(func() { common.CleanupBodyStorage(c) })
+			model, err := getModelFromRequest(c)
+			if tc.invalid {
+				require.Error(t, err)
+				storage, storageErr := common.GetBodyStorage(c)
+				require.NoError(t, storageErr)
+				body, readErr := storage.Bytes()
+				require.NoError(t, readErr)
+				assert.Equal(t, tc.body, string(body))
+				return
+			}
+			require.NoError(t, err)
+			storage, err := common.GetBodyStorage(c)
+			require.NoError(t, err)
+			body, err := storage.Bytes()
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(body))
+			if strings.Contains(tc.body, "9007199254740993") {
+				assert.Contains(t, string(body), "9007199254740993")
+			}
+			again, err := getModelFromRequest(c)
+			require.NoError(t, err)
+			assert.Equal(t, model, again)
+			current, err := common.GetBodyStorage(c)
+			require.NoError(t, err)
+			assert.Same(t, storage, current)
+		})
+	}
+}
+
+func TestInvalidEntryModifierStopsDistribution(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/v1/chat/completions", BodyStorageCleanup(), Distribute(), func(c *gin.Context) { t.Error("invalid modifier reached downstream") })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"qwen@thinking:on"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestEntryModifierPassthroughAndExemption(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	previous, blacklist := settings.PassThroughRequestEnabled, settings.ThinkingModelBlacklist
+	t.Cleanup(func() { settings.PassThroughRequestEnabled, settings.ThinkingModelBlacklist = previous, blacklist })
+	settings.PassThroughRequestEnabled = true
+	settings.ThinkingModelBlacklist = []string{"opaque@effort:max"}
+	for _, modelName := range []string{"opaque@effort:max", "qwen@effort:max", "qwen-max"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		body := fmt.Sprintf(`{"model":%q}`, modelName)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		common.SetContextKey(c, constant.ContextKeyChannelSetting, dto.ChannelSettings{PassThroughBodyEnabled: true})
+		t.Cleanup(func() { common.CleanupBodyStorage(c) })
+		request, err := getModelFromRequest(c)
+		require.NoError(t, err)
+		storage, err := common.GetBodyStorage(c)
+		require.NoError(t, err)
+		payload, err := storage.Bytes()
+		require.NoError(t, err)
+		if modelName == "qwen@effort:max" {
+			assert.Equal(t, "qwen", request.Model)
+			assert.JSONEq(t, `{"model":"qwen","reasoning":{"effort":"max"}}`, string(payload))
+			assert.Equal(t, int64(len(payload)), c.Request.ContentLength)
+		} else {
+			assert.Equal(t, modelName, request.Model)
+			assert.Equal(t, body, string(payload))
+		}
+		c.Set(contextKeyTaskPluginEndpointModel, *request)
+		cached, err := getModelFromRequest(c)
+		require.NoError(t, err)
+		assert.Equal(t, request, cached)
+	}
+}
+
+func TestEntryEffortNativeFields(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"} {
+		for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+			t.Run(path+"/"+effort, func(t *testing.T) {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(fmt.Sprintf(`{"model":"qwen@effort:%s"}`, effort)))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				_, err := getModelFromRequest(c)
+				require.NoError(t, err)
+				switch path {
+				case "/v1/chat/completions":
+					var req dto.GeneralOpenAIRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					assert.Equal(t, effort, req.ReasoningEffort)
+					assert.Nil(t, req.ReasoningConversion)
+				case "/v1/responses":
+					var req dto.OpenAIResponsesRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					require.NotNil(t, req.Reasoning)
+					assert.Equal(t, effort, req.Reasoning.Effort)
+					assert.Nil(t, req.ReasoningConversion)
+				case "/v1/messages":
+					var req dto.ClaudeRequest
+					require.NoError(t, common.UnmarshalBodyReusable(c, &req))
+					assert.JSONEq(t, fmt.Sprintf(`{"effort":%q}`, effort), string(req.OutputConfig))
+					assert.Nil(t, req.Thinking)
+				}
+			})
+		}
+	}
+}
 
 func TestChannelMatchesExpectedTaskPluginUsesGenericChannelSetting(t *testing.T) {
 	channel := &model.Channel{Type: constant.ChannelTypeTaskPlugin}
@@ -399,4 +555,93 @@ func TestSharedEndpointRebindsToBoundNewAPIExtension(t *testing.T) {
 	require.Nil(t, SetupContextForSelectedChannel(c, channel, "task-model"))
 	assert.Equal(t, "alpha", c.GetString("task_plugin_key"), "the first bound candidate executes regardless of the earlier pin")
 	assert.Equal(t, "alpha", c.MustGet(jsplugin.ContextKeyPinnedEndpoint).(jsplugin.PinnedEndpoint).Plugin.Meta.Key)
+}
+
+// The playground posts to the same chat-completions endpoint as API-key
+// callers. An advanced-custom channel that declares /v1/chat/completions must
+// therefore be selectable from /pg/chat/completions too, otherwise models
+// served only by such channels fail there with "no available channel".
+func TestDistributeSelectsAdvancedCustomChannelForPlaygroundPath(t *testing.T) {
+	require.NoError(t, i18n.Init())
+
+	previousDB := model.DB
+	previousCacheEnabled := common.MemoryCacheEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	model.DB = db
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.MemoryCacheEnabled = previousCacheEnabled
+		sqlDB, err := db.DB()
+		if err == nil {
+			require.NoError(t, sqlDB.Close())
+		}
+	})
+
+	const modelName = "advanced-custom-pg-model"
+	priority := int64(0)
+	weight := uint(100)
+	channel := &model.Channel{
+		Id:     9101,
+		Type:   constant.ChannelTypeAdvancedCustom,
+		Key:    "key-advanced-custom",
+		Status: common.ChannelStatusEnabled,
+		Name:   "advanced-custom-chat",
+		Weight: &weight,
+		Models: modelName,
+		Group:  "default",
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{{
+				IncomingPath: "/v1/chat/completions",
+				UpstreamPath: "/compatible-mode/v1/chat/completions",
+			}},
+		},
+	})
+	require.NoError(t, db.Create(channel).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     modelName,
+		ChannelId: channel.Id,
+		Enabled:   true,
+		Priority:  &priority,
+		Weight:    weight,
+	}).Error)
+	model.InitChannelCache()
+
+	gin.SetMode(gin.TestMode)
+	for _, path := range []string{"/pg/chat/completions", "/v1/chat/completions"} {
+		t.Run(path, func(t *testing.T) {
+			var selectedID int
+			var convertedModel string
+			router := gin.New()
+			router.POST(path, func(c *gin.Context) {
+				common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+				common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			}, Distribute(), func(c *gin.Context) {
+				selectedID = c.GetInt("channel_id")
+				// Run the conversion the relay would run, so a route that passes
+				// channel selection cannot later fail on the raw playground path.
+				info, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAI, nil, nil)
+				require.NoError(t, err)
+				info.InitChannelMeta(c)
+				adaptor := &advancedcustom.Adaptor{}
+				adaptor.Init(info)
+				_, err = adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{Model: info.OriginModelName})
+				require.NoError(t, err)
+				convertedModel = info.OriginModelName
+				c.Status(http.StatusOK)
+			})
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(fmt.Sprintf(`{"model":%q}`, modelName)))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			assert.Equal(t, channel.Id, selectedID)
+			assert.Equal(t, modelName, convertedModel)
+		})
+	}
 }

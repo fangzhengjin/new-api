@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -42,7 +43,7 @@ func Distribute() func(c *gin.Context) {
 		constraints := service.GetChannelConstraints(c)
 		constraints.AddFilter(taskdto.ChannelFilter{
 			Kind:        taskdto.FilterRequestPath,
-			RequestPath: c.Request.URL.Path,
+			RequestPath: relayconstant.NormalizeRelayPath(c.Request.URL.Path),
 		})
 		service.AppendTaskPluginIdentityFilter(c, c.GetString("expected_task_plugin_key"))
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
@@ -323,6 +324,59 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	group, err := getJSONStringValue(values[1], "group")
 	if err != nil {
 		return nil, err
+	}
+	var format types.RelayFormat
+	if c.Request.Method == http.MethodPost {
+		switch c.Request.URL.Path {
+		case "/v1/chat/completions":
+			format = types.RelayFormatOpenAI
+		case "/v1/responses":
+			format = types.RelayFormatOpenAIResponses
+		case "/v1/messages":
+			format = types.RelayFormatClaude
+		}
+	}
+	if format != "" && strings.Contains(model, "@") {
+		// 修饰符模型名才需要完整请求体；磁盘体经 reader 按需读取一次，
+		// 常规请求保持上游流式验证的零拷贝路径。
+		var requestBody []byte
+		if storage.IsDisk() {
+			reader, readErr := storage.NewReader()
+			if readErr != nil {
+				return nil, readErr
+			}
+			requestBody, readErr = io.ReadAll(reader)
+			_ = reader.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+		} else {
+			bodyBytes, readErr := storage.Bytes()
+			if readErr != nil {
+				return nil, readErr
+			}
+			requestBody = bodyBytes
+		}
+		patched, base, err := helper.NormalizeEntryModelModifiers(requestBody, model, format)
+		if err != nil {
+			return nil, err
+		}
+		if base != model {
+			newStorage, err := common.CreateBodyStorage(patched)
+			if err != nil {
+				return nil, err
+			}
+			if err := storage.Close(); err != nil {
+				common.CleanupBodyStorage(c)
+				_ = newStorage.Close()
+				return nil, fmt.Errorf("close previous request body: %w", err)
+			}
+			storage = newStorage
+			c.Set(common.KeyBodyStorage, storage)
+			c.Set(common.KeyRequestBody, nil)
+			c.Request.ContentLength = int64(len(patched))
+			model = base
+		}
 	}
 
 	if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {

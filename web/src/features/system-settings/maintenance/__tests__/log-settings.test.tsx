@@ -45,6 +45,11 @@ function Fixture() {
             'log_setting.user_export_enabled': true,
             'log_setting.max_range_days': 30,
           }}
+          defaultRules='[]'
+          builtInRules='[]'
+          cdnRuleGroups='[]'
+          systemRules='[]'
+          capacityBytes={0}
         />
       </SettingsPageProvider>
     </>
@@ -78,7 +83,7 @@ beforeEach(() => {
   vi.spyOn(api, 'put').mockResolvedValue({ data: { success: true } })
 })
 
-test('the page shows the four log modules in order, each with its own controls', async () => {
+test('the page shows the log modules in order, each with its own controls', async () => {
   await renderSettings()
 
   expect(
@@ -88,6 +93,8 @@ test('the page shows the four log modules in order, each with its own controls',
     'Log search and export',
     'Clean history logs',
     'Server Log Management',
+    'General request headers',
+    'CDN request headers',
   ])
   const recording = screen.getByRole('group', { name: 'Log recording' })
   expect(within(recording).getAllByRole('switch')).toHaveLength(1)

@@ -28,6 +28,7 @@ export type UserPermissions = {
 }
 
 export interface AuthUser {
+  setup_guide_completed?: boolean
   has_password?: boolean
   id: number
   username: string
@@ -35,6 +36,7 @@ export interface AuthUser {
   email?: string
   role: number
   status?: number
+  temporary_quota_request_eligible?: boolean
   group?: string
   quota?: number
   used_quota?: number

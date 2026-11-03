@@ -24,6 +24,7 @@ import { ChatSettingsSection } from './chat-settings-section'
 import { DashboardSection } from './dashboard-section'
 import { DrawingSettingsSection } from './drawing-settings-section'
 import { FAQSection } from './faq-section'
+import { OverviewLayoutSection } from './overview-layout-section'
 import { UptimeKumaSection } from './uptime-kuma-section'
 
 /**
@@ -49,6 +50,21 @@ const CONTENT_SECTIONS = [
           DataExportDefaultTime: validateDataExportDefaultTime(
             settings.DataExportDefaultTime
           ),
+        }}
+      />
+    ),
+  },
+  {
+    id: 'overview-layout',
+    titleKey: 'Overview Layout',
+    build: (settings: ContentSettings) => (
+      <OverviewLayoutSection
+        defaultValue={settings['console_setting.overview_panel_order']}
+        enabledPanels={{
+          'api-info': settings['console_setting.api_info_enabled'],
+          announcements: settings['console_setting.announcements_enabled'],
+          faq: settings['console_setting.faq_enabled'],
+          'uptime-kuma': settings['console_setting.uptime_kuma_enabled'],
         }}
       />
     ),
@@ -97,7 +113,12 @@ const CONTENT_SECTIONS = [
     id: 'chat',
     titleKey: 'Chat Presets',
     build: (settings: ContentSettings) => (
-      <ChatSettingsSection defaultValue={settings.Chats} />
+      <ChatSettingsSection
+        defaultValue={settings.Chats}
+        defaultThreshold={settings.ChatMenuCollapseThreshold}
+        builtInValue={settings.ChatsDefault}
+        builtInThreshold={settings.ChatMenuCollapseThresholdDefault}
+      />
     ),
   },
   {

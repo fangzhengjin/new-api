@@ -19,12 +19,39 @@ For commercial licensing, please contact support@quantumnous.com
 import { API_KEY_STATUS } from '@/features/keys/constants'
 
 export type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
+export type ChatOpenMode = 'embedded' | 'new_tab'
+export type ChatTheme = 'light' | 'dark'
+
+export const CHAT_SANDBOX_PERMISSIONS = [
+  'allow-downloads',
+  'allow-forms',
+  'allow-modals',
+  'allow-popups',
+  'allow-popups-to-escape-sandbox',
+  'allow-presentation',
+  'allow-scripts',
+  'allow-same-origin',
+] as const
+
+export type ChatSandboxPermission = (typeof CHAT_SANDBOX_PERMISSIONS)[number]
 
 export type ChatPreset = {
   id: string
   name: string
   url: string
   type: ChatLinkType
+  icon?: string
+  openMode?: ChatOpenMode
+  sandbox?: ChatSandboxPermission[]
+}
+
+export type ChatConfigEntry = {
+  name: string
+  url: string
+  enabled: boolean
+  icon?: string
+  openMode?: ChatOpenMode
+  sandbox?: ChatSandboxPermission[]
 }
 
 export type RawChatConfig =
@@ -38,6 +65,7 @@ export type ResolveChatUrlParams = {
   template: string
   apiKey?: string
   serverAddress: string
+  theme: ChatTheme
 }
 
 export type ActiveApiKey = {
@@ -46,6 +74,11 @@ export type ActiveApiKey = {
 }
 
 const HTTP_REGEX = /^https?:\/\//i
+const CHAT_ICON_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/
+const CHAT_IFRAME_SANDBOX = CHAT_SANDBOX_PERMISSIONS.filter(
+  (permission) => permission !== 'allow-same-origin'
+).join(' ')
+const CHAT_SANDBOX_PERMISSION_SET = new Set<string>(CHAT_SANDBOX_PERMISSIONS)
 
 function toBase64(value: string) {
   if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
@@ -94,7 +127,44 @@ export function chatLinkRequiresApiKey(url: string): boolean {
   )
 }
 
-export function parseChatConfig(raw: RawChatConfig): ChatPreset[] {
+export function chatLinkRequiresBackendLaunch(url: string): boolean {
+  return (
+    url.includes('{authCode}') ||
+    url.includes('{textModels}') ||
+    url.includes('{imageModels}') ||
+    url.includes('{videoModels}')
+  )
+}
+
+export function chatPresetOpensInNewTab(preset: ChatPreset): boolean {
+  return preset.type !== 'web' || preset.openMode === 'new_tab'
+}
+
+export function getChatIframeSandbox(
+  url: string,
+  currentOrigin: string,
+  configuredSandbox?: readonly ChatSandboxPermission[]
+): string {
+  if (configuredSandbox !== undefined) return configuredSandbox.join(' ')
+  try {
+    if (new URL(url, currentOrigin).origin !== currentOrigin) {
+      return `${CHAT_IFRAME_SANDBOX} allow-same-origin`
+    }
+  } catch {
+    // Invalid URLs remain in the stricter sandbox and fail in the iframe.
+  }
+  return CHAT_IFRAME_SANDBOX
+}
+
+export function postChatTheme(
+  targetWindow: Window | null,
+  theme: ChatTheme
+): void {
+  if (!targetWindow) return
+  targetWindow.postMessage({ type: 'theme', value: theme }, '*')
+}
+
+export function parseChatConfigEntries(raw: RawChatConfig): ChatConfigEntry[] {
   let parsed: unknown = raw
 
   if (typeof raw === 'string') {
@@ -109,35 +179,101 @@ export function parseChatConfig(raw: RawChatConfig): ChatPreset[] {
     return []
   }
 
-  return parsed
-    .map((entry, index) => {
+  const result: ChatConfigEntry[] = []
+  const names = new Set<string>()
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const config = entry as Record<string, unknown>
+    if (
+      !Object.keys(config).every((key) =>
+        ['name', 'url', 'enabled', 'icon', 'open_mode', 'sandbox'].includes(key)
+      ) ||
+      typeof config.name !== 'string' ||
+      typeof config.url !== 'string' ||
+      typeof config.enabled !== 'boolean' ||
+      (config.icon !== undefined &&
+        (typeof config.icon !== 'string' ||
+          (config.icon.trim() !== '' &&
+            !CHAT_ICON_PATTERN.test(config.icon.trim()))))
+    ) {
+      continue
+    }
+    const name = config.name.trim()
+    const url = config.url.trim()
+    const icon = config.icon?.trim()
+    if (!name || !url || names.has(name)) continue
+    const isHttp = HTTP_REGEX.test(url)
+    let openMode: ChatOpenMode | undefined
+    if (isHttp) {
       if (
-        !entry ||
-        typeof entry !== 'object' ||
-        Array.isArray(entry) ||
-        Object.keys(entry).length !== 1
+        config.open_mode !== undefined &&
+        config.open_mode !== 'embedded' &&
+        config.open_mode !== 'new_tab'
       ) {
-        return null
+        continue
       }
-
-      const [name, value] = Object.entries(entry)[0]
-      if (typeof value !== 'string' || typeof name !== 'string') {
-        return null
+      openMode = (config.open_mode as ChatOpenMode | undefined) ?? 'embedded'
+    } else if (config.open_mode !== undefined) {
+      continue
+    }
+    let sandbox: ChatSandboxPermission[] | undefined
+    if (config.sandbox !== undefined) {
+      if (
+        !isHttp ||
+        openMode !== 'embedded' ||
+        !Array.isArray(config.sandbox) ||
+        config.sandbox.some(
+          (permission) =>
+            typeof permission !== 'string' ||
+            !CHAT_SANDBOX_PERMISSION_SET.has(permission)
+        ) ||
+        new Set(config.sandbox).size !== config.sandbox.length
+      ) {
+        continue
       }
-
-      const url = value.trim()
-      if (!url) {
-        return null
-      }
-
-      return {
-        id: String(index),
-        name,
-        url,
-        type: detectChatLinkType(url),
-      } satisfies ChatPreset
+      sandbox = [...config.sandbox] as ChatSandboxPermission[]
+    }
+    names.add(name)
+    result.push({
+      name,
+      url,
+      enabled: config.enabled,
+      ...(icon ? { icon } : {}),
+      openMode,
+      ...(sandbox !== undefined ? { sandbox } : {}),
     })
-    .filter((item): item is ChatPreset => item !== null)
+  }
+  return result
+}
+
+export function serializeChatConfigEntry(entry: ChatConfigEntry) {
+  return {
+    name: entry.name,
+    url: entry.url,
+    enabled: entry.enabled,
+    ...(entry.icon ? { icon: entry.icon } : {}),
+    ...(entry.openMode ? { open_mode: entry.openMode } : {}),
+    ...(entry.sandbox !== undefined ? { sandbox: [...entry.sandbox] } : {}),
+  }
+}
+
+export function parseChatConfig(raw: RawChatConfig): ChatPreset[] {
+  return parseChatConfigEntries(raw)
+    .filter((entry) => entry.enabled)
+    .map(
+      (entry, index) =>
+        ({
+          id: String(index),
+          name: entry.name,
+          url: entry.url,
+          type: detectChatLinkType(entry.url),
+          ...(entry.icon ? { icon: entry.icon } : {}),
+          openMode: entry.openMode,
+          ...(entry.sandbox !== undefined
+            ? { sandbox: [...entry.sandbox] }
+            : {}),
+        }) satisfies ChatPreset
+    )
 }
 
 function replaceToken(source: string, token: string, value: string) {
@@ -154,8 +290,9 @@ export function resolveChatUrl({
   template,
   apiKey,
   serverAddress,
+  theme,
 }: ResolveChatUrlParams): string {
-  let url = template
+  let url = replaceToken(template, '{theme}', theme)
   const safeServerAddress = serverAddress || ''
 
   const safeApiKey = normalizeApiKey(apiKey || '')
@@ -217,4 +354,8 @@ export function getFirstActiveKey(
 ): ActiveApiKey | undefined {
   if (!Array.isArray(keys)) return undefined
   return keys.find((item) => item.status === API_KEY_STATUS.ENABLED)
+}
+
+export function shouldGroupChatEntries(count: number, threshold: number) {
+  return count > threshold
 }

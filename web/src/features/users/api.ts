@@ -32,6 +32,8 @@ import type {
   ManageUserAction,
   ManageUserQuotaPayload,
   ApiResponse,
+  UserLimitsData,
+  UserLimitOverrides,
 } from './types'
 
 // A step-up proof is single-use, so the request carrying it must never be
@@ -77,6 +79,7 @@ export async function searchUsers(
     group = '',
     role = '',
     status = '',
+    quota_whitelist,
     p = 1,
     page_size = 10,
     sort_by,
@@ -87,6 +90,9 @@ export async function searchUsers(
   queryParams.set('group', group)
   if (role) queryParams.set('role', role)
   if (status) queryParams.set('status', status)
+  if (quota_whitelist !== undefined) {
+    queryParams.set('quota_whitelist', String(quota_whitelist))
+  }
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   if (sort_by) queryParams.set('sort_by', sort_by)
@@ -100,6 +106,43 @@ export async function searchUsers(
  */
 export async function getUser(id: number): Promise<ApiResponse<User>> {
   const res = await api.get(`/api/user/${id}`)
+  return res.data
+}
+
+export async function getUserLimits(
+  id: number
+): Promise<ApiResponse<UserLimitsData>> {
+  const res = await api.get(`/api/user/${id}/limits`)
+  return res.data
+}
+
+export async function updateUserLimits(
+  id: number,
+  data: UserLimitOverrides
+): Promise<ApiResponse> {
+  const res = await api.put(`/api/user/${id}/limits`, data)
+  return res.data
+}
+
+export async function removeUserAccessSource(
+  id: number,
+  ip: string
+): Promise<ApiResponse> {
+  const res = await api.delete(`/api/user/${id}/access-sources`, {
+    data: { ip },
+  })
+  return res.data
+}
+
+export async function allowLatestUserAccessSource(
+  id: number,
+  eventId: string,
+  ip: string
+): Promise<ApiResponse> {
+  const res = await api.post(`/api/user/${id}/access-sources/allow`, {
+    event_id: eventId,
+    ip,
+  })
   return res.data
 }
 
@@ -162,13 +205,32 @@ export async function manageUser(
   return res.data
 }
 
+export async function setQuotaWhitelist(
+  id: number,
+  enabled: boolean,
+  proofToken: string
+): Promise<ApiResponse> {
+  const res = await api.post(
+    '/api/user/manage',
+    {
+      id,
+      action: 'quota_whitelist',
+      mode: enabled ? 'enable' : 'disable',
+    },
+    securityProofConfig(proofToken)
+  )
+  return res.data
+}
+
 /**
  * Adjust user quota atomically (add/subtract/override)
  */
 export async function adjustUserQuota(
   payload: ManageUserQuotaPayload
-): Promise<ApiResponse<Partial<User>>> {
-  const res = await api.post('/api/user/manage', payload)
+): Promise<ApiResponse> {
+  const res = await api.post('/api/user/manage', payload, {
+    skipBusinessError: true,
+  })
   return res.data
 }
 

@@ -29,6 +29,8 @@ const defaultContentSettings: ContentSettings = {
   'console_setting.announcements': '[]',
   'console_setting.faq': '[]',
   'console_setting.uptime_kuma_groups': '[]',
+  'console_setting.overview_panel_order':
+    '["api-info","announcements","faq","uptime-kuma"]',
   'console_setting.api_info_enabled': true,
   'console_setting.announcements_enabled': true,
   'console_setting.faq_enabled': true,
@@ -37,6 +39,9 @@ const defaultContentSettings: ContentSettings = {
   DataExportDefaultTime: 'hour',
   DataExportInterval: 5,
   Chats: '[]',
+  ChatMenuCollapseThreshold: 3,
+  ChatsDefault: '[]',
+  ChatMenuCollapseThresholdDefault: 3,
   DrawingEnabled: false,
   MjNotifyEnabled: false,
   MjAccountFilterEnabled: false,

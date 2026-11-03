@@ -21,6 +21,10 @@ import { formatLogQuota } from '@/lib/format'
 type Translate = (key: string, opts?: Record<string, unknown>) => string
 
 const QUOTA_OPERATIONS: Record<string, { label: string; named: string }> = {
+  'quota.balance.adjust': {
+    label: 'Adjust user quota',
+    named: 'Adjust quota for user “{{name}}”',
+  },
   'user.quota_add': {
     label: 'Increase user quota',
     named: 'Increase quota for user “{{name}}”',

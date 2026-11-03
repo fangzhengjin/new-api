@@ -28,6 +28,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -81,6 +83,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
 	)
+	releaseQuotaRequest, err := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if err != nil {
+		if relayFormat == types.RelayFormatClaude {
+			c.JSON(http.StatusConflict, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		} else {
+			c.JSON(http.StatusConflict, gin.H{"error": types.OpenAIError{Message: err.Error(), Type: "new_api_error", Code: "quota_cycle_unavailable"}})
+		}
+		return
+	}
+	defer releaseQuotaRequest()
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -99,6 +111,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				return
 			}
 			logger.LogError(c, common.LogText("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			if writeCodexMappedErrorResponse(c, relayFormat, newAPIError) {
+				return
+			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			upstreamURLs := common.UpstreamAddresses(c)
 			if relayFormat != types.RelayFormatOpenAIRealtime && c.Writer.Written() &&
@@ -124,6 +139,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 	}()
+
+	checkCodexVersion := relayFormat == types.RelayFormatOpenAIResponses ||
+		relayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		relayFormat == types.RelayFormatOpenAIAlphaSearch
+	if outdated := model_setting.CheckClientVersion(c.Request.UserAgent(), relayFormat == types.RelayFormatClaude, checkCodexVersion); outdated != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(outdated.Message()),
+			types.ErrorCodeClientVersionTooLow,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+		service.RecordRelayErrorLog(c, newAPIError, nil, nil)
+		return
+	}
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
 	if err != nil {
@@ -307,6 +336,29 @@ func writeRelayStreamError(c *gin.Context, format types.RelayFormat, apiError *t
 	}
 	_ = helper.ObjectData(c, gin.H{"error": apiError.ToOpenAIError(upstreamURLs...)})
 	helper.Done(c)
+}
+
+func writeCodexMappedErrorResponse(c *gin.Context, relayFormat types.RelayFormat, newAPIError *types.NewAPIError) bool {
+	if relayFormat != types.RelayFormatOpenAIResponses || newAPIError == nil || newAPIError.UpstreamStatusCode == 0 {
+		return false
+	}
+	rewrite, matched := model_setting.MatchCodexErrorResponse(
+		c.Request.UserAgent(),
+		c.Request.URL.Path,
+		newAPIError.UpstreamStatusCode,
+		newAPIError.ToOpenAIError().Message,
+	)
+	if !matched {
+		return false
+	}
+	c.JSON(rewrite.StatusCode, gin.H{
+		"error": gin.H{
+			"type":    rewrite.Type,
+			"code":    rewrite.Code,
+			"message": rewrite.Message,
+		},
+	})
+	return true
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.
@@ -574,6 +626,17 @@ func RelayMidjourney(c *gin.Context) {
 	}
 
 	var mjErr *taskdto.MidjourneyResponse
+	if relayInfo.RelayMode != relayconstant.RelayModeMidjourneyNotify &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetch &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetchByCondition &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskImageSeed {
+		releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+		if admissionErr != nil {
+			c.JSON(http.StatusConflict, gin.H{"description": admissionErr.Error(), "type": "quota_cycle_unavailable", "code": 4})
+			return
+		}
+		defer releaseQuotaRequest()
+	}
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeMidjourneyNotify:
 		mjErr = relay.RelayMidjourneyNotify(c)
@@ -686,6 +749,13 @@ type taskSubmissionOutcome struct {
 }
 
 func RelayTask(c *gin.Context) {
+	releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if admissionErr != nil {
+		c.JSON(http.StatusConflict, &taskdto.TaskError{Code: "quota_cycle_unavailable", Message: admissionErr.Error(), StatusCode: http.StatusConflict})
+		return
+	}
+	defer releaseQuotaRequest()
+
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		respondTaskSubmissionError(c, &taskdto.TaskError{

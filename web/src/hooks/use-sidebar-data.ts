@@ -129,7 +129,7 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
           ...(cycleQuotaManagementEnabled && temporaryQuotaRequestEligible
             ? [
                 {
-                  title: t('Temporary quota'),
+                  title: t('临时额度'),
                   url: '/temporary-quota',
                   icon: HandCoins,
                 },
@@ -185,7 +185,7 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
           ...(cycleQuotaManagementEnabled
             ? [
                 {
-                  title: t('Cycle Quota Management'),
+                  title: t('周期额度管理'),
                   url: '/quota-management',
                   activeUrls: ['/quota-management'],
                   icon: Coins,

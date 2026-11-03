@@ -144,11 +144,11 @@ export function ModelsFilter(props: ModelsFilterProps) {
 
   const handleApply = () => {
     if (!filters.start_timestamp || !filters.end_timestamp) {
-      toast.error(t('Please select both start and end times'))
+      toast.error(t('请选择开始时间和结束时间'))
       return
     }
     if (filters.start_timestamp >= filters.end_timestamp) {
-      toast.error(t('Start time must be earlier than end time'))
+      toast.error(t('开始时间必须早于结束时间'))
       return
     }
 

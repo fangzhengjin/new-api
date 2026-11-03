@@ -97,9 +97,9 @@ function chatPresetRequiresToken(preset: ChatPreset): boolean {
 
 function getExternalPresetLabel(preset: ChatPreset, t: TFunction): string {
   if (preset.type === 'web') {
-    return t('{{name}} (opens in a new tab)', { name: preset.name })
+    return t('{{name}}（在新标签页打开）', { name: preset.name })
   }
-  return t('{{name}} (opens an external app)', { name: preset.name })
+  return t('{{name}}（打开外部应用）', { name: preset.name })
 }
 
 /**

@@ -91,10 +91,10 @@ describe('protected embedded chat route launch', () => {
       screen.getByRole('status', { name: 'Preparing your chat link…' })
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'Choose a Token' })
+      screen.queryByRole('heading', { name: '选择 Token' })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Choose a Token' })
+      screen.queryByRole('button', { name: '选择 Token' })
     ).not.toBeInTheDocument()
   })
 

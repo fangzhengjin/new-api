@@ -160,11 +160,9 @@ export function SystemBehaviorSection({
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Cycle Quota Management')}</FormLabel>
+                  <FormLabel>{t('周期额度管理')}</FormLabel>
                   <FormDescription>
-                    {t(
-                      'Cycle quota management handles quota issuance, adjustment, reclaim, temporary grants, and cycle settlement without changing other account features'
-                    )}
+                    {t('周期额度管理只处理额度发放、调额、回收、临时额度发放和周期结算，不会改变其他账户功能')}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>

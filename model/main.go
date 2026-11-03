@@ -373,15 +373,14 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
-		&QuotaCycle{},
-		&QuotaPlan{},
-		&QuotaItem{},
-		&TemporaryQuotaRequest{},
 		&CasbinRule{},
 		&AuthzRole{},
 		&UserAccessToken{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateLocalModels(); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {

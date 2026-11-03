@@ -117,9 +117,9 @@ describe('quota plan execution confirmation', () => {
       await router.load()
       root.render(<RouterProvider router={router} />)
     })
-    await click(findButton('Execute plan'))
+    await click(findButton('执行草稿'))
 
-    const executeNow = findButton('Execute now')
+    const executeNow = findButton('立即执行')
     const input = document.querySelector<HTMLInputElement>(
       '#execute-plan-confirmation'
     )
@@ -128,7 +128,7 @@ describe('quota plan execution confirmation', () => {
 
     await changeInput(input, 'EXECUTE PLAN')
     assert.equal(executeNow.disabled, true)
-    assert.match(document.body.textContent ?? '', /does not match/)
+    assert.match(document.body.textContent ?? '', /确认短语不匹配/)
     assert.equal(input.getAttribute('aria-invalid'), 'true')
     const describedBy = input.getAttribute('aria-describedby')?.split(' ') ?? []
     assert.ok(describedBy.includes('execute-plan-confirmation-description'))
@@ -136,14 +136,14 @@ describe('quota plan execution confirmation', () => {
     assert.match(
       document.querySelector('#execute-plan-confirmation-error')?.textContent ??
         '',
-      /does not match/
+      /确认短语不匹配/
     )
 
     await changeInput(input, confirmationPhrase)
     assert.equal(executeNow.disabled, false)
 
     await click(findButton('Cancel'))
-    await click(findButton('Execute plan'))
+    await click(findButton('执行草稿'))
     const reopenedInput = document.querySelector<HTMLInputElement>(
       '#execute-plan-confirmation'
     )
@@ -154,12 +154,12 @@ describe('quota plan execution confirmation', () => {
       reopenedInput.getAttribute('aria-describedby'),
       'execute-plan-confirmation-description'
     )
-    assert.equal(findButton('Execute now').disabled, true)
+    assert.equal(findButton('立即执行').disabled, true)
 
     await changeInput(reopenedInput, confirmationPhrase)
-    await click(findButton('Execute now'))
+    await click(findButton('立即执行'))
     await vi.waitFor(() => {
-      assert.equal(findButton('Execute now').disabled, true)
+      assert.equal(findButton('立即执行').disabled, true)
     })
     const closeButton = document.querySelector<HTMLButtonElement>(
       '[data-slot="dialog-close"]'
@@ -170,7 +170,7 @@ describe('quota plan execution confirmation', () => {
       document.querySelector('#execute-plan-confirmation'),
       reopenedInput
     )
-    assert.equal(findButton('Execute now').disabled, true)
+    assert.equal(findButton('立即执行').disabled, true)
 
     await act(async () => root.unmount())
     container.remove()

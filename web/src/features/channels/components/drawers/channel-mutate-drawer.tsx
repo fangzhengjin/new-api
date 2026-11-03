@@ -709,10 +709,10 @@ export function ChannelMutateDrawer({
 
   const systemPromptModeOptions = useMemo(
     () => [
-      { value: 'none', label: t('Disabled (default)') },
-      { value: 'prepend', label: t('Prepend channel prompt') },
-      { value: 'append', label: t('Append channel prompt') },
-      { value: 'override', label: t('Override identified prompt') },
+      { value: 'none', label: t('关闭（默认）') },
+      { value: 'prepend', label: t('前置渠道提示词') },
+      { value: 'append', label: t('后置渠道提示词') },
+      { value: 'override', label: t('覆盖已定位的提示词') },
     ],
     [t]
   )
@@ -1844,13 +1844,13 @@ export function ChannelMutateDrawer({
           <FormLabel>{t('System Prompt')}</FormLabel>
           <FormControl>
             <Textarea
-              placeholder={t('Enter channel system prompt')}
+              placeholder={t('输入渠道系统提示词')}
               rows={3}
               {...field}
             />
           </FormControl>
           <FormDescription>
-            {t('Prompt used by the selected strategy')}
+            {t('由所选策略使用的渠道提示词')}
           </FormDescription>
           <FormMessage />
         </FormItem>
@@ -1864,7 +1864,7 @@ export function ChannelMutateDrawer({
       name='system_prompt_mode'
       render={({ field }) => (
         <FormItem>
-          <FormLabel>{t('System Prompt Strategy')}</FormLabel>
+          <FormLabel>{t('系统提示词处理策略')}</FormLabel>
           <Select
             disabled={sensitiveLocked}
             items={systemPromptModeOptions}
@@ -1887,9 +1887,7 @@ export function ChannelMutateDrawer({
             </SelectContent>
           </Select>
           <FormDescription>
-            {t(
-              'Controls how this channel prompt modifies an identified request system prompt. Responses Lite preserves other developer messages.'
-            )}
+            {t('控制渠道提示词如何修改已定位的请求系统提示词。Responses Lite 会保留其他 developer 消息')}
           </FormDescription>
           <FormMessage />
         </FormItem>
@@ -2221,14 +2219,14 @@ export function ChannelMutateDrawer({
   const concurrencyFields = (
     <div
       role='group'
-      aria-label={t('Concurrency Control')}
+      aria-label={t('并发控制')}
       className={channelConfigurationBlockClassName(
         configuration.blocks.extraSettings,
         'flex flex-col gap-4 border-t pt-4'
       )}
     >
       <SubHeading
-        title={t('Concurrency Control')}
+        title={t('并发控制')}
         icon={<Boxes className='h-3.5 w-3.5' />}
         iconTone='warning'
       />
@@ -2242,7 +2240,7 @@ export function ChannelMutateDrawer({
             name='max_concurrency'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Maximum concurrent requests')}</FormLabel>
+                <FormLabel>{t('最大并发请求数')}</FormLabel>
                 <FormControl>
                   <Input
                     type='number'
@@ -2256,9 +2254,7 @@ export function ChannelMutateDrawer({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t(
-                    'Maximum in-flight requests across all instances. Set to 0 for unlimited.'
-                  )}
+                  {t('所有实例共享的处理中请求上限，设为 0 表示不限制')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -2269,7 +2265,7 @@ export function ChannelMutateDrawer({
             name='concurrency_wait_timeout_seconds'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Concurrency wait timeout (seconds)')}</FormLabel>
+                <FormLabel>{t('并发等待超时（秒）')}</FormLabel>
                 <FormControl>
                   <Input
                     type='number'
@@ -2284,9 +2280,7 @@ export function ChannelMutateDrawer({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t(
-                    'How long a request waits for a slot. Set to 0 to fail immediately.'
-                  )}
+                  {t('请求等待可用并发槽的最长时间，设为 0 表示立即失败')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -2294,9 +2288,7 @@ export function ChannelMutateDrawer({
           />
         </div>
         <p className='text-muted-foreground text-xs'>
-          {t(
-            'Concurrency limits are shared across instances through Redis. Streaming requests hold a slot until the response ends.'
-          )}
+          {t('并发限制通过 Redis 在所有实例间共享；流式请求会持有并发槽，直到响应结束')}
         </p>
       </fieldset>
     </div>

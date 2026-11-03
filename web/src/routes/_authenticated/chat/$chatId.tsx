@@ -226,7 +226,7 @@ function ChatRouteComponent() {
         window.location.origin,
         preset.sandbox
       )}
-      title={t('Chat preset: {{name}}', { name: preset.name })}
+      title={t('聊天预设：{{name}}', { name: preset.name })}
       onLoad={syncIframeTheme}
     />
   )

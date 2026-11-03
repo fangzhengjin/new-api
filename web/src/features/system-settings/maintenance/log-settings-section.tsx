@@ -102,13 +102,13 @@ function createLogSettingsSchema(
     name: z
       .string()
       .trim()
-      .min(1, t('Request header rule is required'))
+      .min(1, t('请求头规则不能为空'))
       .refine((value) => {
         const name = value.endsWith('*') ? value.slice(0, -1) : value
         return Boolean(
           name && !name.includes('*') && headerNamePattern.test(name)
         )
-      }, t('Use an HTTP header name; only a trailing * wildcard is supported')),
+      }, t('请输入 HTTP 请求头名称，仅支持末尾 * 通配符')),
     record: z.boolean(),
     forward: z.boolean(),
   })
@@ -121,12 +121,12 @@ function createLogSettingsSchema(
     }),
     RequestHeaderRules: z
       .array(ruleSchema)
-      .max(200, t('Request header rules cannot exceed 200 rules'))
+      .max(200, t('请求头规则不能超过 200 条'))
       .superRefine((rules, context) => {
         if (JSON.stringify(rules).length > 8192) {
           context.addIssue({
             code: 'custom',
-            message: t('Request header rules cannot exceed 8 KiB'),
+            message: t('请求头规则不能超过 8 KiB'),
           })
         }
         const seen = new Set<string>()
@@ -136,7 +136,7 @@ function createLogSettingsSchema(
             context.addIssue({
               code: 'custom',
               path: [index, 'name'],
-              message: t('Duplicate request header rule'),
+              message: t('请求头规则重复'),
             })
           } else if (
             systemRules.some((rule) =>
@@ -146,7 +146,7 @@ function createLogSettingsSchema(
             context.addIssue({
               code: 'custom',
               path: [index, 'name'],
-              message: t('This request header rule is managed by the system'),
+              message: t('该请求头规则由系统管理'),
             })
           }
           seen.add(name)
@@ -395,7 +395,7 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
       <Checkbox
         checked={row[policy]}
         aria-label={t(
-          policy === 'record' ? 'Record {{name}}' : 'Forward {{name}}',
+          policy === 'record' ? '记录 {{name}}' : '转发 {{name}}',
           {
             name: row.name,
           }
@@ -541,12 +541,10 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
               <div className='flex flex-col gap-2 sm:flex-row'>
                 <div className='min-w-0 flex-1'>
                   <CardTitle>
-                    <h3>{t('Request header processing rules')}</h3>
+                    <h3>{t('请求头处理规则')}</h3>
                   </CardTitle>
                   <CardDescription>
-                    {t(
-                      'Manage whether request headers are recorded in administrator logs and sent to upstream providers by source'
-                    )}
+                    {t('按来源管理请求头是否记录到管理员日志并发送给上游服务')}
                   </CardDescription>
                 </div>
                 <div className='shrink-0 sm:justify-self-end'>
@@ -581,18 +579,16 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                         id='general-request-header-rules'
                         className='font-medium'
                       >
-                        {t('General request headers')}
+                        {t('通用请求头')}
                       </h4>
                       <Badge variant='secondary'>
-                        {t('{{count}} rules', {
+                        {t('{{count}} 条', {
                           count: generalRequestHeaderRuleRows.length,
                         })}
                       </Badge>
                     </div>
                     <p className='text-muted-foreground text-xs'>
-                      {t(
-                        'Manage request headers used for log analysis and tracing, and add custom rules'
-                      )}
+                      {t('管理用于日志分析和链路跟踪的请求头，也可添加自定义规则')}
                     </p>
                   </div>
                   <Button
@@ -619,13 +615,13 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                   columns={[
                     {
                       id: 'name',
-                      header: t('Header rule'),
+                      header: t('请求头规则'),
                       className: 'min-w-60',
                       cell: (row) => {
                         const error =
                           form.formState.errors.RequestHeaderRules?.[row.index]
                             ?.name
-                        const label = t('Header rule: {{name}}', {
+                        const label = t('请求头规则：{{name}}', {
                           name: row.name || row.index + 1,
                         })
                         return (
@@ -652,7 +648,7 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                     },
                     {
                       id: 'record',
-                      header: t('Record'),
+                      header: t('记录'),
                       className: 'w-24 text-center',
                       cellClassName: 'text-center',
                       cell: (row) =>
@@ -660,7 +656,7 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                     },
                     {
                       id: 'forward',
-                      header: t('Forward'),
+                      header: t('转发'),
                       className: 'w-24 text-center',
                       cellClassName: 'text-center',
                       cell: (row) =>
@@ -677,7 +673,7 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                           variant='ghost'
                           size='icon'
                           disabled={updateOption.isPending}
-                          aria-label={t('Delete {{name}} rule', {
+                          aria-label={t('删除 {{name}} 规则', {
                             name: row.name,
                           })}
                           onClick={() => remove(row.index)}
@@ -700,18 +696,16 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                 <div className='mb-3 space-y-1'>
                   <div className='flex items-center gap-2'>
                     <h4 id='cdn-request-header-rules' className='font-medium'>
-                      {t('CDN request headers')}
+                      {t('CDN 请求头')}
                     </h4>
                     <Badge variant='outline'>
-                      {t('{{count}} rules', {
+                      {t('{{count}} 条', {
                         count: cdnRequestHeaderRuleRows.length,
                       })}
                     </Badge>
                   </div>
                   <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'Rule names are maintained by vendor, while administrators can change record and forward policies'
-                    )}
+                    {t('规则名称由系统按厂商维护，管理员只调整记录与转发策略')}
                   </p>
                 </div>
                 <StaticDataTable
@@ -722,17 +716,17 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                     { id: 'vendor', header: t('Vendor'), className: 'w-52' },
                     {
                       id: 'name',
-                      header: t('Header rule'),
+                      header: t('请求头规则'),
                       className: 'min-w-60',
                     },
                     {
                       id: 'record',
-                      header: t('Record'),
+                      header: t('记录'),
                       className: 'w-24 text-center',
                     },
                     {
                       id: 'forward',
-                      header: t('Forward'),
+                      header: t('转发'),
                       className: 'w-24 text-center',
                     },
                   ]}
@@ -776,36 +770,32 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                           id='system-request-header-rules'
                           className='font-medium'
                         >
-                          {t('System-protected request headers')}
+                          {t('系统保护请求头')}
                         </h4>
                         <Badge variant='outline'>
-                          {t('{{count}} rules', {
+                          {t('{{count}} 条', {
                             count: systemRules.length,
                           })}
                         </Badge>
                       </div>
                       <p className='text-muted-foreground text-xs'>
-                        {t(
-                          'These rules protect HTTP transport and credentials and cannot be changed'
-                        )}
+                        {t('这些规则用于保障 HTTP 传输和凭据安全，不允许修改')}
                       </p>
                     </div>
                     <Accordion className='rounded-lg border px-3'>
                       <AccordionItem value='system-protections'>
                         <AccordionTrigger>
-                          {t('View system-managed request headers')}
+                          {t('查看系统管理的请求头')}
                         </AccordionTrigger>
                         <AccordionContent className='grid gap-4 lg:grid-cols-2'>
                           {nonForwardedHeaderRules.length > 0 ? (
                             <div className='space-y-2 rounded-lg border p-3'>
                               <div>
                                 <h5 className='font-medium'>
-                                  {t('Not recorded · Not forwarded')}
+                                  {t('不记录 · 不转发')}
                                 </h5>
                                 <p className='text-muted-foreground text-xs'>
-                                  {t(
-                                    'These headers are neither recorded nor forwarded'
-                                  )}
+                                  {t('这些请求头不会被记录或转发')}
                                 </p>
                               </div>
                               <div className='flex flex-wrap gap-1.5'>
@@ -824,12 +814,10 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
                             <div className='space-y-2 rounded-lg border p-3'>
                               <div>
                                 <h5 className='font-medium'>
-                                  {t('Not recorded · Forwardable')}
+                                  {t('不记录 · 可转发')}
                                 </h5>
                                 <p className='text-muted-foreground text-xs'>
-                                  {t(
-                                    'These headers are never recorded and may be forwarded when required'
-                                  )}
+                                  {t('这些请求头不会被记录，需要时可以转发')}
                                 </p>
                               </div>
                               <div className='flex flex-wrap gap-1.5'>
@@ -853,20 +841,15 @@ export function LogSettingsSection(props: LogSettingsSectionProps) {
 
               <div className='text-muted-foreground flex flex-col gap-1 border-t pt-4 text-xs sm:flex-row sm:items-center sm:justify-between'>
                 <span>
-                  {t(
-                    'Unmatched request headers are recorded and forwarded by default'
-                  )}
+                  {t('未匹配请求头默认记录并转发')}
                 </span>
                 <span className='flex flex-col gap-1 sm:items-end'>
                   <span>
-                    {t(
-                      'Recorded request headers are visible only to administrators'
-                    )}
+                    {t('已记录的请求头仅管理员可见')}
                   </span>
                   <span className='tabular-nums'>
                     {props.capacityBytes > 0
-                      ? t(
-                          '{{size}} KiB for incoming and outgoing headers separately',
+                      ? t('传入和传出请求头分别为 {{size}} KiB',
                           {
                             size: Math.round(props.capacityBytes / 1024),
                           }

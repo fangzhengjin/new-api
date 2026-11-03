@@ -65,11 +65,11 @@ test('associates local approval errors with the reviewed fields', async () => {
   )
 
   expect(await screen.findByText('Review User')).toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: 'Approve' }))
+  await user.click(screen.getByRole('button', { name: '批准' }))
 
-  const reason = screen.getByLabelText('Review reason')
-  const amount = screen.getByLabelText(/Approved quota/)
-  const submit = screen.getByRole('button', { name: 'Approve and grant' })
+  const reason = screen.getByLabelText('处理说明')
+  const amount = screen.getByLabelText(/批准额度/)
+  const submit = screen.getByRole('button', { name: '批准并发放' })
   await user.click(submit)
 
   expect(reason).toHaveAttribute('aria-invalid', 'true')
@@ -111,12 +111,12 @@ test('accepts a 500-character review reason by Unicode characters', async () => 
   )
 
   expect(await screen.findByText('Review User')).toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: 'Approve' }))
-  const reason = screen.getByLabelText('Review reason')
+  await user.click(screen.getByRole('button', { name: '批准' }))
+  const reason = screen.getByLabelText('处理说明')
   const unicodeReason = '😀'.repeat(300)
   expect(reason).not.toHaveAttribute('maxlength')
   fireEvent.change(reason, { target: { value: unicodeReason } })
-  await user.click(screen.getByRole('button', { name: 'Approve and grant' }))
+  await user.click(screen.getByRole('button', { name: '批准并发放' }))
 
   await waitFor(() =>
     expect(mocks.approveTemporaryQuotaRequest).toHaveBeenCalledWith(

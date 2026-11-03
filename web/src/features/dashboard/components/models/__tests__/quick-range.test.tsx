@@ -39,7 +39,7 @@ await i18n.use(initReactI18next).init({
       translation: {
         Filter: 'Filter',
         Today: 'Today',
-        '6 Hours': '6 Hours',
+        '6 小时': '6 小时',
         'Apply Filters': 'Apply Filters',
       },
     },
@@ -100,7 +100,7 @@ async function applyQuickRange(label: string) {
 
 describe('model dashboard quick ranges', () => {
   test('applies an exact rolling duration for an hour preset', async () => {
-    const filters = await applyQuickRange('6 Hours')
+    const filters = await applyQuickRange('6 小时')
 
     assert.ok(filters?.start_timestamp)
     assert.ok(filters.end_timestamp)

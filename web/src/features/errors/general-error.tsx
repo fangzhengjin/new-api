@@ -75,7 +75,7 @@ export function GeneralError({
     : `${t('Oops! Something went wrong')} ${`:')`}`
   const description = isRateLimited
     ? t('Please wait a moment before trying again.')
-    : t('Please try again later, or reload the page.')
+    : t('请稍后重试，或重新加载页面。')
 
   return (
     <div className={cn('h-svh w-full', className)}>
@@ -113,7 +113,7 @@ export function GeneralError({
               {t('Back to Home')}
             </Button>
             <Button onClick={() => window.location.reload()}>
-              {t('Reload page')}
+              {t('重新加载页面')}
             </Button>
           </div>
         )}

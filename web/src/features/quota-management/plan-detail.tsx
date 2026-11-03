@@ -64,40 +64,40 @@ function FundFlow(props: { plan: QuotaPlan; summary: PlanSummary }) {
     '[color:color-mix(in_oklch,var(--primary)_55%,var(--foreground))]'
   const totals = [
     {
-      label: t('Cycle total'),
+      label: t('周期总额度'),
       value: props.summary.budget,
       operator: '',
     },
     {
-      label: t('Total issued after this plan'),
+      label: t('本方案后累计已发放'),
       value: allocationAfter,
       operator: '=',
     },
     {
-      label: t('Cycle remaining'),
+      label: t('周期剩余额度'),
       value: props.summary.pool_remaining,
       operator: '+',
     },
   ]
   const flows = [
     {
-      label: t('Issued from cycle remaining quota'),
+      label: t('使用周期剩余额度发放'),
       value: props.summary.cycle_pool_issued_quota,
       activeClassName: cn('bg-primary/10', issuedTextClassName),
     },
     {
-      label: t('Reclaimed and reissued'),
+      label: t('已回收并重新发放'),
       value: props.summary.reclaimed_used_for_increases,
       activeClassName: cn('bg-primary/10', issuedTextClassName),
     },
     {
-      label: t('Reclaimed to cover existing excess'),
+      label: t('收回用于冲抵原有超额'),
       value: props.summary.reclaimed_used_to_cover_overage,
       activeClassName:
         'bg-warning/10 [color:color-mix(in_oklch,var(--warning)_55%,var(--foreground))]',
     },
     {
-      label: t('Reclaimed and returned to cycle quota pool'),
+      label: t('收回额度返还周期额度池'),
       value: props.summary.reclaimed_unused,
       activeClassName:
         'bg-success/10 [color:color-mix(in_oklch,var(--success)_55%,var(--foreground))]',
@@ -127,10 +127,10 @@ function FundFlow(props: { plan: QuotaPlan; summary: PlanSummary }) {
       </div>
       <div className='grid gap-2 border-t pt-4'>
         <div className='flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between'>
-          <div className='font-medium'>{t('Plan fund flow')}</div>
+          <div className='font-medium'>{t('本方案资金流')}</div>
           <div className='text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm'>
             <span>
-              {t('Issued in this plan')}{' '}
+              {t('本方案发放')}{' '}
               <strong
                 className={cn('font-medium tabular-nums', issuedTextClassName)}
               >
@@ -138,7 +138,7 @@ function FundFlow(props: { plan: QuotaPlan; summary: PlanSummary }) {
               </strong>
             </span>
             <span>
-              {t('Reclaimed from user accounts')}{' '}
+              {t('从用户账户收回')}{' '}
               <strong className='text-foreground font-medium tabular-nums'>
                 {formatQuota(props.summary.decrease.total)}
               </strong>
@@ -180,9 +180,9 @@ function AdjustmentTable(props: { items: QuotaItem[] }) {
           <TableRow>
             <TableHead>{t('User')}</TableHead>
             <TableHead>{t('Action')}</TableHead>
-            <TableHead className='text-right'>{t('Before')}</TableHead>
+            <TableHead className='text-right'>{t('调整前')}</TableHead>
             <TableHead className='text-right'>{t('Change')}</TableHead>
-            <TableHead className='text-right'>{t('After')}</TableHead>
+            <TableHead className='text-right'>{t('调整后')}</TableHead>
             <TableHead className='min-w-64'>{t('Reason')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -227,7 +227,7 @@ function AdjustmentTable(props: { items: QuotaItem[] }) {
       </Table>
       {!props.items.length && (
         <div className='text-muted-foreground p-6 text-center text-sm'>
-          {t('No matching adjustments')}
+          {t('没有匹配的调整记录')}
         </div>
       )}
     </div>
@@ -244,7 +244,7 @@ export function QuotaPlanDetail(props: { planId: number }) {
   if (query.isPending) {
     return (
       <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Quota plan')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>{t('额度调配方案')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <PageLoading />
         </SectionPageLayout.Content>
@@ -254,10 +254,10 @@ export function QuotaPlanDetail(props: { planId: number }) {
   if (query.isError) {
     return (
       <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Quota plan')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>{t('额度调配方案')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <PageError
-            title={t('Failed to load quota plan')}
+            title={t('加载额度方案失败')}
             error={query.error}
           />
         </SectionPageLayout.Content>
@@ -292,7 +292,7 @@ export function QuotaPlanDetail(props: { planId: number }) {
           }
         >
           <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          {t('Back to quota cycle')}
+          {t('返回额度周期')}
         </Button>
       </SectionPageLayout.Breadcrumb>
       <SectionPageLayout.Actions>
@@ -302,7 +302,7 @@ export function QuotaPlanDetail(props: { planId: number }) {
         <div className='grid gap-4'>
           {plan.status === 'cancelled' && plan.cancel_reason && (
             <Alert>
-              <AlertTitle>{t('Cancellation reason')}</AlertTitle>
+              <AlertTitle>{t('取消原因')}</AlertTitle>
               <AlertDescription>{plan.cancel_reason}</AlertDescription>
             </Alert>
           )}
@@ -320,11 +320,11 @@ export function QuotaPlanDetail(props: { planId: number }) {
             </Card>
             <Card>
               <CardHeader>
-                <CardDescription>{t('Affected users')}</CardDescription>
+                <CardDescription>{t('会调整的用户数')}</CardDescription>
                 <CardTitle>{summary.affected}</CardTitle>
               </CardHeader>
               <CardContent>
-                {t('{{issued}} issued · {{reclaimed}} reclaimed', {
+                {t('发放 {{issued}} · 回收 {{reclaimed}}', {
                   issued: summary.increase.count,
                   reclaimed: summary.decrease.count,
                 })}
@@ -332,20 +332,20 @@ export function QuotaPlanDetail(props: { planId: number }) {
             </Card>
             <Card>
               <CardHeader>
-                <CardDescription>{t('Planned net change')}</CardDescription>
+                <CardDescription>{t('方案净变动')}</CardDescription>
                 <CardTitle>
                   {formatQuota(plan.planned_delta_quota, true)}
                 </CardTitle>
               </CardHeader>
-              <CardContent>{t('Issue minus reclaim')}</CardContent>
+              <CardContent>{t('发放减去回收')}</CardContent>
             </Card>
             <Card>
               <CardHeader>
-                <CardDescription>{t('Calculated at')}</CardDescription>
+                <CardDescription>{t('计算时间')}</CardDescription>
                 <CardTitle>{formatDateTime(plan.snapshot_at)}</CardTitle>
               </CardHeader>
               <CardContent>
-                {t('Next planned adjustment')}:{' '}
+                {t('下次方案调整')}:{' '}
                 {formatDateTime(plan.next_adjustment_at)}
               </CardContent>
             </Card>
@@ -353,10 +353,10 @@ export function QuotaPlanDetail(props: { planId: number }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>{t('Quota flow')}</CardTitle>
+              <CardTitle>{t('额度流向')}</CardTitle>
               <CardDescription>
                 {t(
-                  "Shows how the cycle total is allocated, plus where this plan's issued and reclaimed quota went"
+                  "展示周期总额的分配结果，以及本方案发放来源和回收去向"
                 )}
               </CardDescription>
             </CardHeader>
@@ -367,12 +367,12 @@ export function QuotaPlanDetail(props: { planId: number }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>{t('Plan information')}</CardTitle>
+              <CardTitle>{t('方案信息')}</CardTitle>
               <CardDescription>{plan.purpose}</CardDescription>
             </CardHeader>
             <CardContent className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
               <div>
-                <div className='text-muted-foreground'>{t('Cycle')}</div>
+                <div className='text-muted-foreground'>{t('周期')}</div>
                 <div className='font-medium'>
                   #{cycle.id} · {formatDateTime(cycle.cycle_start_at)} –{' '}
                   {formatDateTime(cycle.cycle_end_at)}
@@ -380,14 +380,14 @@ export function QuotaPlanDetail(props: { planId: number }) {
               </div>
               <div>
                 <div className='text-muted-foreground'>
-                  {t('Next planned adjustment')}
+                  {t('下次方案调整')}
                 </div>
                 <div className='font-medium'>
                   {formatDateTime(plan.next_adjustment_at)}
                 </div>
               </div>
               <div>
-                <div className='text-muted-foreground'>{t('Created at')}</div>
+                <div className='text-muted-foreground'>{t('创建时间')}</div>
                 <div className='font-medium'>
                   {formatDateTime(plan.created_at)}
                 </div>
@@ -395,7 +395,7 @@ export function QuotaPlanDetail(props: { planId: number }) {
               {plan.executed_at && (
                 <div>
                   <div className='text-muted-foreground'>
-                    {t('Executed at')}
+                    {t('执行时间')}
                   </div>
                   <div className='font-medium'>
                     {formatDateTime(plan.executed_at)}
@@ -417,27 +417,25 @@ export function QuotaPlanDetail(props: { planId: number }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>{t('Allocation details')}</CardTitle>
+              <CardTitle>{t('分配明细')}</CardTitle>
               <CardDescription>
-                {t(
-                  'Review who receives quota, who returns quota, and the balance before and after each change'
-                )}
+                {t('审查获得额度的用户、归还额度的用户，以及每次变更前后的余额')}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {!items.length ? (
                 <EmptyData
-                  title={t('No adjustment items')}
-                  description={t('This plan does not contain any user changes')}
+                  title={t('没有需要调整的用户')}
+                  description={t('这份草稿不会修改任何用户余额')}
                 />
               ) : (
                 <Tabs defaultValue={defaultDetailTab}>
-                  <TabsList aria-label={t('Filter allocation details')}>
+                  <TabsList aria-label={t('筛选分配明细')}>
                     <TabsTrigger value='issue'>
-                      {t('Issue')} ({issuedItems.length})
+                      {t('发放')} ({issuedItems.length})
                     </TabsTrigger>
                     <TabsTrigger value='reclaim'>
-                      {t('Reclaim')} ({reclaimedItems.length})
+                      {t('回收')} ({reclaimedItems.length})
                     </TabsTrigger>
                     <TabsTrigger value='all'>
                       {t('All')} ({items.length})
@@ -458,10 +456,9 @@ export function QuotaPlanDetail(props: { planId: number }) {
           </Card>
           {failedNotifications.length > 0 && (
             <Alert variant='destructive'>
-              <AlertTitle>{t('Some notifications need retry')}</AlertTitle>
+              <AlertTitle>{t('部分通知需要重试')}</AlertTitle>
               <AlertDescription>
-                {t(
-                  '{{count}} user notifications failed after quota changes were completed',
+                {t('额度变更完成后，{{count}} 条用户通知发送失败',
                   {
                     count: failedNotifications.length,
                   }

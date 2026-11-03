@@ -55,19 +55,19 @@ const createConcurrencyLimitSchema = (t: (key: string) => string) =>
     ModelRequestConcurrencyLimitEnabled: z.boolean(),
     ModelRequestConcurrencyLimit: z
       .number()
-      .int(t('Enter an integer from 0 to 10000'))
-      .min(0, t('Enter an integer from 0 to 10000'))
+      .int(t('请输入 0 到 10000 之间的整数'))
+      .min(0, t('请输入 0 到 10000 之间的整数'))
       .max(
         MODEL_REQUEST_CONCURRENCY_MAX,
-        t('Enter an integer from 0 to 10000')
+        t('请输入 0 到 10000 之间的整数')
       ),
     ModelRequestIPConcurrencyLimit: z
       .number()
-      .int(t('Enter an integer from 0 to 10000'))
-      .min(0, t('Enter an integer from 0 to 10000'))
+      .int(t('请输入 0 到 10000 之间的整数'))
+      .min(0, t('请输入 0 到 10000 之间的整数'))
       .max(
         MODEL_REQUEST_CONCURRENCY_MAX,
-        t('Enter an integer from 0 to 10000')
+        t('请输入 0 到 10000 之间的整数')
       ),
     ModelRequestConcurrencyAccountErrorTemplate:
       createLimitErrorTemplateSchema(t),
@@ -99,14 +99,14 @@ export function ConcurrencyLimitSection(props: {
     [
       {
         name: 'ModelRequestConcurrencyAccountErrorTemplate',
-        label: t('Account concurrent requests'),
+        label: t('账号并发请求数'),
         code: 'account_concurrency_limit',
         variables: ['Limit'],
         samples: { Limit: String(values.ModelRequestConcurrencyLimit) },
       },
       {
         name: 'ModelRequestConcurrencyIPErrorTemplate',
-        label: t('IP concurrent requests'),
+        label: t('IP 并发请求数'),
         code: 'ip_concurrency_limit',
         variables: ['Limit'],
         samples: { Limit: String(values.ModelRequestIPConcurrencyLimit) },
@@ -126,13 +126,13 @@ export function ConcurrencyLimitSection(props: {
   }
 
   return (
-    <SettingsSection title={t('Concurrency Limits')}>
+    <SettingsSection title={t('并发限制')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
-            saveLabel={t('Save concurrency limits')}
+            saveLabel={t('保存并发限制')}
           />
 
           <FormField
@@ -141,9 +141,9 @@ export function ConcurrencyLimitSection(props: {
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable concurrency limits')}</FormLabel>
+                  <FormLabel>{t('启用并发限制')}</FormLabel>
                   <FormDescription>
-                    {t('Limit concurrent model requests by account and IP')}
+                    {t('按账户和 IP 限制模型并发请求数')}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -157,14 +157,14 @@ export function ConcurrencyLimitSection(props: {
           />
 
           <fieldset className='grid gap-4 md:grid-cols-2'>
-            <legend className='sr-only'>{t('Concurrency Limits')}</legend>
+            <legend className='sr-only'>{t('并发限制')}</legend>
             <FormField
               control={form.control}
               name='ModelRequestConcurrencyLimit'
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    {t('Max concurrent requests per account')}
+                    {t('每账户最大并发请求数')}
                   </FormLabel>
                   <FormControl>
                     <Input
@@ -176,9 +176,7 @@ export function ConcurrencyLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Counts requests currently being processed, 0 = unlimited'
-                    )}
+                    {t('统计正在处理的请求，0 表示不限制')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -190,7 +188,7 @@ export function ConcurrencyLimitSection(props: {
               name='ModelRequestIPConcurrencyLimit'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Max concurrent requests per IP')}</FormLabel>
+                  <FormLabel>{t('每 IP 最大并发请求数')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -201,9 +199,7 @@ export function ConcurrencyLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Counts requests currently being processed, 0 = unlimited'
-                    )}
+                    {t('统计正在处理的请求，0 表示不限制')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -212,9 +208,7 @@ export function ConcurrencyLimitSection(props: {
           </fieldset>
 
           <p className='text-muted-foreground text-sm'>
-            {t(
-              'Checked before period rate limits: account concurrency first, then IP concurrency'
-            )}
+            {t('先于周期速率限制检查，先检查账户并发，再检查 IP 并发')}
           </p>
 
           <LimitErrorTemplateFields

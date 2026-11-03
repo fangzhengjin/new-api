@@ -56,7 +56,7 @@ const SECURITY_SECTIONS = [
   },
   {
     id: 'concurrency-limit',
-    titleKey: 'Concurrency Limits',
+    titleKey: '并发限制',
     build: (settings: SecuritySettings) => (
       <ConcurrencyLimitSection
         defaultValues={{
@@ -76,7 +76,7 @@ const SECURITY_SECTIONS = [
   },
   {
     id: 'access-source-limit',
-    titleKey: 'Access Source Limits',
+    titleKey: '访问来源限制',
     build: (settings: SecuritySettings) => (
       <AccessSourceLimitSection
         defaultValues={{

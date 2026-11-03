@@ -37,7 +37,7 @@ export function policyLabel(t: TFunction, value: string): string {
     case 'channel_selected':
       return t('Channel selected')
     case 'client_canceled':
-      return t('Request canceled by client')
+      return t('客户端已取消请求')
     case 'request_completed':
       return t('Request completed')
     case 'stream_not_successful':

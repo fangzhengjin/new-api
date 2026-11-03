@@ -107,10 +107,10 @@ describe('overview layout settings', () => {
     )
 
     const resizeHandle = screen.getByRole('separator', {
-      name: 'Resize Announcements',
+      name: '调整 Announcements 的宽度',
     })
     vi.spyOn(
-      screen.getByRole('list', { name: 'Overview content order' }),
+      screen.getByRole('list', { name: '概览内容顺序' }),
       'getBoundingClientRect'
     ).mockReturnValue({ width: 900 } as DOMRect)
 

@@ -23,7 +23,7 @@ export const clientVersionSchema = z
   .string()
   .trim()
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/, {
-    message: 'Enter a valid semantic version',
+    message: '请输入有效的语义化版本号',
   })
 
 export const modelPatternListSchema = z.string().superRefine((value, ctx) => {
@@ -34,12 +34,12 @@ export const modelPatternListSchema = z.string().superRefine((value, ctx) => {
   if (patterns.length === 0 || patterns.length > 64) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: i18n.t('Enter between 1 and 64 model patterns'),
+      message: i18n.t('请输入 1 至 64 条模型规则'),
     })
   } else if (patterns.some((pattern) => pattern.length > 256)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: i18n.t('Each model pattern must be 256 characters or fewer'),
+      message: i18n.t('每条模型规则不能超过 256 个字符'),
     })
   }
 })

@@ -94,7 +94,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
       await refresh()
       setExecutionResult(result)
       setConfirmation('')
-      toast.success(t('Quota plan executed'))
+      toast.success(t('额度方案已执行'))
     },
     onError: (error: unknown) => handleServerError(error),
   })
@@ -110,7 +110,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
       await refresh()
       setCancelOpen(false)
       setReason('')
-      toast.success(t('Quota plan cancelled'))
+      toast.success(t('额度方案已取消'))
     },
     onError: (error: unknown) => handleServerError(error),
   })
@@ -125,7 +125,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
           queryKey: queryKeys.cycle(props.detail.cycle.id),
         }),
       ])
-      toast.success(t('Quota plan regenerated'))
+      toast.success(t('额度方案已重新生成'))
       await navigate({
         to: '/quota-management/plans/$planId',
         params: { planId: String(plan_id) },
@@ -138,8 +138,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
     onSuccess: async (result) => {
       await refresh()
       toast.success(
-        t(
-          'Notification retry completed: {{logs}} logs, {{emails}} emails sent',
+        t('通知重试完成：已发送 {{logs}} 条日志、{{emails}} 封邮件',
           {
             logs: result.logs_sent,
             emails: result.emails_sent,
@@ -170,12 +169,12 @@ export function PlanActions(props: { detail: PlanDetailData }) {
             strokeWidth={2}
             data-icon='inline-start'
           />
-          {t('Execute plan')}
+          {t('执行草稿')}
         </Button>
       )}
       {isDraft && (
         <Button variant='outline' onClick={() => setCancelOpen(true)}>
-          {t('Cancel plan')}
+          {t('取消方案')}
         </Button>
       )}
       {props.detail.plan.status !== 'executed' && (
@@ -204,7 +203,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
                 data-icon='inline-start'
               />
             )}
-            {t('Retry notifications')}
+            {t('重试通知')}
           </Button>
         )}
 
@@ -222,17 +221,17 @@ export function PlanActions(props: { detail: PlanDetailData }) {
           {executionResult ? (
             <>
               <DialogHeader>
-                <DialogTitle>{t('Plan executed')}</DialogTitle>
+                <DialogTitle>{t('方案已执行')}</DialogTitle>
                 <DialogDescription>
-                  {t('The following amounts are the actual execution result')}
+                  {t('以下额度为实际执行结果')}
                 </DialogDescription>
               </DialogHeader>
               <div className='grid gap-2 sm:grid-cols-2'>
                 {[
-                  [t('Quota issued'), executionResult.issued_quota],
-                  [t('Quota reclaimed'), executionResult.reclaimed_quota],
-                  [t('Allocated quota'), executionResult.allocated_quota],
-                  [t('Cycle remaining'), executionResult.remaining_quota],
+                  [t('额度发放'), executionResult.issued_quota],
+                  [t('额度回收'), executionResult.reclaimed_quota],
+                  [t('已分配额度'), executionResult.allocated_quota],
+                  [t('周期剩余额度'), executionResult.remaining_quota],
                 ].map(([label, value]) => (
                   <div key={label} className='bg-muted/40 rounded-lg p-3'>
                     <div className='text-muted-foreground text-xs'>{label}</div>
@@ -249,17 +248,15 @@ export function PlanActions(props: { detail: PlanDetailData }) {
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle>{t('Execute this allocation plan?')}</DialogTitle>
+                <DialogTitle>{t('是否执行此分配方案')}</DialogTitle>
                 <DialogDescription>
-                  {t(
-                    'The listed changes are applied to current user balances. Ordinary balance changes do not invalidate the draft. Execution stops if a planned decrease would make a balance negative or if a user, cycle, or allocation rule is no longer eligible'
-                  )}
+                  {t('列出的调整会作用于用户当前余额。普通余额变化不会使草稿失效。若计划调减会导致余额为负，或用户、周期、分配规则已不再符合条件，系统将停止执行')}
                 </DialogDescription>
               </DialogHeader>
               <div className='grid grid-cols-2 gap-2'>
                 <div className='bg-muted/40 rounded-lg p-3'>
                   <div className='text-muted-foreground text-xs'>
-                    {t('Planned issue')}
+                    {t('方案发放')}
                   </div>
                   <div className='mt-1 font-medium'>
                     {formatQuota(props.detail.summary.increase.total)}
@@ -267,7 +264,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
                 </div>
                 <div className='bg-muted/40 rounded-lg p-3'>
                   <div className='text-muted-foreground text-xs'>
-                    {t('Planned reclaim')}
+                    {t('方案回收')}
                   </div>
                   <div className='mt-1 font-medium'>
                     {formatQuota(props.detail.summary.decrease.total)}
@@ -277,7 +274,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
               <FieldGroup>
                 <Field data-invalid={confirmationInvalid}>
                   <FieldLabel htmlFor='execute-plan-confirmation'>
-                    {t('Enter the exact confirmation phrase')}
+                    {t('请输入完整且一致的确认短语')}
                   </FieldLabel>
                   <Input
                     id='execute-plan-confirmation'
@@ -296,7 +293,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
                   </FieldDescription>
                   {confirmationInvalid && (
                     <FieldError id='execute-plan-confirmation-error'>
-                      {t('Confirmation phrase does not match')}
+                      {t('确认短语不匹配')}
                     </FieldError>
                   )}
                 </Field>
@@ -320,7 +317,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
                   {executeMutation.isPending && (
                     <Spinner data-icon='inline-start' />
                   )}
-                  {t('Execute now')}
+                  {t('立即执行')}
                 </Button>
               </DialogFooter>
             </>
@@ -331,16 +328,14 @@ export function PlanActions(props: { detail: PlanDetailData }) {
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
-            <DialogTitle>{t('Cancel this quota plan?')}</DialogTitle>
+            <DialogTitle>{t('取消此额度方案')}</DialogTitle>
             <DialogDescription>
-              {t(
-                'The reason is retained with the cancelled draft for auditing'
-              )}
+              {t('取消说明会保存在草稿中，方便管理员以后查看')}
             </DialogDescription>
           </DialogHeader>
           <Field>
             <FieldLabel htmlFor='cancel-plan-reason'>
-              {t('Cancellation reason')}
+              {t('取消原因')}
             </FieldLabel>
             <Textarea
               id='cancel-plan-reason'
@@ -363,7 +358,7 @@ export function PlanActions(props: { detail: PlanDetailData }) {
               onClick={() => cancelMutation.mutate(undefined)}
             >
               {cancelMutation.isPending && <Spinner data-icon='inline-start' />}
-              {t('Cancel plan')}
+              {t('取消方案')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -373,12 +368,10 @@ export function PlanActions(props: { detail: PlanDetailData }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t('Regenerate this quota plan?')}
+              {t('按最新数据重新计算这份草稿')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                'A new draft uses the saved parameters and a fresh snapshot. The current draft is cancelled'
-              )}
+              {t('当前草稿会被取消，新草稿沿用相同设置，并按最新余额和使用情况重新计算')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

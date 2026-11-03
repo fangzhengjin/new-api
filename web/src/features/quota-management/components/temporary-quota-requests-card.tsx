@@ -111,12 +111,12 @@ export function TemporaryQuotaRequestsCard() {
       approvedQuota?: string
       reviewReason: string
     }) => {
-      if (!selected) throw new Error(t('Select a temporary quota request'))
+      if (!selected) throw new Error(t('请选择临时额度申请'))
       if (action === 'reject') {
         return rejectTemporaryQuotaRequest(selected.id, variables.reviewReason)
       }
       if (!variables.approvedQuota) {
-        throw new Error(t('Approved quota must not exceed requested quota'))
+        throw new Error(t('实际发放额度不能超过申请额度'))
       }
       return approveTemporaryQuotaRequest(
         selected.id,
@@ -128,8 +128,8 @@ export function TemporaryQuotaRequestsCard() {
       await refresh()
       toast.success(
         action === 'approve'
-          ? t('Temporary quota approved')
-          : t('Temporary quota rejected')
+          ? t('临时额度已批准')
+          : t('临时额度已拒绝')
       )
       closeReview()
     },
@@ -151,7 +151,7 @@ export function TemporaryQuotaRequestsCard() {
     const cleanReason = reason.trim()
     const nextReasonError =
       !cleanReason || [...cleanReason].length > 500
-        ? t('Enter a review reason up to 500 characters')
+        ? t('请输入处理说明，最多 500 个字符')
         : ''
     let approvedQuota: string | undefined
     let nextAmountError = ''
@@ -161,7 +161,7 @@ export function TemporaryQuotaRequestsCard() {
         !approvedQuota ||
         BigInt(approvedQuota) > BigInt(selected.requested_quota)
       ) {
-        nextAmountError = t('Approved quota must not exceed requested quota')
+        nextAmountError = t('实际发放额度不能超过申请额度')
       }
     }
     setReasonError(nextReasonError)
@@ -176,14 +176,14 @@ export function TemporaryQuotaRequestsCard() {
   } else if (requestsQuery.isError) {
     content = (
       <PageError
-        title={t('Failed to load temporary quota requests')}
+        title={t('临时额度申请加载失败')}
         error={requestsQuery.error}
       />
     )
   } else if (requestsQuery.data.length === 0) {
     content = (
       <div className='text-muted-foreground py-6 text-center text-sm'>
-        {t('No temporary quota requests')}
+        {t('暂无临时额度申请')}
       </div>
     )
   } else {
@@ -242,14 +242,14 @@ export function TemporaryQuotaRequestsCard() {
                           size='sm'
                           onClick={() => openReview(request, 'approve')}
                         >
-                          {t('Approve')}
+                          {t('批准')}
                         </Button>
                         <Button
                           size='sm'
                           variant='outline'
                           onClick={() => openReview(request, 'reject')}
                         >
-                          {t('Reject')}
+                          {t('拒绝')}
                         </Button>
                       </div>
                     )}
@@ -267,11 +267,9 @@ export function TemporaryQuotaRequestsCard() {
     <>
       <Card data-card-hover='false'>
         <CardHeader>
-          <CardTitle>{t('Temporary quota requests')}</CardTitle>
+          <CardTitle>{t('临时额度申请')}</CardTitle>
           <CardDescription>
-            {t(
-              'Review temporary quota requested by users with insufficient balance'
-            )}
+            {t('审查余额不足用户申请的临时额度')}
           </CardDescription>
         </CardHeader>
         <CardContent>{content}</CardContent>
@@ -286,13 +284,13 @@ export function TemporaryQuotaRequestsCard() {
           <DialogHeader>
             <DialogTitle>
               {action === 'approve'
-                ? t('Approve temporary quota request')
-                : t('Reject temporary quota request')}
+                ? t('批准临时额度申请')
+                : t('拒绝临时额度申请')}
             </DialogTitle>
             <DialogDescription>
               {selected && (
                 <>
-                  {t('Requested by {{user}}: {{amount}} {{currency}}', {
+                  {t('{{user}} 申请：{{amount}} {{currency}}', {
                     user: selected.display_name || selected.username,
                     amount: quotaToDisplayAmount(selected.requested_quota),
                     currency: currencyLabel,
@@ -307,7 +305,7 @@ export function TemporaryQuotaRequestsCard() {
             {action === 'approve' && (
               <Field data-invalid={!!amountError}>
                 <FieldLabel htmlFor='temporary-quota-approved-amount'>
-                  {t('Approved quota')} ({currencyLabel})
+                  {t('批准额度')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='temporary-quota-approved-amount'
@@ -332,7 +330,7 @@ export function TemporaryQuotaRequestsCard() {
             )}
             <Field data-invalid={!!reasonError}>
               <FieldLabel htmlFor='temporary-quota-review-reason'>
-                {t('Review reason')}
+                {t('处理说明')}
               </FieldLabel>
               <Textarea
                 id='temporary-quota-review-reason'
@@ -368,7 +366,7 @@ export function TemporaryQuotaRequestsCard() {
               disabled={mutation.isPending}
             >
               {mutation.isPending && <Spinner data-icon='inline-start' />}
-              {action === 'approve' ? t('Approve and grant') : t('Reject')}
+              {action === 'approve' ? t('批准并发放') : t('拒绝')}
             </Button>
           </DialogFooter>
         </DialogContent>

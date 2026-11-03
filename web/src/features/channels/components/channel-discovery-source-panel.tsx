@@ -77,17 +77,15 @@ export function ChannelDiscoverySourcePanel(
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('Connection blocks')}</CardTitle>
+        <CardTitle>{t('连接块')}</CardTitle>
         <CardDescription>
-          {t(
-            'Paste text containing upstream URLs and API keys in either order. Separate multiple connections with a blank line.'
-          )}
+          {t('粘贴包含上游 URL 和 API Key 的文本，顺序不限。多个连接之间请用空行分隔。')}
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-4'>
         <Field data-invalid={Boolean(props.form.formState.errors.text)}>
           <FieldLabel htmlFor='channel-discovery-input'>
-            {t('Upstream URLs and API keys')}
+            {t('上游 URL 和 API 密钥')}
           </FieldLabel>
           <Textarea
             id='channel-discovery-input'
@@ -103,9 +101,7 @@ export function ChannelDiscoverySourcePanel(
               : null}
           </FieldError>
           <FieldDescription>
-            {t(
-              'Keys are sent only to the origin in their connection block and are never returned by the API.'
-            )}
+            {t('密钥只会发送到所属连接块的同源地址，API 不会返回密钥。')}
           </FieldDescription>
         </Field>
         <Button
@@ -126,17 +122,17 @@ export function ChannelDiscoverySourcePanel(
           disabled={props.discovering || locked}
         >
           {props.discovering ? (
-            <Spinner aria-label={t('Discovering channels')} />
+            <Spinner aria-label={t('正在发现渠道')} />
           ) : (
             <HugeiconsIcon icon={Search01Icon} strokeWidth={2} />
           )}
-          {props.discovering ? t('Discovering...') : t('Discover connections')}
+          {props.discovering ? t('Discovering...') : t('发现连接')}
         </Button>
 
         {locked && (
           <div className='flex items-center justify-between gap-2'>
             <Badge variant='outline'>
-              {t('{{completed}} of {{total}} completed', {
+              {t('已完成 {{completed}} / {{total}}', {
                 completed: props.completedCount,
                 total: props.totalCount,
               })}
@@ -153,15 +149,15 @@ export function ChannelDiscoverySourcePanel(
         )}
 
         {props.connections.length > 0 && (
-          <div className='space-y-2' aria-label={t('Discovery results')}>
+          <div className='space-y-2' aria-label={t('发现结果')}>
             {props.connections.map((connection) => {
               let status = t('Failed')
               if (connection.usable) {
                 status = props.draftedBlockIndexes.includes(
                   connection.block_index
                 )
-                  ? t('Draft')
-                  : t('Usable')
+                  ? t('草稿')
+                  : t('可用')
               }
               return (
                 <button
@@ -191,7 +187,7 @@ export function ChannelDiscoverySourcePanel(
                     {connection.base_url}
                   </span>
                   <span className='text-muted-foreground mt-2 block text-xs'>
-                    {t('{{models}} models · {{keys}} usable keys', {
+                    {t('{{models}} 个模型 · {{keys}} 个可用密钥', {
                       models: connection.models.length,
                       keys: connection.usable_key_indexes?.length ?? 0,
                     })}
@@ -211,9 +207,7 @@ export function ChannelDiscoverySourcePanel(
         open={resetOpen}
         onOpenChange={setResetOpen}
         title={t('Reset')}
-        desc={t(
-          'Reset connection discovery? Unsaved drafts will be discarded.'
-        )}
+        desc={t('要重置连接识别吗？未保存的草稿将被丢弃')}
         confirmText={t('Reset')}
         destructive
         handleConfirm={() => {

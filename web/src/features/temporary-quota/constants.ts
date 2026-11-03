@@ -24,9 +24,9 @@ export const TEMPORARY_QUOTA_REQUEST_STATUSES: Record<
   TemporaryQuotaRequestStatus,
   { labelKey: string; variant: StatusVariant }
 > = {
-  pending: { labelKey: 'Pending review', variant: 'warning' },
-  executed: { labelKey: 'Granted', variant: 'success' },
-  rejected: { labelKey: 'Rejected', variant: 'danger' },
+  pending: { labelKey: '待审批', variant: 'warning' },
+  executed: { labelKey: '已发放', variant: 'success' },
+  rejected: { labelKey: '已拒绝', variant: 'danger' },
 }
 
 export const TEMPORARY_QUOTA_REQUEST_STATUS_OPTIONS = Object.entries(

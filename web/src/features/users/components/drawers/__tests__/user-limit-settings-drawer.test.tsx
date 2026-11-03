@@ -135,12 +135,12 @@ describe('user limit settings drawer', () => {
     renderDrawer()
 
     expect(
-      await screen.findByRole('button', { name: 'Remove association' })
+      await screen.findByRole('button', { name: '解除关联' })
     ).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Allow switch' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '允许切换' })).toBeVisible()
     expect(screen.getAllByText('198.51.100.2')).toHaveLength(1)
     expect(
-      screen.getAllByRole('button', { name: /Allow (switch|use)/ })
+      screen.getAllByRole('button', { name: /允许(切换|使用)/ })
     ).toHaveLength(1)
   })
 
@@ -159,14 +159,14 @@ describe('user limit settings drawer', () => {
     renderDrawer()
 
     expect(
-      await screen.findByText('Global concurrency limiting is disabled')
+      await screen.findByText('全局并发限制已关闭')
     ).toBeVisible()
   })
 
   test('revalidates and submits the latest rejected source', async () => {
     renderDrawer()
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow switch' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Allow source' }))
+    fireEvent.click(await screen.findByRole('button', { name: '允许切换' }))
+    fireEvent.click(screen.getByRole('button', { name: '允许来源' }))
 
     await waitFor(() => {
       expect(apiMocks.allowLatestUserAccessSource).toHaveBeenCalledWith(
@@ -195,28 +195,28 @@ describe('user limit settings drawer', () => {
 
     expect(
       await screen.findByText(
-        'Association period: 24 hours · Max accounts per IP: Unlimited'
+        '关联统计周期：24 小时 · 每 IP 最大账户数：无限制'
       )
     ).toBeVisible()
     expect(
       screen.getByText(
-        'IP switch wait only controls switching; association limits are checked separately'
+        'IP 切换等待时间只限制切换，关联数量限制会单独校验'
       )
     ).toBeVisible()
     expect(
       screen.getByText(
-        'IP switch wait has ended; retrying will be checked against association limits'
+        'IP 切换等待已结束，重试时仍会校验关联数量限制'
       )
     ).toBeVisible()
-    expect(screen.getByText('2 / Unlimited')).toBeVisible()
+    expect(screen.getByText('2 / 无限制')).toBeVisible()
   })
 
   test('explains the lifetime of an allowed source', async () => {
     renderDrawer()
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow switch' }))
+    fireEvent.click(await screen.findByRole('button', { name: '允许切换' }))
 
     expect(screen.getByRole('alertdialog')).toHaveTextContent(
-      'The normal association expires after 24 hours without activity and is not a permanent whitelist.'
+      '正常关联会在连续 24 小时无活动后失效，不是永久白名单'
     )
   })
 
@@ -224,7 +224,7 @@ describe('user limit settings drawer', () => {
     renderDrawer()
 
     const accountLimit = await screen.findByRole('spinbutton', {
-      name: 'Max requests per account per period',
+      name: '每账户周期内最大请求数',
     })
     expect(accountLimit).toHaveValue(null)
     expect(accountLimit).toHaveAttribute('placeholder', '200')
@@ -232,12 +232,12 @@ describe('user limit settings drawer', () => {
     expect(accountLimit).toHaveFocus()
 
     const concurrencyLimit = screen.getByRole('spinbutton', {
-      name: 'Max concurrent requests per account',
+      name: '每账户最大并发请求数',
     })
     expect(concurrencyLimit).toHaveValue(null)
     expect(concurrencyLimit).toHaveAttribute('placeholder', '3')
     expect(
-      screen.getByText('Global max concurrent requests per IP: 5')
+      screen.getByText('全局每 IP 最大并发请求数：5')
     ).toBeVisible()
   })
 
@@ -245,11 +245,11 @@ describe('user limit settings drawer', () => {
     renderDrawer()
 
     const accountLimit = await screen.findByRole('spinbutton', {
-      name: 'Max requests per account per period',
+      name: '每账户周期内最大请求数',
     })
     fireEvent.change(accountLimit, { target: { value: '321' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Allow switch' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Allow source' }))
+    fireEvent.click(screen.getByRole('button', { name: '允许切换' }))
+    fireEvent.click(screen.getByRole('button', { name: '允许来源' }))
 
     await waitFor(() => expect(apiMocks.getUserLimits).toHaveBeenCalledTimes(2))
     expect(accountLimit).toHaveValue(321)
@@ -259,7 +259,7 @@ describe('user limit settings drawer', () => {
     renderDrawer()
 
     const concurrencyLimit = await screen.findByRole('spinbutton', {
-      name: 'Max concurrent requests per account',
+      name: '每账户最大并发请求数',
     })
     fireEvent.change(concurrencyLimit, { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))

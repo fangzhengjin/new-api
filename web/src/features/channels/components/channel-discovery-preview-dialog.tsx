@@ -68,9 +68,9 @@ export function ChannelDiscoveryPreviewDialog(
         className={`max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl ${channelSetupLayoutClasses.mobileControls}`}
       >
         <DialogHeader>
-          <DialogTitle>{t('Confirm channel configuration')}</DialogTitle>
+          <DialogTitle>{t('确认渠道配置')}</DialogTitle>
           <DialogDescription>
-            {t('Review the exact changes before they are applied.')}
+            {t('应用前请检查确切修改内容。')}
           </DialogDescription>
         </DialogHeader>
         {props.preview && (
@@ -162,7 +162,7 @@ export function ChannelDiscoveryPreviewDialog(
               <div className='space-y-1.5 rounded-lg border p-2'>
                 {Object.keys(props.preview.mapping).length === 0 ? (
                   <p className='text-muted-foreground text-sm'>
-                    {t('No model mapping changes')}
+                    {t('没有模型映射修改')}
                   </p>
                 ) : (
                   Object.entries(props.preview.mapping).map(
@@ -213,7 +213,7 @@ export function ChannelDiscoveryPreviewDialog(
             onClick={props.onConfirm}
             disabled={props.applying || !props.canApply}
           >
-            {props.applying ? t('Applying...') : t('Apply configuration')}
+            {props.applying ? t('Applying...') : t('应用配置')}
           </Button>
         </DialogFooter>
       </DialogContent>

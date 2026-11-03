@@ -83,29 +83,29 @@ const createRateLimitSchema = (t: (key: string) => string) =>
     ModelRequestRateLimitEnabled: z.boolean(),
     ModelRequestRateLimitDurationMinutes: z
       .number()
-      .int(t('Enter an integer from 1 to 1440'))
-      .min(1, t('Enter an integer from 1 to 1440'))
-      .max(maxLimitPeriodMinutes, t('Enter an integer from 1 to 1440')),
+      .int(t('请输入 1 至 1440 的整数'))
+      .min(1, t('请输入 1 至 1440 的整数'))
+      .max(maxLimitPeriodMinutes, t('请输入 1 至 1440 的整数')),
     ModelRequestRateLimitCount: z
       .number()
-      .int(t('Enter an integer from 0 to 100000000'))
-      .min(0, t('Enter an integer from 0 to 100000000'))
-      .max(MODEL_REQUEST_LIMIT_MAX, t('Enter an integer from 0 to 100000000')),
+      .int(t('请输入 0 至 100000000 的整数'))
+      .min(0, t('请输入 0 至 100000000 的整数'))
+      .max(MODEL_REQUEST_LIMIT_MAX, t('请输入 0 至 100000000 的整数')),
     ModelRequestIPRateLimitCount: z
       .number()
-      .int(t('Enter an integer from 0 to 100000000'))
-      .min(0, t('Enter an integer from 0 to 100000000'))
-      .max(MODEL_REQUEST_LIMIT_MAX, t('Enter an integer from 0 to 100000000')),
+      .int(t('请输入 0 至 100000000 的整数'))
+      .min(0, t('请输入 0 至 100000000 的整数'))
+      .max(MODEL_REQUEST_LIMIT_MAX, t('请输入 0 至 100000000 的整数')),
     ModelRequestIPRateLimitSuccessCount: z
       .number()
-      .int(t('Enter an integer from 0 to 100000000'))
-      .min(0, t('Enter an integer from 0 to 100000000'))
-      .max(MODEL_REQUEST_LIMIT_MAX, t('Enter an integer from 0 to 100000000')),
+      .int(t('请输入 0 至 100000000 的整数'))
+      .min(0, t('请输入 0 至 100000000 的整数'))
+      .max(MODEL_REQUEST_LIMIT_MAX, t('请输入 0 至 100000000 的整数')),
     ModelRequestRateLimitSuccessCount: z
       .number()
-      .int(t('Enter an integer from 0 to 100000000'))
-      .min(0, t('Enter an integer from 0 to 100000000'))
-      .max(MODEL_REQUEST_LIMIT_MAX, t('Enter an integer from 0 to 100000000')),
+      .int(t('请输入 0 至 100000000 的整数'))
+      .min(0, t('请输入 0 至 100000000 的整数'))
+      .max(MODEL_REQUEST_LIMIT_MAX, t('请输入 0 至 100000000 的整数')),
     ModelRequestRateLimitGroup: z
       .string()
       .optional()
@@ -154,7 +154,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
   const errorScenarios: LimitErrorTemplateScenario<RateLimitFormValues>[] = [
     {
       name: 'ModelRequestRateLimitAccountTotalErrorTemplate',
-      label: t('Account total requests'),
+      label: t('账号总请求数'),
       code: 'rate_limit_account_total',
       variables: ['Limit', 'Period', 'RetryAfter'],
       samples: {
@@ -166,7 +166,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
     },
     {
       name: 'ModelRequestRateLimitAccountSuccessErrorTemplate',
-      label: t('Account successful requests'),
+      label: t('账号成功请求数'),
       code: 'rate_limit_account_success',
       variables: ['Limit', 'Period', 'RetryAfter'],
       samples: {
@@ -178,7 +178,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
     },
     {
       name: 'ModelRequestRateLimitIPTotalErrorTemplate',
-      label: t('IP total requests'),
+      label: t('IP 总请求数'),
       code: 'rate_limit_ip_total',
       variables: ['Limit', 'Period', 'RetryAfter'],
       samples: {
@@ -190,7 +190,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
     },
     {
       name: 'ModelRequestRateLimitIPSuccessErrorTemplate',
-      label: t('IP successful requests'),
+      label: t('IP 成功请求数'),
       code: 'rate_limit_ip_success',
       variables: ['Limit', 'Period', 'RetryAfter'],
       samples: {
@@ -253,7 +253,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
               name='ModelRequestRateLimitDurationMinutes'
               render={({ field }) => (
                 <FormItem className='md:max-w-[calc(50%_-_0.5rem)]'>
-                  <FormLabel>{t('Limit period (minutes)')}</FormLabel>
+                  <FormLabel>{t('限制周期（分钟）')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -264,7 +264,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Account and IP limits share this period')}
+                    {t('账号限制与 IP 限制共用此周期')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -272,14 +272,14 @@ export function RateLimitSection(props: RateLimitSectionProps) {
             />
 
             <fieldset className='grid gap-4 md:grid-cols-2'>
-              <legend className='sr-only'>{t('Account Request Limits')}</legend>
+              <legend className='sr-only'>{t('账户请求限制')}</legend>
               <FormField
                 control={form.control}
                 name='ModelRequestRateLimitCount'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {t('Max requests per account per period')}
+                      {t('每账户周期内最大请求数')}
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -291,9 +291,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Counts all requests from the same account, including failures, 0 = unlimited'
-                      )}
+                      {t('统计同一账户的全部请求，包括失败请求，0 表示不限制')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -306,7 +304,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {t('Max successful requests per account per period')}
+                      {t('每账户周期内最大成功请求数')}
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -318,9 +316,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Counts only successful requests from the same account, 0 = unlimited'
-                      )}
+                      {t('仅统计同一账户的成功请求，0 表示不限制')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -329,13 +325,13 @@ export function RateLimitSection(props: RateLimitSectionProps) {
             </fieldset>
 
             <fieldset className='grid gap-4 md:grid-cols-2'>
-              <legend className='sr-only'>{t('IP Request Limits')}</legend>
+              <legend className='sr-only'>{t('IP 请求限制')}</legend>
               <FormField
                 control={form.control}
                 name='ModelRequestIPRateLimitCount'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Max requests per IP per period')}</FormLabel>
+                    <FormLabel>{t('每 IP 周期内最大请求数')}</FormLabel>
                     <FormControl>
                       <Input
                         type='number'
@@ -346,9 +342,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Counts all requests from the same IP, including failures, 0 = unlimited'
-                      )}
+                      {t('统计同一 IP 的全部请求，包括失败请求，0 表示不限制')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -361,7 +355,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {t('Max successful requests per IP per period')}
+                      {t('每 IP 周期内最大成功请求数')}
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -373,9 +367,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Counts only successful requests from the same IP, 0 = unlimited'
-                      )}
+                      {t('仅统计同一 IP 的成功请求，0 表示不限制')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -385,9 +377,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
           </div>
 
           <p className='text-muted-foreground text-sm'>
-            {t(
-              'When multiple limits are reached, checks run in this order: account requests, account successful requests, IP requests, IP successful requests'
-            )}
+            {t('同时达到多个限制时，依次检查账户请求数、账户成功请求数、IP 请求数和 IP 成功请求数')}
           </p>
 
           <LimitErrorTemplateFields
@@ -444,9 +434,7 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                 </FormControl>
                 <FormDescription>
                   {useVisualEditor ? (
-                    t(
-                      'Only overrides account request limits, does not affect IP limits, and accounts in the same group do not share counters'
-                    )
+                    t('仅覆盖账号请求数限制，不影响 IP 限制，且同组账号不共享计数')
                   ) : (
                     <div className='space-y-1 text-xs'>
                       <p className='font-semibold'>{t('Format:')}</p>
@@ -460,14 +448,10 @@ export function RateLimitSection(props: RateLimitSectionProps) {
                           {`{"default": [200, 100], "vip": [0, 1000]}`}
                         </li>
                         <li>
-                          {t(
-                            'maxRequests ≥ 0, maxSuccess ≥ 0, both ≤ 2,147,483,647'
-                          )}
+                          {t('maxRequests ≥ 0，maxSuccess ≥ 0，且均不超过 2,147,483,647')}
                         </li>
                         <li>
-                          {t(
-                            'Only overrides account request limits, does not affect IP limits, and accounts in the same group do not share counters'
-                          )}
+                          {t('仅覆盖账号请求数限制，不影响 IP 限制，且同组账号不共享计数')}
                         </li>
                       </ul>
                     </div>

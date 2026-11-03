@@ -74,18 +74,18 @@ export function TemporaryQuotaDetailSheet(props: {
         aria-describedby='temporary-quota-detail-description'
       >
         <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>{t('Temporary quota request details')}</SheetTitle>
+          <SheetTitle>{t('临时额度申请详情')}</SheetTitle>
           <SheetDescription id='temporary-quota-detail-description'>
-            {t('View the application information and review result')}
+            {t('查看申请信息和审核结果')}
           </SheetDescription>
         </SheetHeader>
         {request && statusConfig && (
           <div className={sideDrawerFormClassName()}>
             <dl className='rounded-xl border px-4'>
-              <DetailItem label={t('Application time')}>
+              <DetailItem label={t('申请时间')}>
                 {formatDateTime(request.created_at)}
               </DetailItem>
-              <DetailItem label={t('Application project')}>
+              <DetailItem label={t('申请项目')}>
                 {request.project}
               </DetailItem>
               <DetailItem label={t('Requested quota')}>
@@ -94,24 +94,24 @@ export function TemporaryQuotaDetailSheet(props: {
                   {currencyLabel}
                 </span>
               </DetailItem>
-              <DetailItem label={t('Application status')}>
+              <DetailItem label={t('申请状态')}>
                 <StatusBadge
                   label={t(statusConfig.labelKey)}
                   variant={statusConfig.variant}
                   copyable={false}
                 />
               </DetailItem>
-              <DetailItem label={t('Approved quota')}>
+              <DetailItem label={t('批准额度')}>
                 <span className='tabular-nums'>{approvedQuota}</span>
               </DetailItem>
               <DetailItem label={t('Reason')}>{request.reason}</DetailItem>
               {request.review_reason && (
-                <DetailItem label={t('Review reason')}>
+                <DetailItem label={t('处理说明')}>
                   {request.review_reason}
                 </DetailItem>
               )}
               {request.reviewed_at && (
-                <DetailItem label={t('Reviewed at')}>
+                <DetailItem label={t('审核时间')}>
                   {formatDateTime(request.reviewed_at)}
                 </DetailItem>
               )}

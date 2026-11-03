@@ -162,7 +162,7 @@ function ChannelCardComponent({
               </div>
               {!isTagRow && showConcurrency && (
                 <div className='row-span-2 grid min-w-0 grid-rows-subgrid'>
-                  <dt className={labelClass}>{t('Concurrency')}</dt>
+                  <dt className={labelClass}>{t('并发')}</dt>
                   <dd className='min-w-0 text-sm'>
                     <ChannelConcurrencyValue
                       channelId={row.original.id}

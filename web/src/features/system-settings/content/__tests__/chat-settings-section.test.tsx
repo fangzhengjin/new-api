@@ -47,15 +47,15 @@ describe('chat preset settings', () => {
       </SettingsPageProvider>
     )
 
-    expect(screen.getByRole('columnheader', { name: 'Variable' })).toBeVisible()
-    expect(screen.getByRole('columnheader', { name: 'Notes' })).toBeVisible()
+    expect(screen.getByRole('columnheader', { name: '变量' })).toBeVisible()
+    expect(screen.getByRole('columnheader', { name: '说明' })).toBeVisible()
     expect(
       screen.queryByRole('columnheader', { name: 'Replaced by' })
     ).not.toBeInTheDocument()
     expect(screen.getByText('{authCode}')).toBeVisible()
     expect(screen.getByText('{theme}')).toBeVisible()
     expect(
-      screen.getByText('One-time authorization code, valid for one minute.')
+      screen.getByText('一次性授权码，一分钟内有效且只能使用一次')
     ).toBeVisible()
   })
 

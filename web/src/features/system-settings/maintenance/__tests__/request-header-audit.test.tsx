@@ -101,7 +101,7 @@ describe('Request header audit settings', () => {
     )
 
     const auditHeading = screen.getByRole('heading', {
-      name: 'Request header processing rules',
+      name: '请求头处理规则',
     })
     const auditSection = auditHeading.closest('[data-slot="card"]')
     const serverLogHeading = screen.getByRole('heading', {
@@ -114,13 +114,13 @@ describe('Request header audit settings', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     const generalHeading = screen.getByRole('heading', {
-      name: 'General request headers',
+      name: '通用请求头',
     })
     const cdnHeading = screen.getByRole('heading', {
-      name: 'CDN request headers',
+      name: 'CDN 请求头',
     })
     const systemHeading = screen.getByRole('heading', {
-      name: 'System-protected request headers',
+      name: '系统保护请求头',
     })
     expect(
       generalHeading.compareDocumentPosition(cdnHeading) &
@@ -132,7 +132,7 @@ describe('Request header audit settings', () => {
     ).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Add rule' })).toBeVisible()
     expect(
-      screen.getByRole('textbox', { name: 'Header rule: X-Request-ID' })
+      screen.getByRole('textbox', { name: '请求头规则：X-Request-ID' })
     ).toBeVisible()
     expect(screen.getByText('Cloudflare')).toBeVisible()
     expect(screen.getByText('CF-*', { selector: 'code' })).toBeVisible()
@@ -144,7 +144,7 @@ describe('Request header audit settings', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', {
-        name: 'View system-managed request headers',
+        name: '查看系统管理的请求头',
       })
     ).toHaveAttribute('aria-expanded', 'false')
     expect(
@@ -176,7 +176,7 @@ describe('Request header audit settings', () => {
     )
 
     const protectionsButton = screen.getByRole('button', {
-      name: 'View system-managed request headers',
+      name: '查看系统管理的请求头',
     })
     protectionsButton.focus()
     expect(protectionsButton).toHaveFocus()
@@ -184,10 +184,10 @@ describe('Request header audit settings', () => {
     expect(protectionsButton).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Content-Type', { selector: 'code' })).toBeVisible()
     expect(
-      screen.getByRole('heading', { name: 'Not recorded · Not forwarded' })
+      screen.getByRole('heading', { name: '不记录 · 不转发' })
     ).toBeVisible()
     expect(
-      screen.getByRole('heading', { name: 'Not recorded · Forwardable' })
+      screen.getByRole('heading', { name: '不记录 · 可转发' })
     ).toBeVisible()
     expect(
       screen.queryByRole('textbox', { name: 'Header rule: Content-Type' })
@@ -200,16 +200,16 @@ describe('Request header audit settings', () => {
     ).not.toBeInTheDocument()
 
     const cdnSection = screen
-      .getByRole('heading', { name: 'CDN request headers' })
+      .getByRole('heading', { name: 'CDN 请求头' })
       .closest('section')
     if (!cdnSection) throw new Error('CDN section was not rendered')
     await user.click(
-      within(cdnSection).getByRole('checkbox', { name: 'Forward CF-*' })
+      within(cdnSection).getByRole('checkbox', { name: '转发 CF-*' })
     )
     await user.click(screen.getByRole('button', { name: 'Add rule' }))
-    const newRule = screen.getByRole('textbox', { name: 'Header rule: 4' })
+    const newRule = screen.getByRole('textbox', { name: '请求头规则：4' })
     await user.type(newRule, 'X-Debug-*')
-    await user.click(screen.getByRole('checkbox', { name: 'Record X-Debug-*' }))
+    await user.click(screen.getByRole('checkbox', { name: '记录 X-Debug-*' }))
     const form = container.querySelector('form')
     if (!form) throw new Error('settings form was not rendered')
     fireEvent.submit(form)
@@ -245,13 +245,13 @@ describe('Request header audit settings', () => {
     if (!form) throw new Error('settings form was not rendered')
 
     await user.click(screen.getByRole('button', { name: 'Add rule' }))
-    const newRule = screen.getByRole('textbox', { name: 'Header rule: 4' })
+    const newRule = screen.getByRole('textbox', { name: '请求头规则：4' })
 
     await user.type(newRule, 'Sec*Fetch')
     fireEvent.submit(form)
     expect(
       await screen.findByText(
-        'Use an HTTP header name; only a trailing * wildcard is supported'
+        '请输入 HTTP 请求头名称，仅支持末尾 * 通配符'
       )
     ).toBeVisible()
     expect(mocks.mutateAsync).not.toHaveBeenCalled()
@@ -260,7 +260,7 @@ describe('Request header audit settings', () => {
     await user.type(newRule, 'x-debug-*')
     fireEvent.submit(form)
     expect(
-      await screen.findByText('Duplicate request header rule')
+      await screen.findByText('请求头规则重复')
     ).toBeVisible()
     expect(mocks.mutateAsync).not.toHaveBeenCalled()
 
@@ -269,7 +269,7 @@ describe('Request header audit settings', () => {
     fireEvent.submit(form)
     expect(
       await screen.findByText(
-        'This request header rule is managed by the system'
+        '该请求头规则由系统管理'
       )
     ).toBeVisible()
     expect(mocks.mutateAsync).not.toHaveBeenCalled()
@@ -307,9 +307,9 @@ describe('Request header audit settings', () => {
     await user.keyboard('{Enter}')
 
     expect(
-      screen.getByRole('textbox', { name: 'Header rule: X-Request-ID' })
+      screen.getByRole('textbox', { name: '请求头规则：X-Request-ID' })
     ).toHaveValue('X-Request-ID')
-    expect(screen.getByRole('checkbox', { name: 'Record CF-*' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '记录 CF-*' })).toBeChecked()
     expect(mocks.mutateAsync).not.toHaveBeenCalled()
     expect(
       screen.getByRole('button', { name: 'Restore defaults' })

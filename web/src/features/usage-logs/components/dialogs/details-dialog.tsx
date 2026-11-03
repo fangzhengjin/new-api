@@ -140,11 +140,11 @@ function RequestHeaderTransition(props: {
   const outgoing =
     props.outgoing ||
     (props.name === 'User-Agent'
-      ? t('Not explicitly set; handled by transport')
+      ? t('未显式设置，由传输层处理')
       : t('Not set'))
   const changed = props.hasOutgoing && props.incoming !== props.outgoing
   const accessibilityLabel = changed
-    ? `${props.name}: ${incoming}, ${t('Changed to')} ${outgoing}`
+    ? `${props.name}: ${incoming}, ${t('更改为')} ${outgoing}`
     : `${props.name}: ${incoming}`
 
   useLayoutEffect(() => {
@@ -523,15 +523,15 @@ export function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
   const inputMetrics = tokenSummary.inputBreakdownValid
     ? [
-        [t('Uncached Input'), tokenSummary.uncachedInput],
+        [t('未缓存输入'), tokenSummary.uncachedInput],
         [t('Cache Read'), tokenSummary.cacheRead],
         [t('Cache Write'), tokenSummary.cacheWrite],
       ]
-    : [[t('Recorded Cache'), tokenSummary.cacheTotal]]
+    : [[t('已记录的缓存'), tokenSummary.cacheTotal]]
   const cacheWriteTtlMetrics = [
     [t('5 minutes'), tokenSummary.cacheWrite5m],
     [t('1 hour'), tokenSummary.cacheWrite1h],
-    [t('12 hours'), tokenSummary.cacheWrite12h],
+    [t('12 小时'), tokenSummary.cacheWrite12h],
     [t('Unknown'), tokenSummary.cacheWriteUnclassified],
   ]
 
@@ -540,7 +540,7 @@ export function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
       <div className='-m-2.5 max-sm:-m-2'>
         <dl className='flex items-baseline justify-between gap-4 px-3 py-2'>
           <dt className='text-muted-foreground text-xs'>
-            {t('Total Input Tokens')}
+            {t('总输入 Token')}
           </dt>
           <dd className='text-sm font-semibold tabular-nums'>
             {tokenSummary.inputTotal.toLocaleString()}
@@ -549,10 +549,10 @@ export function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
         <div className='bg-muted/40 border-y px-3 py-2.5'>
           <div className='text-muted-foreground mb-2 text-xs font-medium'>
-            {t('Input Breakdown')}
+            {t('输入构成')}
           </div>
           <dl
-            aria-label={t('Input Breakdown')}
+            aria-label={t('输入构成')}
             className={cn(
               'divide-border grid grid-cols-1 divide-y',
               tokenSummary.inputBreakdownValid &&
@@ -584,10 +584,10 @@ export function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
           {tokenSummary.inputBreakdownValid ? (
             <div className='border-border/70 mt-3 grid grid-cols-1 gap-2 border-t pt-3 sm:grid-cols-[minmax(7.5rem,1fr)_minmax(0,2fr)] sm:items-baseline sm:gap-4'>
               <span className='text-muted-foreground text-xs font-medium'>
-                {t('Cache Write TTL')}
+                {t('缓存写入时效')}
               </span>
               <dl
-                aria-label={t('Cache Write TTL')}
+                aria-label={t('缓存写入时效')}
                 className='grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4'
               >
                 {cacheWriteTtlMetrics.map(([label, value]) => (
@@ -1116,7 +1116,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
         {/* Request header audit (admin only) */}
         {showRequestHeaders && (
-          <DetailSection label={t('Request Headers')}>
+          <DetailSection label={t('请求头')}>
             {hasUserAgentHeader && (
               <div className='min-w-0 overflow-x-auto overflow-y-hidden'>
                 <RequestHeaderTransition
@@ -1156,9 +1156,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             {omittedRequestHeaders.length > 0 && (
               <div className='border-border mt-2 space-y-1.5 border-t pt-2'>
                 <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'The following headers were not recorded because the audit capacity was reached.'
-                  )}
+                  {t('达到审计容量后，以下请求头未被记录')}
                 </p>
                 <ul className='space-y-1'>
                   {omittedRequestHeaders.map((item) => (
@@ -1168,14 +1166,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     >
                       <span className='text-muted-foreground'>
                         {item.direction === 'incoming'
-                          ? t('Incoming')
-                          : t('Outgoing')}
+                          ? t('传入')
+                          : t('传出')}
                       </span>
                       <code className='min-w-0 wrap-break-word'>
                         {item.name}
                       </code>
                       <span className='text-muted-foreground tabular-nums'>
-                        {t('{{count}} bytes', { count: item.byte_length })}
+                        {t('{{count}} 字节', { count: item.byte_length })}
                       </span>
                     </li>
                   ))}

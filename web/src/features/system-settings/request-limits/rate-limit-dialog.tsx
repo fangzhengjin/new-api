@@ -213,7 +213,7 @@ export function RateLimitDialog({
                 </FormControl>
                 <FormDescription>
                   {t('Only successful requests count toward this limit.')}{' '}
-                  {t('0 = unlimited')}
+                  {t('0 表示不限制')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -1026,9 +1026,7 @@ function ChannelTestDialogContent({
               <div className='min-w-0 space-y-2'>
                 <p className='text-sm font-medium'>{t('Channel models')}</p>
                 <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Select models to run batch tests. Successful tests may restore automatically disabled channels or keys.'
-                  )}
+                  {t('选择模型进行批量测试。测试成功可能会恢复自动禁用的渠道或密钥。')}
                 </p>
                 <div className='flex flex-wrap items-center gap-2'>
                   {isBatchTesting ? (

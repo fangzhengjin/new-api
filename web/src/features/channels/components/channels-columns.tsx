@@ -1075,7 +1075,7 @@ export function useChannelsColumns(
       {
         id: 'concurrency',
         accessorFn: (channel) => channel.id,
-        header: t('Concurrency'),
+        header: t('并发'),
         cell: ({ row }) => {
           if (isTagAggregateRow(row.original)) {
             return null

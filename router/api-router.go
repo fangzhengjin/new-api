@@ -71,9 +71,6 @@ func SetApiRouter(router *gin.Engine) {
 		// Universal secure verification routes
 		apiRouter.GET("/verify/methods", middleware.UserAuth(), middleware.DisableCache(), controller.GetVerificationMethods)
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.UniversalVerify)
-		apiRouter.POST("/integrations/launch", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.LaunchIntegration)
-		apiRouter.OPTIONS("/integrations/exchange", middleware.CORS())
-		apiRouter.POST("/integrations/exchange", middleware.CORS(), middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeIntegrationCode)
 
 		userRoute := apiRouter.Group("/user")
 		{
@@ -147,9 +144,6 @@ func SetApiRouter(router *gin.Engine) {
 				// Check-in routes
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
-				selfRoute.GET("/temporary-quota", controller.GetSelfTemporaryQuota)
-				selfRoute.GET("/temporary-quota/requests", controller.GetSelfTemporaryQuotaRequests)
-				selfRoute.POST("/temporary-quota", middleware.CriticalRateLimit(), controller.SubmitSelfTemporaryQuota)
 
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
@@ -166,10 +160,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/:id/oauth/bindings", controller.GetUserOAuthBindingsByAdmin)
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
-				adminRoute.GET("/:id/limits", controller.GetUserLimits)
-				adminRoute.PUT("/:id/limits", controller.UpdateUserLimits)
-				adminRoute.DELETE("/:id/access-sources", controller.RemoveUserAccessSource)
-				adminRoute.POST("/:id/access-sources/allow", controller.AllowLatestUserAccessSource)
+				registerLocalRoutes(apiRouter, selfRoute, adminRoute)
 				adminRoute.GET("/:id", controller.GetUser)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
@@ -288,26 +279,6 @@ func SetApiRouter(router *gin.Engine) {
 			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
 		}
 		handlePermissionRoute(apiRouter.Group("", middleware.AdminAuth()), http.MethodGet, "/task_plugin_options", authz.TaskPluginBind, controller.GetTaskPluginOptions)
-		quotaManagementRoute := apiRouter.Group("/quota-management")
-		quotaManagementRoute.Use(middleware.AdminAuth())
-		{
-			quotaManagementRoute.GET("/overview", controller.GetQuotaOverview)
-			quotaManagementRoute.GET("/cycles", controller.GetQuotaCycles)
-			quotaManagementRoute.POST("/cycles", controller.CreateQuotaCycle)
-			quotaManagementRoute.GET("/cycles/:id", controller.GetQuotaCycle)
-			quotaManagementRoute.PATCH("/cycles/:id", controller.UpdateQuotaCycle)
-			quotaManagementRoute.POST("/cycles/:id/close", controller.CloseQuotaCycle)
-			quotaManagementRoute.GET("/plans/options", controller.GetQuotaPlanOptions)
-			quotaManagementRoute.POST("/plans", controller.GenerateQuotaPlan)
-			quotaManagementRoute.GET("/plans/:id", controller.GetQuotaPlan)
-			quotaManagementRoute.POST("/plans/:id/execute", controller.ExecuteQuotaPlan)
-			quotaManagementRoute.POST("/plans/:id/cancel", controller.CancelQuotaPlan)
-			quotaManagementRoute.POST("/plans/:id/regenerate", controller.RegenerateQuotaPlan)
-			quotaManagementRoute.POST("/plans/:id/notifications/retry", controller.RetryQuotaPlanNotifications)
-			quotaManagementRoute.GET("/temporary-quota-requests", controller.GetTemporaryQuotaRequests)
-			quotaManagementRoute.POST("/temporary-quota-requests/:id/approve", controller.ApproveTemporaryQuotaRequest)
-			quotaManagementRoute.POST("/temporary-quota-requests/:id/reject", controller.RejectTemporaryQuotaRequest)
-		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")

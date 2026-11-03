@@ -153,7 +153,7 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
 
   if (props.logType === LOG_TYPE_ENUM.ERROR) {
     tone = 'error'
-    label = t('Request failed, no fee was charged')
+    label = t('请求失败，未产生费用')
   } else if (isSubscription) {
     tone = 'subscription'
     label = t('Deducted by subscription')

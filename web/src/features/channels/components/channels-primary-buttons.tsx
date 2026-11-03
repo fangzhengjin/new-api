@@ -184,17 +184,17 @@ export function ChannelsPrimaryButtons() {
               variant='outline'
               size='sm'
               className='max-sm:size-11'
-              aria-label={t('Smart Recognition')}
+              aria-label={t('智能识别')}
               disabled={!canOperate}
               render={
                 canOperate ? <Link to='/channels/discovery' /> : undefined
               }
             >
               <HugeiconsIcon icon={AiScanIcon} strokeWidth={2} />
-              <span className='hidden xl:inline'>{t('Smart Recognition')}</span>
+              <span className='hidden xl:inline'>{t('智能识别')}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t('Smart Recognition')}</TooltipContent>
+          <TooltipContent>{t('智能识别')}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -203,17 +203,17 @@ export function ChannelsPrimaryButtons() {
               variant='outline'
               size='sm'
               className='max-sm:size-11'
-              aria-label={t('Batch Normalize')}
+              aria-label={t('批量规范化')}
               disabled={!canNormalize}
               render={
                 canNormalize ? <Link to='/channels/normalization' /> : undefined
               }
             >
               <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
-              <span className='hidden xl:inline'>{t('Batch Normalize')}</span>
+              <span className='hidden xl:inline'>{t('批量规范化')}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t('Batch Normalize')}</TooltipContent>
+          <TooltipContent>{t('批量规范化')}</TooltipContent>
         </Tooltip>
 
         {/* Create Channel */}

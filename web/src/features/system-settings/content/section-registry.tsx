@@ -56,7 +56,7 @@ const CONTENT_SECTIONS = [
   },
   {
     id: 'overview-layout',
-    titleKey: 'Overview Layout',
+    titleKey: '概览布局',
     build: (settings: ContentSettings) => (
       <OverviewLayoutSection
         defaultValue={settings['console_setting.overview_panel_order']}

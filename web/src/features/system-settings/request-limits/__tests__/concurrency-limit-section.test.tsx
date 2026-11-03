@@ -56,13 +56,13 @@ describe('model request concurrency limit settings', () => {
     )
 
     expect(
-      screen.getByRole('switch', { name: 'Enable concurrency limits' })
+      screen.getByRole('switch', { name: '启用并发限制' })
     ).toBeChecked()
     const accountLimit = screen.getByRole('spinbutton', {
-      name: 'Max concurrent requests per account',
+      name: '每账户最大并发请求数',
     })
     const ipLimit = screen.getByRole('spinbutton', {
-      name: 'Max concurrent requests per IP',
+      name: '每 IP 最大并发请求数',
     })
     expect(accountLimit).toHaveValue(3)
     expect(ipLimit).toHaveValue(5)
@@ -70,10 +70,10 @@ describe('model request concurrency limit settings', () => {
     expect(ipLimit).toHaveAttribute('max', '10000')
     expect(screen.queryByRole('spinbutton', { name: /period/i })).toBeNull()
     expect(
-      screen.getByRole('button', { name: 'Account concurrent requests' })
+      screen.getByRole('button', { name: '账号并发请求数' })
     ).toHaveAttribute('aria-pressed', 'true')
     expect(
-      screen.getByRole('button', { name: 'IP concurrent requests' })
+      screen.getByRole('button', { name: 'IP 并发请求数' })
     ).toBeVisible()
     expect(
       screen.queryByRole('button', { name: /unavailable/i })
@@ -90,7 +90,7 @@ describe('model request concurrency limit settings', () => {
       />
     )
     fireEvent.click(
-      screen.getByRole('switch', { name: 'Enable concurrency limits' })
+      screen.getByRole('switch', { name: '启用并发限制' })
     )
     const form = container.querySelector('form')
     if (!form) throw new Error('concurrency limit form was not rendered')
@@ -104,7 +104,7 @@ describe('model request concurrency limit settings', () => {
     })
     expect(
       screen.getByRole('spinbutton', {
-        name: 'Max concurrent requests per account',
+        name: '每账户最大并发请求数',
       })
     ).toHaveValue(3)
   })
@@ -118,7 +118,7 @@ describe('model request concurrency limit settings', () => {
     )
     fireEvent.change(
       screen.getByRole('spinbutton', {
-        name: 'Max concurrent requests per account',
+        name: '每账户最大并发请求数',
       }),
       { target: { value: '4' } }
     )
@@ -143,7 +143,7 @@ describe('model request concurrency limit settings', () => {
     )
     fireEvent.change(
       screen.getByRole('spinbutton', {
-        name: 'Max concurrent requests per IP',
+        name: '每 IP 最大并发请求数',
       }),
       { target: { value: '10001' } }
     )
@@ -152,7 +152,7 @@ describe('model request concurrency limit settings', () => {
     fireEvent.submit(form)
 
     expect(
-      await screen.findByText('Enter an integer from 0 to 10000')
+      await screen.findByText('请输入 0 到 10000 之间的整数')
     ).toBeVisible()
     expect(mutateAsync).not.toHaveBeenCalled()
   })

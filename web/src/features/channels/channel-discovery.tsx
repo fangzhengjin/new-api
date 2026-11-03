@@ -379,7 +379,7 @@ export function ChannelDiscovery() {
       delete nextDrafts[input.draft.block_index]
       setReview(null)
       await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
-      toast.success(t('Channel configuration applied'))
+      toast.success(t('渠道配置已应用'))
       const next = connections.find(
         (item) => item.usable && !completed.includes(item.block_index)
       )
@@ -469,14 +469,14 @@ export function ChannelDiscovery() {
 
   const handlePreview = form.handleSubmit((values) => {
     if (!connection || acceptedKeyIndexes.length === 0) {
-      toast.error(t('Select at least one usable API key'))
+      toast.error(t('请至少选择一个可用 API 密钥'))
       return
     }
     if (
       values.operation === 'create' &&
       (!values.name || groups.length === 0)
     ) {
-      toast.error(t('Name and at least one group are required'))
+      toast.error(t('名称和至少一个分组为必填项'))
       return
     }
     if (
@@ -484,7 +484,7 @@ export function ChannelDiscovery() {
       (selectedModels.length === 0 ||
         !Object.keys(routes).some((protocol) => protocol !== 'models'))
     ) {
-      toast.error(t('Select models and complete protocol probing first'))
+      toast.error(t('请先选择模型并完成协议探测'))
       return
     }
     previewMutation.mutate({ text: values.text, draft: buildDraft(values) })
@@ -493,7 +493,7 @@ export function ChannelDiscovery() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {t('Smart Recognition')}
+        {t('智能识别')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Breadcrumb>
         <Button
@@ -503,7 +503,7 @@ export function ChannelDiscovery() {
           render={<Link to='/channels' />}
         >
           <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          {t('Back to Channels')}
+          {t('返回渠道')}
         </Button>
       </SectionPageLayout.Breadcrumb>
       <SectionPageLayout.Content>
@@ -544,9 +544,7 @@ export function ChannelDiscovery() {
                   </EmptyMedia>
                   <EmptyTitle>{t('Configuration')}</EmptyTitle>
                   <EmptyDescription>
-                    {t(
-                      'Discover a usable connection to configure its models and endpoints.'
-                    )}
+                    {t('识别可用连接后，即可配置其模型和端点。')}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -608,9 +606,7 @@ export function ChannelDiscovery() {
             <div className={channelSetupLayoutClasses.footer}>
               {!canPreview ? (
                 <p className='text-muted-foreground text-sm sm:mr-auto'>
-                  {t(
-                    'Channel write permission is required to generate a preview.'
-                  )}
+                  {t('生成预览需要渠道写入权限。')}
                 </p>
               ) : null}
               <Button
@@ -620,8 +616,8 @@ export function ChannelDiscovery() {
               >
                 {previewMutation.isPending ? <Spinner /> : null}
                 {previewMutation.isPending
-                  ? t('Generating preview...')
-                  : t('Review configuration')}
+                  ? t('正在生成预览……')
+                  : t('检查配置')}
               </Button>
             </div>
           </PageFooterPortal>

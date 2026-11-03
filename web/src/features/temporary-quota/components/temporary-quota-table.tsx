@@ -59,14 +59,14 @@ export function TemporaryQuotaTable(props: {
     () => [
       {
         accessorKey: 'created_at',
-        header: t('Application time'),
+        header: t('申请时间'),
         cell: ({ row }) => formatDateTime(row.original.created_at),
         size: 190,
         meta: { mobileOrder: 1 },
       },
       {
         accessorKey: 'project',
-        header: t('Application project'),
+        header: t('申请项目'),
         cell: ({ row }) => (
           <span className='font-medium'>{row.original.project}</span>
         ),
@@ -86,7 +86,7 @@ export function TemporaryQuotaTable(props: {
       },
       {
         accessorKey: 'status',
-        header: t('Application status'),
+        header: t('申请状态'),
         cell: ({ row }) => {
           const status = TEMPORARY_QUOTA_REQUEST_STATUSES[row.original.status]
           return (
@@ -102,7 +102,7 @@ export function TemporaryQuotaTable(props: {
       },
       {
         accessorKey: 'approved_quota',
-        header: t('Approved quota'),
+        header: t('批准额度'),
         cell: ({ row }) =>
           row.original.status === 'executed' ? (
             <span className='tabular-nums'>
@@ -199,7 +199,7 @@ export function TemporaryQuotaTable(props: {
   if (query.isError) {
     return (
       <Alert variant='destructive'>
-        <AlertTitle>{t('Failed to load temporary quota requests')}</AlertTitle>
+        <AlertTitle>{t('临时额度申请加载失败')}</AlertTitle>
         <AlertDescription>
           {getServerErrorMessage(query.error)}
         </AlertDescription>
@@ -218,19 +218,17 @@ export function TemporaryQuotaTable(props: {
       columns={columns}
       isLoading={query.isPending}
       isFetching={query.isFetching}
-      emptyTitle={t('No temporary quota requests')}
-      emptyDescription={t(
-        'Submitted temporary quota requests will appear here'
-      )}
+      emptyTitle={t('暂无临时额度申请')}
+      emptyDescription={t('已提交的临时额度申请会显示在这里')}
       skeletonKeyPrefix='temporary-quota-skeleton'
       applyHeaderSize
       toolbarProps={{
-        searchPlaceholder: t('Search by project or reason'),
+        searchPlaceholder: t('按项目或原因搜索'),
         searchDebounceMs: 500,
         filters: [
           {
             columnId: 'status',
-            title: t('Application status'),
+            title: t('申请状态'),
             options: statusOptions,
             singleSelect: true,
           },

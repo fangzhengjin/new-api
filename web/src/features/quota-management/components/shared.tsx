@@ -43,26 +43,26 @@ import type {
 import { formatDateTime, formatQuota } from '../utils'
 
 const labels = {
-  scheduled: 'Scheduled',
+  scheduled: '已规划',
   active: 'Active',
-  settling: 'Settling',
-  closed: 'Closed',
-  draft: 'Draft',
-  executed: 'Executed',
+  settling: '结算中',
+  closed: '已关闭',
+  draft: '草稿',
+  executed: '已执行',
   cancelled: 'Cancelled',
-  initialization: 'Initialization',
-  adjustment: 'Regular adjustment',
-  settlement: 'Cycle settlement',
+  initialization: '首次发放',
+  adjustment: '周期内调配',
+  settlement: '周期收口',
   initialize: 'Initialize',
-  increase: 'Increase',
-  decrease: 'Decrease',
-  grant: 'Grant',
-  reclaim: 'Reclaim',
-  temporary_grant: 'Temporary quota',
+  increase: '调增',
+  decrease: '调减',
+  grant: '补发',
+  reclaim: '回收',
+  temporary_grant: '临时额度',
   pending: 'Pending',
-  sent: 'Sent',
+  sent: '已发送',
   failed: 'Failed',
-  skipped: 'Skipped',
+  skipped: '已跳过',
 } as const
 
 type StatusValue =
@@ -94,18 +94,18 @@ export function InitialGrantRecommendationAlert(props: {
 }) {
   return (
     <Alert>
-      <AlertTitle>{props.t('Recommended initial grant')}</AlertTitle>
+      <AlertTitle>{props.t('建议的每人首次发放额度')}</AlertTitle>
       <AlertDescription>
         {formatQuota(props.recommendation.quota)} ·{' '}
-        {props.recommendation.user_count} {props.t('users')} ·{' '}
+        {props.recommendation.user_count} {props.t('名用户')} ·{' '}
         {formatDateTime(props.recommendation.reference_start)} –{' '}
         {formatDateTime(props.recommendation.reference_end)}
         <br />
-        {props.t('Average spend per user')}:{' '}
+        {props.t('人均实际使用额度')}:{' '}
         {formatQuota(props.recommendation.average_spend)} ·{' '}
-        {props.t('20% usage buffer')}:{' '}
+        {props.t('在人均实际使用额度上多留 20%')}:{' '}
         {formatQuota(props.recommendation.buffered)} ·{' '}
-        {props.t('20% decrease protection')}:{' '}
+        {props.t('至少保留上期首次额度的 80%')}:{' '}
         {formatQuota(props.recommendation.stability_floor)}
       </AlertDescription>
     </Alert>

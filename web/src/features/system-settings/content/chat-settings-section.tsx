@@ -56,9 +56,9 @@ const createChatSchema = (t: (key: string) => string) =>
   z.object({
     ChatMenuCollapseThreshold: z
       .number()
-      .int(t('Enter an integer from 0 to 20'))
-      .min(0, t('Enter an integer from 0 to 20'))
-      .max(20, t('Enter an integer from 0 to 20')),
+      .int(t('请输入 0～20 的整数'))
+      .min(0, t('请输入 0～20 的整数'))
+      .max(20, t('请输入 0～20 的整数')),
     Chats: z.string().superRefine((value, ctx) => {
       try {
         const parsed = JSON.parse(value || '[]')
@@ -72,9 +72,7 @@ const createChatSchema = (t: (key: string) => string) =>
         if (parseChatConfigEntries(parsed).length !== parsed.length) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: t(
-              'Each preset must contain a unique name, URL, enabled status, an optional valid open mode, and optional valid sandbox permissions.'
-            ),
+            message: t('每个预设必须包含唯一名称、URL、启用状态，可选的有效打开方式，以及可选的有效沙箱权限'),
           })
         }
       } catch {
@@ -153,49 +151,43 @@ export function ChatSettingsSection(props: ChatSettingsSectionProps) {
   const variables = [
     {
       name: '{address}',
-      description: t('Current API address, URL-encoded.'),
+      description: t('当前 API 地址，已进行 URL 编码'),
     },
     {
       name: '{theme}',
-      description: t('Current theme: light or dark.'),
+      description: t('当前主题：light 或 dark'),
     },
     {
       name: '{key}',
-      description: t('The selected Token, for direct client import links.'),
+      description: t('所选 Token，用于直接导入客户端的链接'),
     },
     {
       name: '{cherryConfig}',
-      description: t('Cherry Studio import configuration.'),
+      description: t('Cherry Studio 导入配置'),
     },
     {
       name: '{aionuiConfig}',
-      description: t('AionUI import configuration.'),
+      description: t('AionUI 导入配置'),
     },
     {
       name: '{deepchatConfig}',
-      description: t('DeepChat import configuration.'),
+      description: t('DeepChat 导入配置'),
     },
     {
       name: '{authCode}',
-      description: t('One-time authorization code, valid for one minute.'),
+      description: t('一次性授权码，一分钟内有效且只能使用一次'),
     },
     {
       name: '{textModels}',
-      description: t(
-        'Comma-separated text models available to the selected Token.'
-      ),
+      description: t('所选 Token 可用的文本模型，以逗号分隔'),
     },
     {
       name: '{imageModels}',
-      description: t(
-        'Comma-separated image models available to the selected Token.'
-      ),
+      description: t('所选 Token 可用的图像模型，以逗号分隔'),
     },
     {
       name: '{videoModels}',
-      description: t(
-        'Comma-separated video models available to the selected Token.'
-      ),
+      description: t('所选 Token 可用的视频模型，以逗号分隔'),
     },
   ]
   const currentValues = form.watch()
@@ -225,10 +217,10 @@ export function ChatSettingsSection(props: ChatSettingsSectionProps) {
             render={({ field }) => (
               <FormItem data-settings-form-span='full'>
                 <FormLabel htmlFor={thresholdInputId} className='sr-only'>
-                  {t('Chat menu grouping threshold')}
+                  {t('聊天菜单收纳阈值')}
                 </FormLabel>
                 <div className='flex flex-wrap items-center gap-2 text-sm'>
-                  <span>{t('When there are more than')}</span>
+                  <span>{t('入口超过')}</span>
                   <FormControl>
                     <Input
                       {...field}
@@ -251,7 +243,7 @@ export function ChatSettingsSection(props: ChatSettingsSectionProps) {
                       )}
                     />
                   </FormControl>
-                  <span>{t('entries, group them under the "Chat" menu')}</span>
+                  <span>{t('个时，收进“聊天”菜单')}</span>
                 </div>
                 <FormMessage />
               </FormItem>
@@ -299,17 +291,13 @@ export function ChatSettingsSection(props: ChatSettingsSectionProps) {
                         name={field.name}
                         onBlur={field.onBlur}
                         textareaRef={field.ref}
-                        placeholder={t(
-                          '[{"name":"Example","url":"https://chat.example","enabled":true,"icon":"Palette","open_mode":"embedded"}]'
-                        )}
+                        placeholder={t('[{"name":"Example","url":"https://chat.example","enabled":true,"icon":"Palette","open_mode":"embedded"}]')}
                         heightClassName='h-72 min-h-72 max-h-72'
                         aria-invalid={Boolean(form.formState.errors.Chats)}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Each item uses name, url, and enabled. icon, open_mode, and sandbox are optional.'
-                      )}
+                      {t('每项必须包含 name、url 和 enabled，icon、open_mode 和 sandbox 为可选字段')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -320,19 +308,17 @@ export function ChatSettingsSection(props: ChatSettingsSectionProps) {
           <Separator />
           <div className='space-y-3' data-settings-form-span='full'>
             <div className='space-y-1'>
-              <h3 className='text-sm font-medium'>{t('Built-in variables')}</h3>
+              <h3 className='text-sm font-medium'>{t('内置变量')}</h3>
               <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Variables are replaced only when a preset is opened. Saved settings never show real Token values.'
-                )}
+                {t('只有打开预设时才会替换变量，已保存的设置不会显示真实 Token 值')}
               </p>
             </div>
             <div className='overflow-x-auto rounded-lg border'>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('Variable')}</TableHead>
-                    <TableHead>{t('Notes')}</TableHead>
+                    <TableHead>{t('变量')}</TableHead>
+                    <TableHead>{t('说明')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

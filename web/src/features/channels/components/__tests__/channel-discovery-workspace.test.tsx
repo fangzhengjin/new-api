@@ -230,7 +230,7 @@ describe('channel discovery workspace pending state', () => {
       '[role="status"][aria-live="polite"]'
     )
     assert.ok(status)
-    assert.match(status.textContent ?? '', /Probing upstream-model with key 2/)
+    assert.match(status.textContent ?? '', /正在使用密钥 2 探测 upstream-model/)
 
     await act(async () => root.unmount())
     container.remove()
@@ -258,7 +258,7 @@ describe('channel discovery workspace pending state', () => {
       '[role="status"][aria-live="polite"]'
     )
     assert.ok(status)
-    assert.match(status.textContent ?? '', /Probe completed for upstream-model/)
+    assert.match(status.textContent ?? '', /已完成 upstream-model 的协议探测/)
     assert.match(status.textContent ?? '', /responses/)
     assert.match(status.textContent ?? '', /messages/)
 
@@ -278,10 +278,10 @@ describe('channel discovery workspace pending state', () => {
       '[role="status"][aria-live="polite"]'
     )
     assert.ok(status)
-    assert.match(status.textContent ?? '', /Probe failed for upstream-model/)
+    assert.match(status.textContent ?? '', /upstream-model 协议探测失败/)
     assert.match(
       status.textContent ?? '',
-      /checking the Base URL, API key, and upstream protocol support/
+      /请检查 API 地址、API 密钥和上游协议支持后重试/
     )
 
     await act(async () => root.unmount())
@@ -324,8 +324,8 @@ describe('channel discovery workspace pending state', () => {
     assert.ok(source)
     assert.equal(source.readOnly, true)
     assert.match(source.value, /first\.example/)
-    assert.match(container.textContent ?? '', /1 of 2 completed/)
-    assert.match(container.textContent ?? '', /Draft/)
+    assert.match(container.textContent ?? '', /已完成 1 \/ 2/)
+    assert.match(container.textContent ?? '', /草稿/)
 
     await act(async () => root.unmount())
     container.remove()

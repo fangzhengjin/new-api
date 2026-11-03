@@ -72,8 +72,8 @@ export function CodexErrorResponseMappings(
   const ruleCount = rules?.length ?? 0
   const statusLabel =
     ruleCount === 1
-      ? t('Configured · 1 rule')
-      : t('Configured · {{count}} rules', { count: ruleCount })
+      ? t('已配置 · 1 条规则')
+      : t('已配置 · {{count}} 条规则', { count: ruleCount })
 
   const syncRules = (nextRules: CodexErrorResponseMapping[]) => {
     props.onChange(JSON.stringify(nextRules, null, 2))
@@ -106,7 +106,7 @@ export function CodexErrorResponseMappings(
   const actions = (
     <div
       role='group'
-      aria-label={t('Error response mapping actions')}
+      aria-label={t('错误响应映射操作')}
       className='flex flex-wrap justify-end gap-2'
     >
       <Button
@@ -136,10 +136,10 @@ export function CodexErrorResponseMappings(
         className='w-7 px-0 sm:w-auto sm:px-2.5'
         onClick={fillTemplate}
         disabled={!rules}
-        aria-label={t('Fill template')}
+        aria-label={t('填充模板')}
       >
         <FileText data-icon='inline-start' aria-hidden='true' />
-        <span className='hidden sm:inline'>{t('Fill template')}</span>
+        <span className='hidden sm:inline'>{t('填充模板')}</span>
       </Button>
       <Button
         type='button'
@@ -147,7 +147,7 @@ export function CodexErrorResponseMappings(
         className='w-7 px-0 sm:w-auto sm:px-2.5'
         onClick={addRule}
         disabled={!rules}
-        aria-label={t('Add mapping rule')}
+        aria-label={t('新建映射规则')}
       >
         <Plus data-icon='inline-start' aria-hidden='true' />
         <span className='hidden sm:inline'>{t('Add rule')}</span>
@@ -157,27 +157,23 @@ export function CodexErrorResponseMappings(
 
   return (
     <SettingsFormSection
-      title={t('Codex Error Response Mappings')}
-      description={t(
-        'Rewrite selected upstream errors for Codex clients, while an empty configuration leaves every response unchanged'
-      )}
+      title={t('Codex 错误响应映射')}
+      description={t('将指定的上游错误改写后返回给 Codex 客户端，配置为空时保持原响应不变')}
       action={actions}
       className='pb-10 sm:pb-14 [&>div:first-child>div:first-child]:flex-1'
     >
       <Alert role='note'>
         <Info aria-hidden='true' />
-        <AlertTitle>{t('Fixed scope')}</AlertTitle>
+        <AlertTitle>{t('固定作用范围')}</AlertTitle>
         <AlertDescription>
-          {t(
-            'Only requests whose User-Agent is recognized as Codex and whose path is exactly /v1/responses are processed, and message matching ignores case'
-          )}
+          {t('仅处理 User-Agent 被识别为 Codex 且路径严格为 /v1/responses 的请求，消息匹配忽略大小写')}
         </AlertDescription>
       </Alert>
 
       <div className='flex flex-wrap items-center gap-2'>
         <Badge variant='secondary'>{statusLabel}</Badge>
         <span className='text-muted-foreground text-xs'>
-          {t('Rules are evaluated in order, and the first match is used')}
+          {t('规则按顺序匹配，命中第一条后停止')}
         </span>
       </div>
 
@@ -192,7 +188,7 @@ export function CodexErrorResponseMappings(
             value={props.value}
             onChange={props.onChange}
             onBlur={props.onBlur}
-            ariaLabel={t('Codex error response mappings JSON')}
+            ariaLabel={t('Codex 错误响应映射 JSON')}
             aria-invalid={!validation.success}
             heightClassName='h-96 min-h-96 max-h-96'
           />
@@ -243,9 +239,9 @@ export function CodexErrorResponseMappings(
                 <CardHeader className='border-b'>
                   <div className='flex min-w-0 flex-wrap items-center gap-2'>
                     <CardTitle id={ruleTitleId}>
-                      {t('Mapping rule {{number}}', { number: index + 1 })}
+                      {t('映射规则 {{number}}', { number: index + 1 })}
                     </CardTitle>
-                    <Badge variant='outline'>{t('Any message matches')}</Badge>
+                    <Badge variant='outline'>{t('任一消息匹配')}</Badge>
                   </div>
                   <CardAction>
                     <Button
@@ -257,7 +253,7 @@ export function CodexErrorResponseMappings(
                           rules.filter((_, ruleIndex) => ruleIndex !== index)
                         )
                       }
-                      aria-label={t('Delete mapping rule {{number}}', {
+                      aria-label={t('删除映射规则 {{number}}', {
                         number: index + 1,
                       })}
                     >
@@ -268,12 +264,12 @@ export function CodexErrorResponseMappings(
                 <CardContent className='grid min-w-0 gap-6 lg:grid-cols-2 lg:gap-0'>
                   <div className='min-w-0 space-y-4 lg:border-r lg:pr-4'>
                     <h4 className='text-sm font-medium'>
-                      {t('Match conditions')}
+                      {t('匹配条件')}
                     </h4>
                     <div className='grid gap-4 sm:grid-cols-2'>
                       <div className='space-y-2'>
                         <Label htmlFor={`${fieldId}-rule-${index}-path`}>
-                          {t('Endpoint path')}
+                          {t('端点路径')}
                         </Label>
                         <Input
                           id={`${fieldId}-rule-${index}-path`}
@@ -285,7 +281,7 @@ export function CodexErrorResponseMappings(
                         <Label
                           htmlFor={`${fieldId}-rule-${index}-source-status`}
                         >
-                          {t('Upstream status code')}
+                          {t('上游状态码')}
                         </Label>
                         <Input
                           id={`${fieldId}-rule-${index}-source-status`}
@@ -315,7 +311,7 @@ export function CodexErrorResponseMappings(
                     </div>
                     <div className='space-y-2'>
                       <Label htmlFor={`${fieldId}-rule-${index}-patterns`}>
-                        {t('Message patterns')}
+                        {t('消息匹配条件')}
                       </Label>
                       <Textarea
                         id={`${fieldId}-rule-${index}-patterns`}
@@ -342,9 +338,7 @@ export function CodexErrorResponseMappings(
                         id={patternsHelpId}
                         className='text-muted-foreground text-xs'
                       >
-                        {t(
-                          'Enter one condition per line, use plain text for case-insensitive contains matching, or prefix a regular expression with re:'
-                        )}
+                        {t('每行输入一个条件，普通文本使用忽略大小写的包含匹配，正则表达式需添加 re: 前缀')}
                       </p>
                       {patterns.length > 0 ? (
                         <div className='flex flex-wrap gap-1.5'>
@@ -374,23 +368,21 @@ export function CodexErrorResponseMappings(
                           : undefined}
                       </FieldError>
                       <p className='text-muted-foreground text-xs'>
-                        {t(
-                          'If any message pattern matches, the response below is returned'
-                        )}
+                        {t('任一消息匹配后，将返回下方响应')}
                       </p>
                     </div>
                   </div>
 
                   <div className='min-w-0 space-y-4 lg:pl-4'>
                     <h4 className='text-sm font-medium'>
-                      {t('Response rewrite')}
+                      {t('响应改写')}
                     </h4>
                     <div className='grid gap-4 sm:grid-cols-3'>
                       <div className='space-y-2'>
                         <Label
                           htmlFor={`${fieldId}-rule-${index}-target-status`}
                         >
-                          {t('Return status code')}
+                          {t('返回状态码')}
                         </Label>
                         <Input
                           id={`${fieldId}-rule-${index}-target-status`}
@@ -419,7 +411,7 @@ export function CodexErrorResponseMappings(
                       </div>
                       <div className='space-y-2'>
                         <Label htmlFor={`${fieldId}-rule-${index}-type`}>
-                          {t('Error type')}
+                          {t('错误类型')}
                         </Label>
                         <Input
                           id={`${fieldId}-rule-${index}-type`}
@@ -443,7 +435,7 @@ export function CodexErrorResponseMappings(
                       </div>
                       <div className='space-y-2'>
                         <Label htmlFor={`${fieldId}-rule-${index}-code`}>
-                          {t('Error code')}
+                          {t('错误代码')}
                         </Label>
                         <Input
                           id={`${fieldId}-rule-${index}-code`}
@@ -468,7 +460,7 @@ export function CodexErrorResponseMappings(
                     </div>
                     <div className='space-y-2'>
                       <Label htmlFor={`${fieldId}-rule-${index}-message`}>
-                        {t('Error message')}
+                        {t('错误消息')}
                       </Label>
                       <Input
                         id={`${fieldId}-rule-${index}-message`}
@@ -495,7 +487,7 @@ export function CodexErrorResponseMappings(
                     <div className='bg-muted/40 overflow-hidden rounded-lg'>
                       <div className='flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2'>
                         <span className='text-xs font-medium'>
-                          {t('Response preview')}
+                          {t('响应预览')}
                         </span>
                         <span className='text-muted-foreground text-xs'>
                           HTTP {rule.rewrite.status_code} · application/json
@@ -514,9 +506,7 @@ export function CodexErrorResponseMappings(
       )}
       {mode === 'visual' && (!rules || rules.length === 0) && (
         <div className='text-muted-foreground flex min-h-28 items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm'>
-          {t(
-            'No error response mappings are configured, so Codex clients receive the original upstream error'
-          )}
+          {t('未配置错误响应映射，Codex 客户端将收到上游原始错误')}
         </div>
       )}
     </SettingsFormSection>

@@ -29,7 +29,7 @@ const ACTION_MESSAGES: Record<ManageUserAction, string> = {
   demote: 'User demoted to regular user successfully',
   delete: 'User deleted successfully',
   add_quota: 'Quota adjusted successfully',
-  quota_whitelist: 'Quota whitelist updated successfully',
+  quota_whitelist: '额度白名单已更新',
 }
 
 /**

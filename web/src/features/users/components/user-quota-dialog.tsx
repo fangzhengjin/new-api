@@ -70,14 +70,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       !Number.isFinite(parsedAmount) ||
       (mode !== 'override' && (amountValue <= 0 || quotaValue <= 0))
     ) {
-      return t('Current balance: {{current}}', {
+      return t('当前余额：{{current}}', {
         current: formatQuota(current),
       })
     }
     switch (mode) {
       case 'add':
-        return t(
-          'Current balance: {{current}} → Balance after increase: {{after}} (+{{amount}})',
+        return t('当前余额：{{current}} → 调增后余额：{{after}}（+{{amount}}）',
           {
             current: formatQuota(current),
             after: formatQuota(current + val),
@@ -85,8 +84,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
           }
         )
       case 'subtract':
-        return t(
-          'Current balance: {{current}} → Balance after decrease: {{after}} (-{{amount}})',
+        return t('当前余额：{{current}} → 调减后余额：{{after}}（-{{amount}}）',
           {
             current: formatQuota(current),
             after: formatQuota(current - val),
@@ -95,8 +93,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         )
       case 'override': {
         const overrideQuota = parseQuotaFromDollars(amountValue)
-        return t(
-          'Current balance: {{current}} → Balance after adjustment: {{after}}',
+        return t('当前余额：{{current}} → 调整后余额：{{after}}',
           {
             current: formatQuota(current),
             after: formatQuota(overrideQuota),
@@ -121,15 +118,15 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
 
   const submitAdjustment = async () => {
     if (!amount.trim() || !Number.isFinite(parsedAmount)) {
-      setAmountError(t('Enter a valid amount'))
+      setAmountError(t('请输入有效金额'))
       return
     }
     if (mode !== 'override' && (amountValue <= 0 || quotaValue <= 0)) {
-      setAmountError(t('Enter an amount greater than 0'))
+      setAmountError(t('请输入大于 0 的金额'))
       return
     }
     if (cycleQuotaManagementEnabled && !reason.trim()) {
-      setReasonError(t('Reason is required'))
+      setReasonError(t('必须填写原因'))
       return
     }
     setAmountError(null)
@@ -170,14 +167,14 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
     ? t('Enter amount in tokens')
     : t('Enter amount in {{currency}}', { currency: currencyLabel })
   const modeLabels: Record<QuotaAdjustMode, string> = {
-    add: cycleQuotaManagementEnabled ? t('Increase') : t('Add'),
-    subtract: cycleQuotaManagementEnabled ? t('Decrease') : t('Subtract'),
+    add: cycleQuotaManagementEnabled ? t('调增') : t('Add'),
+    subtract: cycleQuotaManagementEnabled ? t('调减') : t('Subtract'),
     override: t('Override'),
   }
   const submitText: Record<QuotaAdjustMode, string> = {
-    add: t('Confirm increase'),
-    subtract: t('Confirm decrease'),
-    override: t('Confirm adjustment'),
+    add: t('确认调增'),
+    subtract: t('确认调减'),
+    override: t('确认调整'),
   }
 
   return (
@@ -185,7 +182,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       open={props.open}
       onOpenChange={handleOpenChange}
       title={t('Adjust Quota')}
-      description={t('Manual quota adjustments take effect immediately.')}
+      description={t('手工调额会立即生效')}
       contentHeight='auto'
       bodyClassName='space-y-4'
       footer={
@@ -238,7 +235,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
         <div className='space-y-2'>
           <Label htmlFor='user-quota-amount'>
             {tokensOnly
-              ? t('Quota amount (tokens)')
+              ? t('额度（Token）')
               : `${t('Amount')} (${currencyLabel})`}
           </Label>
           <Input

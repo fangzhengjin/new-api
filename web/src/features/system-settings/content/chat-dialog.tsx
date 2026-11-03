@@ -66,7 +66,7 @@ const createChatDialogSchema = (t: (key: string) => string) =>
       .trim()
       .refine(
         (value) => value === '' || isChatPresetIconName(value),
-        t('Icon not found. Enter a valid Lucide icon name.')
+        t('未找到该图标，请填写有效的 Lucide 图标名称')
       ),
     name: z.string().trim().min(1, t('Chat client name is required')),
     url: z.string().trim().min(1, t('URL is required')),
@@ -157,17 +157,17 @@ export function ChatDialog({
     label: string
     value: ChatSandboxPermission
   }> = [
-    { label: t('Download files'), value: 'allow-downloads' },
-    { label: t('Submit forms'), value: 'allow-forms' },
-    { label: t('Show modal dialogs'), value: 'allow-modals' },
-    { label: t('Open pop-up windows'), value: 'allow-popups' },
+    { label: t('下载文件'), value: 'allow-downloads' },
+    { label: t('提交表单'), value: 'allow-forms' },
+    { label: t('显示模态对话框'), value: 'allow-modals' },
+    { label: t('打开弹出窗口'), value: 'allow-popups' },
     {
-      label: t('Let pop-ups leave the sandbox'),
+      label: t('允许弹出窗口脱离沙箱'),
       value: 'allow-popups-to-escape-sandbox',
     },
-    { label: t('Use presentation mode'), value: 'allow-presentation' },
-    { label: t('Run scripts'), value: 'allow-scripts' },
-    { label: t('Keep the original origin'), value: 'allow-same-origin' },
+    { label: t('使用演示模式'), value: 'allow-presentation' },
+    { label: t('运行脚本'), value: 'allow-scripts' },
+    { label: t('保留原始来源'), value: 'allow-same-origin' },
   ]
 
   const handleSubmit = (values: ChatDialogFormValues) => {
@@ -219,7 +219,7 @@ export function ChatDialog({
             name='icon'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Menu icon')}</FormLabel>
+                <FormLabel>{t('菜单图标')}</FormLabel>
                 <InputGroup>
                   <InputGroupAddon aria-hidden='true'>
                     {showIconPreview && (
@@ -228,23 +228,21 @@ export function ChatDialog({
                   </InputGroupAddon>
                   <FormControl>
                     <InputGroupInput
-                      placeholder={t('e.g. Palette')}
+                      placeholder={t('例如：Palette')}
                       autoComplete='off'
                       {...field}
                     />
                   </FormControl>
                 </InputGroup>
                 <FormDescription>
-                  {t(
-                    'Optional. Used only when this preset appears as a top-level menu item.'
-                  )}{' '}
+                  {t('可选，仅在该预设作为一级菜单项显示时使用')}{' '}
                   <a
                     href='https://lucide.dev/icons/'
                     target='_blank'
                     rel='noreferrer'
                     className='text-foreground underline underline-offset-4'
                   >
-                    {t('Browse Lucide icons')}
+                    {t('查看 Lucide 图标')}
                   </a>
                 </FormDescription>
                 <FormMessage />
@@ -295,7 +293,7 @@ export function ChatDialog({
               name='openMode'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Open mode')}</FormLabel>
+                  <FormLabel>{t('打开方式')}</FormLabel>
                   <Select
                     value={field.value ?? 'embedded'}
                     onValueChange={field.onChange}
@@ -304,20 +302,18 @@ export function ChatDialog({
                       <SelectTrigger className='w-full'>
                         <SelectValue>
                           {t(
-                            field.value === 'new_tab' ? 'New tab' : 'Embedded'
+                            field.value === 'new_tab' ? '新标签页' : '内嵌'
                           )}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>
-                      <SelectItem value='embedded'>{t('Embedded')}</SelectItem>
-                      <SelectItem value='new_tab'>{t('New tab')}</SelectItem>
+                      <SelectItem value='embedded'>{t('内嵌')}</SelectItem>
+                      <SelectItem value='new_tab'>{t('新标签页')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormDescription>
-                    {t(
-                      'Choose whether this HTTP link opens inside the site or in a new tab.'
-                    )}
+                    {t('选择此 HTTP 链接在站内打开，还是在新标签页打开')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -332,19 +328,19 @@ export function ChatDialog({
                 name='sandbox'
                 render={({ field }) => {
                   const selected = field.value ?? defaultSandbox
-                  let selectedLabel = t('Selected permissions: {{count}}', {
+                  let selectedLabel = t('已选择权限：{{count}} 项', {
                     count: selected.length,
                   })
                   if (field.value === undefined) {
-                    selectedLabel = t('System default · {{count}} enabled', {
+                    selectedLabel = t('系统默认 · 已启用 {{count}} 项', {
                       count: selected.length,
                     })
                   } else if (selected.length === 0) {
-                    selectedLabel = t('No permissions selected')
+                    selectedLabel = t('未选择任何权限')
                   }
                   return (
                     <FormItem>
-                      <FormLabel>{t('Embedded page permissions')}</FormLabel>
+                      <FormLabel>{t('嵌入页面权限')}</FormLabel>
                       <Select
                         items={sandboxOptions}
                         multiple
@@ -371,9 +367,7 @@ export function ChatDialog({
                       </Select>
                       <div className='flex flex-wrap items-start justify-between gap-2'>
                         <FormDescription className='min-w-0 flex-1'>
-                          {t(
-                            'Choose what the embedded page may use. Leave this unchanged to follow the system defaults.'
-                          )}
+                          {t('选择嵌入页面可以使用的功能。不作修改时沿用系统默认权限')}
                         </FormDescription>
                         {field.value !== undefined && (
                           <Button
@@ -383,7 +377,7 @@ export function ChatDialog({
                             className='h-auto px-0 py-0'
                             onClick={() => field.onChange(undefined)}
                           >
-                            {t('Use system defaults')}
+                            {t('使用系统默认权限')}
                           </Button>
                         )}
                       </div>
@@ -395,12 +389,10 @@ export function ChatDialog({
               {hasOriginIsolationRisk && (
                 <Alert variant='destructive'>
                   <AlertTitle>
-                    {t('High-risk permission combination')}
+                    {t('高风险权限组合')}
                   </AlertTitle>
                   <AlertDescription>
-                    {t(
-                      'Scripts and original-origin access together remove reliable iframe isolation.'
-                    )}
+                    {t('同时允许脚本运行和保留原始来源后，iframe 将不再具备可靠的隔离能力')}
                   </AlertDescription>
                 </Alert>
               )}

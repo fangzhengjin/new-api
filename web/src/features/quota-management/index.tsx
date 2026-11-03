@@ -76,7 +76,7 @@ function CycleSlot(props: {
         <div className='space-y-2'>
           <div className='flex items-center justify-between gap-2'>
             <span className='truncate font-medium'>
-              {t('Cycle')} #{props.cycle.id}
+              {t('周期')} #{props.cycle.id}
             </span>
             <StatusBadge value={props.cycle.status} t={t} />
           </div>
@@ -113,7 +113,7 @@ function CycleSlot(props: {
                 strokeWidth={2}
                 data-icon='inline-start'
               />
-              {t('Create next cycle')}
+              {t('创建下一周期')}
             </Button>
           )}
         </div>
@@ -139,7 +139,7 @@ function MetricCard(props: {
           {props.updatedAt && props.value != null && (
             <Tooltip>
               <TooltipTrigger
-                aria-label={t('Data update time')}
+                aria-label={t('数据更新时间')}
                 render={
                   <button
                     type='button'
@@ -154,7 +154,7 @@ function MetricCard(props: {
                 />
               </TooltipTrigger>
               <TooltipContent>
-                {t('Updated at {{time}}', {
+                {t('更新于 {{time}}', {
                   time: formatDateTime(props.updatedAt),
                 })}
               </TooltipContent>
@@ -169,7 +169,7 @@ function MetricCard(props: {
             <Button
               size='icon-xs'
               variant='ghost'
-              aria-label={t('Refresh cycle remaining quota')}
+              aria-label={t('刷新周期剩余额度')}
               disabled={props.refreshing}
               onClick={props.onRefresh}
             >
@@ -196,28 +196,24 @@ function FundFlow(props: { overview: QuotaOverview }) {
   if (!cycle) {
     return (
       <EmptyData
-        title={t('No active cycle')}
-        description={t('Create a cycle to start managing quota allocation')}
+        title={t('没有活跃周期')}
+        description={t('创建周期以开始管理额度分配')}
       />
     )
   }
   if (cycle.allocation_error) {
     return (
       <EmptyData
-        title={t('Allocation data error')}
-        description={t(
-          'The saved allocation data is invalid. Contact a system maintainer before creating or executing plans. User API usage remains available from each user balance'
-        )}
+        title={t('额度数据异常')}
+        description={t('已保存的额度数据无效。请联系系统维护人员处理，处理前无法创建或执行方案。用户仍可使用各自账户余额调用 API')}
       />
     )
   }
   if (cycle.allocated_quota == null || cycle.remaining_quota == null) {
     return (
       <EmptyData
-        title={t('Allocation data setup required')}
-        description={t(
-          'This cycle requires a one-time allocation data setup by a system maintainer before plans can be created or executed. API usage remains available from each user balance'
-        )}
+        title={t('分配数据需要初始化')}
+        description={t('当前周期需要由系统维护人员完成一次分配数据初始化，之后才能创建或执行方案。用户仍可按账户余额正常使用 API')}
       />
     )
   }
@@ -229,42 +225,40 @@ function FundFlow(props: { overview: QuotaOverview }) {
       : 0
   const rows = [
     {
-      label: t('Issued in this plan'),
+      label: t('本方案发放'),
       value: summary?.increase.total ?? '0',
     },
     {
-      label: t('Reclaimed in this plan'),
+      label: t('本方案回收'),
       value: summary?.decrease.total ?? '0',
     },
     {
-      label: t('Reissued from reclaimed quota'),
+      label: t('从回收额度中重新发放'),
       value: summary?.reclaimed_used_for_increases ?? '0',
     },
     {
-      label: t('Reclaimed to cover existing excess'),
+      label: t('收回用于冲抵原有超额'),
       value: summary?.reclaimed_used_to_cover_overage ?? '0',
     },
     {
-      label: t('Issued from cycle remaining quota'),
+      label: t('使用周期剩余额度发放'),
       value: summary?.cycle_pool_issued_quota ?? '0',
     },
     {
-      label: t('Reclaimed and returned to cycle quota pool'),
+      label: t('收回额度返还周期额度池'),
       value: summary?.reclaimed_unused ?? '0',
     },
     {
-      label: t('Cycle remaining quota after this plan'),
+      label: t('本方案执行后周期剩余额度'),
       value: summary?.pool_remaining ?? cycle.remaining_quota,
     },
   ]
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('Quota flow')}</CardTitle>
+        <CardTitle>{t('额度流向')}</CardTitle>
         <CardDescription>
-          {t(
-            'See how cycle quota is issued, reclaimed, reissued, and retained'
-          )}
+          {t('查看周期额度的发放、收回、重新发放和剩余情况')}
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-5'>
@@ -272,7 +266,7 @@ function FundFlow(props: { overview: QuotaOverview }) {
           <div className='flex flex-col justify-between gap-3 rounded-lg border p-3 sm:flex-row sm:items-center'>
             <div className='min-w-0'>
               <div className='text-muted-foreground text-xs'>
-                {t('Current plan')}
+                {t('当前方案')}
               </div>
               <div className='mt-1 truncate font-medium'>
                 {props.overview.current_plan.name}
@@ -288,18 +282,18 @@ function FundFlow(props: { overview: QuotaOverview }) {
         )}
         <div>
           <div className='mb-2 flex items-center justify-between gap-4 text-sm'>
-            <span>{t('Cycle total')}</span>
+            <span>{t('周期总额度')}</span>
             <span className='font-medium tabular-nums'>
               {formatQuota(cycle.budget_quota)}
             </span>
           </div>
           <Progress
             value={allocationRate}
-            aria-label={t('Allocation progress')}
+            aria-label={t('分配进度')}
           />
           <div className='text-muted-foreground mt-2 flex justify-between gap-4 text-xs'>
             <span>
-              {t('Allocated')} {formatQuota(cycle.allocated_quota ?? '0')}
+              {t('已分配')} {formatQuota(cycle.allocated_quota ?? '0')}
             </span>
             <span>
               {t('Remaining')} {formatQuota(cycle.remaining_quota ?? '0')}
@@ -329,7 +323,7 @@ function FundFlow(props: { overview: QuotaOverview }) {
               />
             }
           >
-            {t('View current plan flow')}
+            {t('查看当前方案额度流向')}
             <HugeiconsIcon
               icon={ArrowRight01Icon}
               strokeWidth={2}
@@ -372,7 +366,7 @@ export function QuotaManagement() {
   } else if (cyclesQuery.isError) {
     cyclesContent = (
       <PageError
-        title={t('Failed to load quota cycles')}
+        title={t('加载额度周期列表失败')}
         error={cyclesQuery.error}
       />
     )
@@ -384,7 +378,7 @@ export function QuotaManagement() {
       <SectionPageLayout>
         <SectionPageLayout.Title>
           <span className='inline-flex min-w-0 items-center gap-2'>
-            <span className='truncate'>{t('Cycle Quota Management')}</span>
+            <span className='truncate'>{t('周期额度管理')}</span>
             <Badge variant='outline' className='shrink-0'>
               {t('Admin')}
             </Badge>
@@ -401,14 +395,14 @@ export function QuotaManagement() {
               strokeWidth={2}
               data-icon='inline-start'
             />
-            {t('Create cycle')}
+            {t('创建周期')}
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           {overviewQuery.isPending && <PageLoading />}
           {overviewQuery.isError && (
             <PageError
-              title={t('Failed to load quota overview')}
+              title={t('加载额度概览失败')}
               error={overviewQuery.error}
             />
           )}
@@ -418,30 +412,28 @@ export function QuotaManagement() {
                 <div className='mb-3 flex items-center justify-between gap-3'>
                   <div>
                     <h2 id='cycle-navigation-title' className='font-medium'>
-                      {t('Cycle overview')}
+                      {t('周期概览')}
                     </h2>
                     <p className='text-muted-foreground text-sm'>
-                      {t(
-                        'Cycles define the valid time range and plans carry out the actual quota allocation'
-                      )}
+                      {t('周期定义有效时间范围，方案执行实际额度调配')}
                     </p>
                   </div>
                 </div>
                 <div className='grid gap-3 md:grid-cols-3'>
                   <CycleSlot
-                    label={t('Previous cycle')}
+                    label={t('上一周期')}
                     cycle={overviewQuery.data.previous_cycle}
-                    emptyText={t('No previous cycle')}
+                    emptyText={t('暂无上一周期')}
                   />
                   <CycleSlot
-                    label={t('Current cycle')}
+                    label={t('当前周期')}
                     cycle={overviewQuery.data.current_cycle}
-                    emptyText={t('No active cycle')}
+                    emptyText={t('没有活跃周期')}
                   />
                   <CycleSlot
-                    label={t('Next cycle')}
+                    label={t('下一周期')}
                     cycle={overviewQuery.data.next_cycle}
-                    emptyText={t('Not created yet')}
+                    emptyText={t('尚未创建')}
                     onCreate={
                       overviewQuery.data.next_cycle || !cyclesQuery.data
                         ? undefined
@@ -456,11 +448,9 @@ export function QuotaManagement() {
                   role='alert'
                   className='border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3'
                 >
-                  <p className='font-medium'>{t('Allocation data error')}</p>
+                  <p className='font-medium'>{t('额度数据异常')}</p>
                   <p className='mt-1 text-sm'>
-                    {t(
-                      'The saved allocation data is invalid. Contact a system maintainer before creating or executing plans. User API usage remains available from each user balance'
-                    )}
+                    {t('已保存的额度数据无效。请联系系统维护人员处理，处理前无法创建或执行方案。用户仍可使用各自账户余额调用 API')}
                   </p>
                 </div>
               )}
@@ -473,12 +463,10 @@ export function QuotaManagement() {
                     className='border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3'
                   >
                     <p className='font-medium'>
-                      {t('Allocation data setup required')}
+                      {t('分配数据需要初始化')}
                     </p>
                     <p className='mt-1 text-sm'>
-                      {t(
-                        'This cycle requires a one-time allocation data setup by a system maintainer before plans can be created or executed. API usage remains available from each user balance'
-                      )}
+                      {t('当前周期需要由系统维护人员完成一次分配数据初始化，之后才能创建或执行方案。用户仍可按账户余额正常使用 API')}
                     </p>
                   </div>
                 )}
@@ -486,35 +474,29 @@ export function QuotaManagement() {
               <section aria-labelledby='allocation-summary-title'>
                 <div className='mb-3 flex items-center justify-between gap-3'>
                   <h2 id='allocation-summary-title' className='font-medium'>
-                    {t('Allocation summary')}
+                    {t('分配概况')}
                   </h2>
                   {pendingTotal > 0 && (
                     <Badge variant='outline'>
-                      {t('{{count}} pending items', { count: pendingTotal })}
+                      {t('{{count}} 项待处理', { count: pendingTotal })}
                     </Badge>
                   )}
                 </div>
                 <div className='grid gap-3 md:grid-cols-3'>
                   <MetricCard
-                    label={t('Cycle total')}
+                    label={t('周期总额度')}
                     value={overviewQuery.data.current_cycle?.budget_quota}
-                    description={t(
-                      'Total quota available in the current cycle'
-                    )}
+                    description={t('当前周期内可用的总额度')}
                   />
                   <MetricCard
-                    label={t('Allocated quota')}
+                    label={t('已分配额度')}
                     value={overviewQuery.data.current_cycle?.allocated_quota}
-                    description={t(
-                      'Quota issued and not reclaimed in this cycle'
-                    )}
+                    description={t('周期内已发放且尚未收回的额度')}
                   />
                   <MetricCard
-                    label={t('Cycle remaining')}
+                    label={t('周期剩余额度')}
                     value={overviewQuery.data.current_cycle?.remaining_quota}
-                    description={t(
-                      'Quota still available for future plans and temporary quota requests'
-                    )}
+                    description={t('可用于后续方案和临时额度申请的剩余额度')}
                     updatedAt={overviewQuery.data.updated_at}
                     onRefresh={() => void overviewQuery.refetch()}
                     refreshing={overviewQuery.isFetching}
@@ -526,11 +508,9 @@ export function QuotaManagement() {
                 <FundFlow overview={overviewQuery.data} />
                 <Card>
                   <CardHeader>
-                    <CardTitle>{t('Items requiring attention')}</CardTitle>
+                    <CardTitle>{t('需要关注的事项')}</CardTitle>
                     <CardDescription>
-                      {t(
-                        'Only items that may affect the next allocation are shown'
-                      )}
+                      {t('仅显示可能影响下一次调配的事项')}
                     </CardDescription>
                     {overviewQuery.data.current_plan && (
                       <CardAction>
@@ -544,15 +524,15 @@ export function QuotaManagement() {
                   <CardContent className='space-y-3'>
                     {[
                       [
-                        t('Users awaiting allocation'),
+                        t('待发放用户'),
                         overviewQuery.data.pending_allocation_count,
                       ],
                       [
-                        t('Balances awaiting reclaim'),
+                        t('待回收余额'),
                         overviewQuery.data.pending_reclaim_count,
                       ],
                       [
-                        t('Temporary quota requests'),
+                        t('临时额度申请'),
                         overviewQuery.data.pending_temporary_quota_count,
                       ],
                     ].map(([label, value]) => (
@@ -574,7 +554,7 @@ export function QuotaManagement() {
 
               <section aria-labelledby='cycle-list-title'>
                 <h2 id='cycle-list-title' className='mb-3 font-medium'>
-                  {t('All cycles')}
+                  {t('所有周期')}
                 </h2>
                 {cyclesContent}
               </section>

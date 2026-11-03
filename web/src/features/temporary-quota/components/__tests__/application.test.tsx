@@ -72,7 +72,7 @@ test('the request dialog works when randomUUID is unavailable', () => {
   )
 
   expect(
-    screen.getByRole('heading', { name: 'Request temporary quota' })
+    screen.getByRole('heading', { name: '申请临时额度' })
   ).toBeInTheDocument()
 })
 
@@ -82,21 +82,21 @@ test('an unavailable application remains visible and disabled', () => {
       overview={{
         ...availableOverview,
         can_request: false,
-        unavailable_reason: 'No active cycle',
+        unavailable_reason: '没有活跃周期',
       }}
       onOpen={() => undefined}
     />
   )
 
   expect(
-    screen.getByRole('button', { name: 'Request temporary quota' })
+    screen.getByRole('button', { name: '申请临时额度' })
   ).toBeDisabled()
 })
 
 test('the application action remains disabled while availability is loading', () => {
   render(<TemporaryQuotaPrimaryAction onOpen={() => undefined} />)
   expect(
-    screen.getByRole('button', { name: 'Request temporary quota' })
+    screen.getByRole('button', { name: '申请临时额度' })
   ).toBeDisabled()
 })
 
@@ -107,24 +107,24 @@ test('an exhausted reserve keeps the application action disabled with an accessi
       overview={{
         ...availableOverview,
         can_request: false,
-        unavailable_reason: 'Temporary quota reserve is fully used',
+        unavailable_reason: '临时额度预留已用完',
       }}
       onOpen={() => undefined}
     />
   )
 
   expect(
-    screen.getByRole('button', { name: 'Request temporary quota' })
+    screen.getByRole('button', { name: '申请临时额度' })
   ).toBeDisabled()
   expect(
     screen.getByLabelText(
-      'Request temporary quota: Temporary quota reserve is fully used'
+      '申请临时额度: 临时额度预留已用完'
     )
   ).toBeInTheDocument()
   await user.tab()
   expect(
     screen.getByLabelText(
-      'Request temporary quota: Temporary quota reserve is fully used'
+      '申请临时额度: 临时额度预留已用完'
     )
   ).toHaveFocus()
 })
@@ -138,7 +138,7 @@ test('an available application action opens the request flow with the keyboard',
 
   await user.tab()
   expect(
-    screen.getByRole('button', { name: 'Request temporary quota' })
+    screen.getByRole('button', { name: '申请临时额度' })
   ).toHaveFocus()
   await user.keyboard('{Enter}')
   expect(onOpen).toHaveBeenCalledOnce()
@@ -158,9 +158,9 @@ test('the request dialog shows account balance without internal approval rules',
   )
 
   expect(
-    screen.getByRole('heading', { name: 'Request temporary quota' })
+    screen.getByRole('heading', { name: '申请临时额度' })
   ).toBeInTheDocument()
-  expect(screen.getByText('Current account balance')).toBeInTheDocument()
+  expect(screen.getByText('当前账户余额')).toBeInTheDocument()
   expect(screen.getByLabelText('Project')).toBeInTheDocument()
   expect(screen.getByLabelText(/Requested quota/)).toBeInTheDocument()
   expect(screen.getByLabelText('Reason')).toBeInTheDocument()
@@ -184,7 +184,7 @@ test('the request dialog associates validation errors with each field', async ()
   )
 
   fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
-  await screen.findByText('Project is required')
+  await screen.findByText('请选择项目')
 
   for (const [label, errorId] of [
     ['Project', 'temporary-quota-project-error'],

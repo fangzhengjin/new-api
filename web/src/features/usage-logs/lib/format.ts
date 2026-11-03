@@ -637,10 +637,10 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.topup_complete': 'Completed top-up order for the user',
   'user.reset_passkey': 'Reset the user passkey',
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
-  'user.limit_settings_update': 'Updated limit settings for user {{username}}',
+  'user.limit_settings_update': '更新了用户 {{username}} 的限制设置',
   'user.access_source_remove':
-    'Removed source IP {{ip}} from user {{username}}',
-  'user.access_source_allow': 'Allowed source IP {{ip}} for user {{username}}',
+    '解除了用户 {{username}} 与来源 IP {{ip}} 的关联',
+  'user.access_source_allow': '允许用户 {{username}} 使用来源 IP {{ip}}',
   // System settings
   'option.update': 'Updated system setting {{key}}',
   'option.passkey_domains':

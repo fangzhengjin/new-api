@@ -61,33 +61,33 @@ describe('access source limit settings', () => {
     )
 
     expect(
-      screen.getByRole('switch', { name: 'Enable access source limits' })
+      screen.getByRole('switch', { name: '启用访问来源限制' })
     ).toBeChecked()
     expect(
-      screen.getByRole('spinbutton', { name: 'Association period (hours)' })
+      screen.getByRole('spinbutton', { name: '关联统计周期（小时）' })
     ).toHaveValue(24)
     expect(
-      screen.getByRole('spinbutton', { name: 'IP switch wait (minutes)' })
+      screen.getByRole('spinbutton', { name: 'IP 切换等待时间（分钟）' })
     ).toHaveValue(30)
     expect(
-      screen.getByRole('spinbutton', { name: 'Association period (hours)' })
+      screen.getByRole('spinbutton', { name: '关联统计周期（小时）' })
     ).toHaveAttribute('max', '168')
     expect(
-      screen.getByRole('spinbutton', { name: 'IP switch wait (minutes)' })
+      screen.getByRole('spinbutton', { name: 'IP 切换等待时间（分钟）' })
     ).toHaveAttribute('max', '1440')
     expect(
-      screen.getByRole('spinbutton', { name: 'Max IPs per account' })
+      screen.getByRole('spinbutton', { name: '每账户最大 IP 数' })
     ).toHaveAttribute('max', '1000')
     expect(
-      screen.getByRole('spinbutton', { name: 'Max accounts per IP' })
+      screen.getByRole('spinbutton', { name: '每 IP 最大账户数' })
     ).toHaveAttribute('max', '1000')
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Account associated IPs' })
+      screen.getByRole('button', { name: '账号关联 IP 数' })
     )
     expect(screen.getByText(/Account IP limit 4 within 24h/)).toBeVisible()
     expect(
-      screen.getByRole('button', { name: 'Insert variable {{.Period}}' })
+      screen.getByRole('button', { name: '插入变量 {{.Period}}' })
     ).toBeVisible()
   })
 
@@ -99,7 +99,7 @@ describe('access source limit settings', () => {
       />
     )
     fireEvent.change(
-      screen.getByRole('spinbutton', { name: 'IP switch wait (minutes)' }),
+      screen.getByRole('spinbutton', { name: 'IP 切换等待时间（分钟）' }),
       { target: { value: '60' } }
     )
     const form = container.querySelector('form')
@@ -122,7 +122,7 @@ describe('access source limit settings', () => {
       />
     )
     fireEvent.change(
-      screen.getByRole('spinbutton', { name: 'Association period (hours)' }),
+      screen.getByRole('spinbutton', { name: '关联统计周期（小时）' }),
       { target: { value: '169' } }
     )
     const form = container.querySelector('form')
@@ -130,7 +130,7 @@ describe('access source limit settings', () => {
     fireEvent.submit(form)
 
     expect(
-      await screen.findByText('Enter an integer from 1 to 168')
+      await screen.findByText('请输入 1 至 168 的整数')
     ).toBeVisible()
     expect(mutateAsync).not.toHaveBeenCalled()
   })

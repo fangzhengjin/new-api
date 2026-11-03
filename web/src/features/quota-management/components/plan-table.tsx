@@ -67,7 +67,7 @@ function PlanListActions(props: { plan: QuotaPlan }) {
         }),
       ])
       setOpen(false)
-      toast.success(t('Plan recalculated'))
+      toast.success(t('方案已重新计算'))
       await navigate({
         to: '/quota-management/plans/$planId',
         params: { planId: String(result.plan_id) },
@@ -86,16 +86,14 @@ function PlanListActions(props: { plan: QuotaPlan }) {
         disabled={mutation.isPending}
         onClick={() => setOpen(true)}
       >
-        {t('Recalculate')}
+        {t('重新计算')}
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Recalculate this plan?')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('是否重新计算此方案')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                'The current draft is cancelled and a new draft is calculated from current user balances'
-              )}
+              {t('当前草稿将被取消，并将根据当前用户余额重新计算新草稿')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -107,7 +105,7 @@ function PlanListActions(props: { plan: QuotaPlan }) {
               onClick={() => mutation.mutate(undefined)}
             >
               {mutation.isPending && <Spinner data-icon='inline-start' />}
-              {t('Recalculate')}
+              {t('重新计算')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -121,8 +119,8 @@ export function PlanTable(props: { plans: QuotaPlan[] }) {
   if (!props.plans.length) {
     return (
       <EmptyData
-        title={t('No quota plans')}
-        description={t('Generate a draft after an active cycle is available')}
+        title={t('没有额度方案')}
+        description={t('额度周期开始后，就可以在这里生成调配草稿')}
       />
     )
   }
@@ -132,10 +130,10 @@ export function PlanTable(props: { plans: QuotaPlan[] }) {
         <TableHeader>
           <TableRow>
             <TableHead>{t('Plan')}</TableHead>
-            <TableHead>{t('Allocation type')}</TableHead>
-            <TableHead>{t('Planned net change')}</TableHead>
+            <TableHead>{t('分配类型')}</TableHead>
+            <TableHead>{t('方案净变动')}</TableHead>
             <TableHead>{t('Status')}</TableHead>
-            <TableHead>{t('Created at')}</TableHead>
+            <TableHead>{t('创建时间')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>

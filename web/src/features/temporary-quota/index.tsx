@@ -49,7 +49,7 @@ export function TemporaryQuota() {
     <>
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>
-          {t('Temporary quota')}
+          {t('临时额度')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           <TemporaryQuotaPrimaryAction
@@ -60,7 +60,7 @@ export function TemporaryQuota() {
         <SectionPageLayout.Content>
           {overview.isError && (
             <Alert variant='destructive' className='mb-3'>
-              <AlertTitle>{t('Temporary quota')}</AlertTitle>
+              <AlertTitle>{t('临时额度')}</AlertTitle>
               <AlertDescription>
                 {getServerErrorMessage(overview.error)}
               </AlertDescription>

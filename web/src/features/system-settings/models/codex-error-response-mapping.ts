@@ -20,15 +20,15 @@ import * as z from 'zod'
 
 const httpStatusSchema = z
   .number()
-  .int('Enter an HTTP error status code from 400 to 599')
-  .min(400, 'Enter an HTTP error status code from 400 to 599')
-  .max(599, 'Enter an HTTP error status code from 400 to 599')
+  .int('请输入 400 到 599 之间的 HTTP 错误状态码')
+  .min(400, '请输入 400 到 599 之间的 HTTP 错误状态码')
+  .max(599, '请输入 400 到 599 之间的 HTTP 错误状态码')
 
 const messagePatternSchema = z
   .string()
   .trim()
-  .min(1, 'Enter at least one message pattern')
-  .max(1024, 'Message pattern is too long')
+  .min(1, '请至少输入一个消息匹配条件')
+  .max(1024, '消息匹配条件过长')
 
 const messagePatternsSchema = z
   .array(z.string())
@@ -38,11 +38,11 @@ const messagePatternsSchema = z
   .pipe(
     z
       .array(messagePatternSchema)
-      .min(1, 'Enter at least one message pattern')
-      .max(100, 'No more than 100 message patterns are allowed')
+      .min(1, '请至少输入一个消息匹配条件')
+      .max(100, '最多允许 100 个消息匹配条件')
   )
 
-const requiredRewriteValue = z.string().trim().min(1, 'This field is required')
+const requiredRewriteValue = z.string().trim().min(1, '此字段为必填项')
 
 const codexErrorResponseMatchDraftShape = {
   status_code: z.number(),
@@ -74,15 +74,15 @@ export const codexErrorResponseMappingSchema = z.object({
   rewrite: z.object({
     ...codexErrorResponseRewriteDraftShape,
     status_code: httpStatusSchema,
-    type: requiredRewriteValue.max(128, 'This field is too long'),
-    code: requiredRewriteValue.max(128, 'This field is too long'),
-    message: requiredRewriteValue.max(4096, 'This field is too long'),
+    type: requiredRewriteValue.max(128, '此字段过长'),
+    code: requiredRewriteValue.max(128, '此字段过长'),
+    message: requiredRewriteValue.max(4096, '此字段过长'),
   }),
 })
 
 const codexErrorResponseMappingsSchema = z
   .array(codexErrorResponseMappingSchema)
-  .max(100, 'No more than 100 mapping rules are allowed')
+  .max(100, '最多允许 100 条映射规则')
 
 export type CodexErrorResponseMapping = z.infer<
   typeof codexErrorResponseMappingSchema
@@ -151,13 +151,13 @@ export function validateCodexErrorResponseMappings(value: string): ParseResult {
   try {
     parsed = JSON.parse(value)
   } catch {
-    return { success: false, message: 'Enter a valid JSON array' }
+    return { success: false, message: '请输入有效的 JSON 数组' }
   }
   const result = codexErrorResponseMappingsSchema.safeParse(parsed)
   if (!result.success) {
     return {
       success: false,
-      message: result.error.issues[0]?.message ?? 'Invalid mapping rule',
+      message: result.error.issues[0]?.message ?? '映射规则无效',
     }
   }
   return { success: true, data: result.data }

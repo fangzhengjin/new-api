@@ -42,10 +42,10 @@ await i18n.use(initReactI18next).init({
       translation: {
         Filter: 'Filter',
         'Apply Filters': 'Apply Filters',
-        'Please select both start and end times':
-          'Please select both start and end times',
-        'Start time must be earlier than end time':
-          'Start time must be earlier than end time',
+        '请选择开始时间和结束时间':
+          '请选择开始时间和结束时间',
+        '开始时间必须早于结束时间':
+          '开始时间必须早于结束时间',
       },
     },
   },
@@ -115,7 +115,7 @@ describe('model dashboard filter validation', () => {
 
     assert.equal(result.applied.length, 0)
     assert.equal(result.dialogOpen, true)
-    assert.equal(result.message, 'Please select both start and end times')
+    assert.equal(result.message, '请选择开始时间和结束时间')
   })
 
   test('keeps the dialog open and prompts when the range is reversed', async () => {
@@ -128,6 +128,6 @@ describe('model dashboard filter validation', () => {
 
     assert.equal(result.applied.length, 0)
     assert.equal(result.dialogOpen, true)
-    assert.equal(result.message, 'Start time must be earlier than end time')
+    assert.equal(result.message, '开始时间必须早于结束时间')
   })
 })

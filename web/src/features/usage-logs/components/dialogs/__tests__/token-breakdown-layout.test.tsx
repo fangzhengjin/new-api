@@ -41,16 +41,16 @@ await i18n.use(initReactI18next).init({
     en: {
       translation: {
         'Token Breakdown': 'Token Breakdown',
-        'Total Input Tokens': 'Total Input Tokens',
-        'Input Breakdown': 'Input Breakdown',
-        'Uncached Input': 'Uncached Input',
+        '总输入 Token': '总输入 Token',
+        '输入构成': '输入构成',
+        '未缓存输入': '未缓存输入',
         'Cache Read': 'Cache Read',
         'Cache Write': 'Cache Write',
-        'Cache Write TTL': 'Cache Write TTL',
+        '缓存写入时效': '缓存写入时效',
         '5 minutes': '5 minutes',
         '1 hour': '1 hour',
         Unknown: 'Unknown',
-        'Recorded Cache': 'Recorded Cache',
+        '已记录的缓存': '已记录的缓存',
         'Output Tokens': 'Output Tokens',
       },
     },
@@ -130,16 +130,16 @@ describe('token breakdown layout', () => {
     })
 
     const inputBreakdown = rendered.container.querySelector(
-      '[aria-label="Input Breakdown"]'
+      '[aria-label="输入构成"]'
     )
     assert.ok(inputBreakdown)
     assert.equal(inputBreakdown.classList.contains('sm:grid-cols-3'), true)
-    assert.equal(definitionValue(rendered.container, 'Uncached Input'), '200')
+    assert.equal(definitionValue(rendered.container, '未缓存输入'), '200')
     assert.equal(definitionValue(rendered.container, 'Cache Read'), '800')
     assert.equal(definitionValue(rendered.container, 'Cache Write'), '0')
 
     const cacheWriteTtl = rendered.container.querySelector(
-      '[aria-label="Cache Write TTL"]'
+      '[aria-label="缓存写入时效"]'
     )
     assert.ok(cacheWriteTtl)
     assert.equal(definitionValue(cacheWriteTtl, '5 minutes'), '0')
@@ -159,7 +159,7 @@ describe('token breakdown layout', () => {
     })
 
     const totalInput = [...rendered.container.querySelectorAll('dt')].find(
-      (element) => element.textContent === 'Total Input Tokens'
+      (element) => element.textContent === '总输入 Token'
     )
     const totalInputValue = totalInput?.parentElement?.querySelector('dd')
     const cacheReadValue = [...rendered.container.querySelectorAll('dt')]
@@ -187,13 +187,13 @@ describe('token breakdown layout', () => {
     })
 
     const totalInput = [...rendered.container.querySelectorAll('dt')].find(
-      (element) => element.textContent === 'Total Input Tokens'
+      (element) => element.textContent === '总输入 Token'
     )
     const output = [...rendered.container.querySelectorAll('dt')].find(
       (element) => element.textContent === 'Output Tokens'
     )
     const inputBreakdown = rendered.container.querySelector(
-      '[aria-label="Input Breakdown"]'
+      '[aria-label="输入构成"]'
     )?.parentElement
 
     assert.ok(totalInput?.parentElement)
@@ -216,10 +216,10 @@ describe('token breakdown layout', () => {
       cache_creation_tokens: 20,
     })
 
-    assert.equal(definitionValue(rendered.container, 'Recorded Cache'), '70')
-    assert.equal(definitionValue(rendered.container, 'Uncached Input'), null)
+    assert.equal(definitionValue(rendered.container, '已记录的缓存'), '70')
+    assert.equal(definitionValue(rendered.container, '未缓存输入'), null)
     assert.equal(
-      rendered.container.querySelector('[aria-label="Cache Write TTL"]'),
+      rendered.container.querySelector('[aria-label="缓存写入时效"]'),
       null
     )
 

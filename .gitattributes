@@ -41,3 +41,7 @@ electron/** linguist-vendored
 
 # TanStack Router regenerates this manifest from the route source files.
 web/src/routeTree.gen.ts linguist-generated
+
+# Locale files gain keys on both sides daily; union merges both and i18n:sync
+# verifies ordering and key integrity afterwards.
+web/src/i18n/locales/*.json merge=union

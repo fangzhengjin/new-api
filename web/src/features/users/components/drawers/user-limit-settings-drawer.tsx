@@ -119,7 +119,7 @@ const limitSchema = z.object({
 
 type LimitFieldName = keyof UserLimitOverrides
 const limitSourceKeys: Record<LimitSource, string> = {
-  global: 'Global',
+  global: '全局',
   group: 'Group',
   user: 'User',
 }
@@ -144,8 +144,8 @@ function LimitOverrideField(props: {
             <FormLabel>{props.label}</FormLabel>
             <Badge variant='secondary'>
               {field.value === null
-                ? t('Inherited: {{value}}', { value: props.effectiveValue })
-                : t('User override')}
+                ? t('继承值：{{value}}', { value: props.effectiveValue })
+                : t('用户单独设置')}
             </Badge>
           </div>
           <FormControl>
@@ -168,7 +168,7 @@ function LimitOverrideField(props: {
           </FormControl>
           <FormDescription>
             {props.description} ·{' '}
-            {t('Leave empty to inherit {{source}}', {
+            {t('留空则继承{{source}}设置', {
               source: t(limitSourceKeys[props.source]),
             })}
           </FormDescription>
@@ -184,9 +184,9 @@ type PendingAction =
   | { type: 'allow'; rejection: AccessSourceRejection }
 
 function rejectionReason(t: (key: string) => string, reason: string) {
-  if (reason === 'switch_cooldown') return t('IP switch wait is active')
-  if (reason === 'account_ip_limit') return t('Account IP limit reached')
-  return t('IP account limit reached')
+  if (reason === 'switch_cooldown') return t('IP 切换等待时间尚未结束')
+  if (reason === 'account_ip_limit') return t('同一账户已达到关联 IP 数限制')
+  return t('同一 IP 已达到关联账户数限制')
 }
 
 export function UserLimitSettingsDrawer(props: {
@@ -204,7 +204,7 @@ export function UserLimitSettingsDrawer(props: {
     queryFn: async () => {
       const response = await getUserLimits(props.user.id)
       if (!response.success || !response.data) {
-        throw new Error(response.message || t('Failed to load limit settings'))
+        throw new Error(response.message || t('加载限制设置失败'))
       }
       return response.data
     },
@@ -230,13 +230,13 @@ export function UserLimitSettingsDrawer(props: {
     mutationFn: async (values: UserLimitOverrides) => {
       const response = await updateUserLimits(props.user.id, values)
       if (!response.success) {
-        throw new Error(response.message || t('Failed to save limit settings'))
+        throw new Error(response.message || t('保存限制设置失败'))
       }
     },
     onSuccess: async (_, values) => {
       form.reset(values)
       await queryClient.invalidateQueries({ queryKey })
-      toast.success(t('Limit settings saved'))
+      toast.success(t('限制设置已保存'))
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -252,13 +252,13 @@ export function UserLimitSettingsDrawer(props: {
               action.rejection.ip
             )
       if (!response.success) {
-        throw new Error(response.message || t('Failed to update access source'))
+        throw new Error(response.message || t('更新访问来源失败'))
       }
     },
     onSuccess: async () => {
       setPendingAction(null)
       await queryClient.invalidateQueries({ queryKey })
-      toast.success(t('Access source updated'))
+      toast.success(t('访问来源已更新'))
     },
     onError: (error: Error) => {
       setPendingAction(null)
@@ -280,10 +280,9 @@ export function UserLimitSettingsDrawer(props: {
           className={sideDrawerContentClassName('sm:max-w-[720px]')}
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle>{t('User Limit Settings')}</SheetTitle>
+            <SheetTitle>{t('用户限制设置')}</SheetTitle>
             <SheetDescription>
-              {t(
-                'Set account-specific limits and manage access sources for {{username}}',
+              {t('设置 {{username}} 的账户限制并管理访问来源',
                 {
                   username: props.user.username,
                 }
@@ -324,16 +323,14 @@ export function UserLimitSettingsDrawer(props: {
               >
                 <SideDrawerSection>
                   <SideDrawerSectionHeader
-                    title={t('Account Request Limits')}
-                    description={t(
-                      'User values override group and global values for this account only'
-                    )}
+                    title={t('账户请求限制')}
+                    description={t('用户设置仅覆盖此账户的分组和全局设置')}
                   />
                   <div className='grid gap-4 sm:grid-cols-2'>
                     <LimitOverrideField
                       name='model_request_rate_limit_count'
-                      label={t('Max requests per account per period')}
-                      description={t('Includes failed requests, 0 = unlimited')}
+                      label={t('每账户周期内最大请求数')}
+                      description={t('包括失败请求，0 表示不限制')}
                       effectiveValue={
                         data.effective.model_request_rate_limit_count
                       }
@@ -344,10 +341,8 @@ export function UserLimitSettingsDrawer(props: {
                     />
                     <LimitOverrideField
                       name='model_request_rate_limit_success_count'
-                      label={t(
-                        'Max successful requests per account per period'
-                      )}
-                      description={t('Successful requests only, 0 = unlimited')}
+                      label={t('每账户周期内最大成功请求数')}
+                      description={t('仅统计成功请求，0 表示不限制')}
                       effectiveValue={
                         data.effective.model_request_rate_limit_success_count
                       }
@@ -359,29 +354,25 @@ export function UserLimitSettingsDrawer(props: {
                   </div>
                   <p className='text-muted-foreground text-xs'>
                     {data.global.model_request_rate_limit_enabled
-                      ? t('Shared period: {{minutes}} minutes', {
+                      ? t('共用周期：{{minutes}} 分钟', {
                           minutes:
                             data.global
                               .model_request_rate_limit_duration_minutes,
                         })
-                      : t('Global request rate limiting is disabled')}
+                      : t('全局请求速率限制未启用')}
                   </p>
                 </SideDrawerSection>
 
                 <SideDrawerSection>
                   <SideDrawerSectionHeader
-                    title={t('Concurrency Limits')}
-                    description={t(
-                      'The account limit can be overridden for this user, while the IP limit remains global'
-                    )}
+                    title={t('并发限制')}
+                    description={t('可为该用户单独覆盖账户限制，IP 限制使用全局设置')}
                   />
                   <div className='grid gap-4 sm:grid-cols-2'>
                     <LimitOverrideField
                       name='model_request_concurrency_limit'
-                      label={t('Max concurrent requests per account')}
-                      description={t(
-                        'Counts requests currently being processed, 0 = unlimited'
-                      )}
+                      label={t('每账户最大并发请求数')}
+                      description={t('统计正在处理的请求，0 表示不限制')}
                       effectiveValue={
                         data.effective.model_request_concurrency_limit
                       }
@@ -393,33 +384,31 @@ export function UserLimitSettingsDrawer(props: {
                   </div>
                   <p className='text-muted-foreground text-xs'>
                     {data.global.model_request_concurrency_limit_enabled
-                      ? t('Global max concurrent requests per IP: {{count}}', {
+                      ? t('全局每 IP 最大并发请求数：{{count}}', {
                           count: data.global.model_request_ip_concurrency_limit,
                         })
-                      : t('Global concurrency limiting is disabled')}
+                      : t('全局并发限制已关闭')}
                   </p>
                 </SideDrawerSection>
 
                 <SideDrawerSection>
                   <SideDrawerSectionHeader
-                    title={t('Access Source Limits')}
-                    description={t(
-                      'User values override global account rules; the per-IP account limit remains global'
-                    )}
+                    title={t('访问来源限制')}
+                    description={t('用户设置覆盖全局账户规则，每 IP 最大账户数仍使用全局设置')}
                   />
                   <div className='grid gap-4 sm:grid-cols-2'>
                     <LimitOverrideField
                       name='access_source_max_ips'
-                      label={t('Max IPs per account')}
-                      description={t('0 = unlimited')}
+                      label={t('每账户最大 IP 数')}
+                      description={t('0 表示不限制')}
                       effectiveValue={data.effective.access_source_max_ips}
                       source={data.effective.access_source_max_ips_source}
                       max={ACCESS_SOURCE_ASSOCIATION_MAX}
                     />
                     <LimitOverrideField
                       name='access_source_switch_cooldown_minutes'
-                      label={t('IP switch wait')}
-                      description={t('0 = no wait')}
+                      label={t('IP 切换等待')}
+                      description={t('0 表示不等待')}
                       effectiveValue={
                         data.effective.access_source_switch_cooldown_minutes
                       }
@@ -431,39 +420,34 @@ export function UserLimitSettingsDrawer(props: {
                   </div>
                   <p className='text-muted-foreground text-xs'>
                     {data.global.access_source_limit_enabled
-                      ? t(
-                          'Association period: {{hours}} hours · Max accounts per IP: {{count}}',
+                      ? t('关联统计周期：{{hours}} 小时 · 每 IP 最大账户数：{{count}}',
                           {
                             hours:
                               data.global
                                 .access_source_association_window_hours,
                             count:
                               data.global.access_source_max_users_per_ip === 0
-                                ? t('Unlimited')
+                                ? t('无限制')
                                 : data.global.access_source_max_users_per_ip,
                           }
                         )
-                      : t('Global access source limiting is disabled')}
+                      : t('全局访问来源限制未启用')}
                   </p>
                   <p className='text-muted-foreground text-xs'>
-                    {t(
-                      'IP switch wait only controls switching; association limits are checked separately'
-                    )}
+                    {t('IP 切换等待时间只限制切换，关联数量限制会单独校验')}
                   </p>
                 </SideDrawerSection>
 
                 <SideDrawerSection>
                   <SideDrawerSectionHeader
-                    title={t('Access Source Records')}
-                    description={t(
-                      'View the current source, active associations, and recently rejected sources'
-                    )}
+                    title={t('访问来源记录')}
+                    description={t('查看当前来源、活跃关联和最近被拒绝的来源')}
                   />
 
                   <dl className='bg-border grid gap-px overflow-hidden rounded-lg border sm:grid-cols-3'>
                     <div className='bg-background p-3'>
                       <dt className='text-muted-foreground text-xs'>
-                        {t('Current source IP')}
+                        {t('当前来源 IP')}
                       </dt>
                       <dd className='mt-1 font-mono text-sm font-medium'>
                         {state?.current_ip || '—'}
@@ -471,19 +455,19 @@ export function UserLimitSettingsDrawer(props: {
                     </div>
                     <div className='bg-background p-3'>
                       <dt className='text-muted-foreground text-xs'>
-                        {t('Associated IPs')}
+                        {t('已关联 IP')}
                       </dt>
                       <dd className='mt-1 text-sm font-medium tabular-nums'>
                         {state?.associated_count ?? 0} /{' '}
-                        {data.effective.access_source_max_ips || t('Unlimited')}
+                        {data.effective.access_source_max_ips || t('无限制')}
                       </dd>
                     </div>
                     <div className='bg-background p-3'>
                       <dt className='text-muted-foreground text-xs'>
-                        {t('Switch wait remaining')}
+                        {t('切换等待时间')}
                       </dt>
                       <dd className='mt-1 text-sm font-medium tabular-nums'>
-                        {t('{{seconds}} seconds', {
+                        {t('{{seconds}} 秒', {
                           seconds: state?.cooldown_remaining_seconds ?? 0,
                         })}
                       </dd>
@@ -494,9 +478,9 @@ export function UserLimitSettingsDrawer(props: {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>{t('Source IP')}</TableHead>
+                          <TableHead>{t('来源 IP')}</TableHead>
                           <TableHead>{t('Status')}</TableHead>
-                          <TableHead>{t('Last active')}</TableHead>
+                          <TableHead>{t('最近活动')}</TableHead>
                           <TableHead className='text-right'>
                             {t('Action')}
                           </TableHead>
@@ -509,7 +493,7 @@ export function UserLimitSettingsDrawer(props: {
                               colSpan={4}
                               className='text-muted-foreground text-center'
                             >
-                              {t('No active source associations')}
+                              {t('暂无活跃来源关联')}
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -527,8 +511,8 @@ export function UserLimitSettingsDrawer(props: {
                                   }
                                 >
                                   {association.is_current
-                                    ? t('Current source')
-                                    : t('Associated')}
+                                    ? t('当前来源')
+                                    : t('已关联')}
                                 </Badge>
                               </TableCell>
                               <TableCell>
@@ -549,7 +533,7 @@ export function UserLimitSettingsDrawer(props: {
                                       })
                                     }
                                   >
-                                    {t('Remove association')}
+                                    {t('解除关联')}
                                   </Button>
                                 )}
                               </TableCell>
@@ -567,14 +551,12 @@ export function UserLimitSettingsDrawer(props: {
                           <span className='font-mono text-sm'>
                             {pending.ip}
                           </span>
-                          <Badge variant='destructive'>{t('Rejected')}</Badge>
+                          <Badge variant='destructive'>{t('已拒绝')}</Badge>
                         </div>
                         <p className='text-muted-foreground mt-1 text-xs'>
                           {pending.reason === 'switch_cooldown' &&
                           (state?.cooldown_remaining_seconds ?? 0) === 0
-                            ? t(
-                                'IP switch wait has ended; retrying will be checked against association limits'
-                              )
+                            ? t('IP 切换等待已结束，重试时仍会校验关联数量限制')
                             : rejectionReason(t, pending.reason)}
                         </p>
                       </div>
@@ -589,8 +571,8 @@ export function UserLimitSettingsDrawer(props: {
                         }
                       >
                         {pending.reason === 'switch_cooldown'
-                          ? t('Allow switch')
-                          : t('Allow use')}
+                          ? t('允许切换')
+                          : t('允许使用')}
                       </Button>
                     </div>
                   )}
@@ -598,15 +580,15 @@ export function UserLimitSettingsDrawer(props: {
                   <div>
                     <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
                       <h4 className='text-sm font-medium'>
-                        {t('Recent rejections')}
+                        {t('最近拒绝记录')}
                       </h4>
                       <Badge variant='secondary'>
-                        {t('Up to 10 records in 24 hours')}
+                        {t('24 小时内最多 10 条')}
                       </Badge>
                     </div>
                     {rejections.length === 0 ? (
                       <p className='text-muted-foreground text-sm'>
-                        {t('No recent rejected sources')}
+                        {t('暂无最近被拒绝的来源')}
                       </p>
                     ) : (
                       <ul className='divide-y rounded-lg border'>
@@ -654,16 +636,15 @@ export function UserLimitSettingsDrawer(props: {
         onOpenChange={(open) => !open && setPendingAction(null)}
         title={
           pendingAction?.type === 'remove'
-            ? t('Remove source association')
-            : t('Allow rejected source')
+            ? t('解除来源关联')
+            : t('允许被拒绝的来源')
         }
         desc={
           pendingAction?.type === 'remove'
-            ? t('Remove the association with {{ip}}?', {
+            ? t('解除与 {{ip}} 的关联吗？', {
                 ip: pendingAction.ip,
               })
-            : t(
-                'Allow {{ip}} as the current source? The normal association expires after {{hours}} hours without activity and is not a permanent whitelist.',
+            : t('允许 {{ip}} 成为当前来源？正常关联会在连续 {{hours}} 小时无活动后失效，不是永久白名单',
                 {
                   ip: pendingAction?.rejection.ip ?? '',
                   hours:
@@ -673,8 +654,8 @@ export function UserLimitSettingsDrawer(props: {
         }
         confirmText={
           pendingAction?.type === 'remove'
-            ? t('Remove association')
-            : t('Allow source')
+            ? t('解除关联')
+            : t('允许来源')
         }
         destructive={pendingAction?.type === 'remove'}
         isLoading={sourceMutation.isPending}

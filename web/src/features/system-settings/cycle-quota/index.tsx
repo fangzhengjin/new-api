@@ -135,17 +135,17 @@ function TemporaryQuotaProjectsEditor(props: {
   const pendingFocusId = useRef<number | null>(null)
 
   const validateRows = (nextRows: ProjectRow[]) => {
-    if (nextRows.length > 100) return t('Up to 100 projects are allowed')
+    if (nextRows.length > 100) return t('最多可添加 100 个项目')
     const names = new Set<string>()
     for (const row of nextRows) {
-      if (!row.name) return t('Project name is required')
+      if (!row.name) return t('请输入项目名称')
       if (row.name !== row.name.trim()) {
-        return t('Project names cannot have leading or trailing spaces')
+        return t('项目名称不能包含首尾空格')
       }
       if ([...row.name].length > 100) {
-        return t('Project name must be 100 characters or fewer')
+        return t('项目名称不能超过 100 个字符')
       }
-      if (names.has(row.name)) return t('Project names must be unique')
+      if (names.has(row.name)) return t('项目名称不能重复')
       names.add(row.name)
     }
     return ''
@@ -172,7 +172,7 @@ function TemporaryQuotaProjectsEditor(props: {
     props.onChange(value)
     const projects = parseProjects(value)
     if (!projects) {
-      setError(t('JSON must map project names to true or false'))
+      setError(t('JSON 必须是项目名称到 true 或 false 的映射'))
       return
     }
     const nextRows = projectsToRows(projects)
@@ -195,7 +195,7 @@ function TemporaryQuotaProjectsEditor(props: {
   let visibleError = error
   if (!visibleError && props.validationError) {
     visibleError = hasIncompleteProject
-      ? t('Project name is required')
+      ? t('请输入项目名称')
       : props.validationError
   }
 
@@ -204,11 +204,9 @@ function TemporaryQuotaProjectsEditor(props: {
       <CardHeader className='border-b'>
         <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
           <div>
-            <CardTitle>{t('Temporary quota projects')}</CardTitle>
+            <CardTitle>{t('临时额度项目')}</CardTitle>
             <CardDescription>
-              {t(
-                'Maintain projects available for temporary quota requests, only projects marked Selectable appear in the request list'
-              )}
+              {t('维护申请临时额度时可选的项目，勾选“可选”后才会出现在申请下拉框中')}
             </CardDescription>
           </div>
           <div className='flex flex-wrap gap-2 sm:justify-end'>
@@ -240,7 +238,7 @@ function TemporaryQuotaProjectsEditor(props: {
               }
             >
               <Plus data-icon='inline-start' />
-              {t('Add project')}
+              {t('添加项目')}
             </Button>
           </div>
         </div>
@@ -250,12 +248,12 @@ function TemporaryQuotaProjectsEditor(props: {
           <StaticDataTable
             data={rows}
             getRowKey={(row) => row.id}
-            emptyContent={t('No temporary quota projects')}
+            emptyContent={t('暂无临时额度项目')}
             emptyClassName='text-muted-foreground py-8'
             columns={[
               {
                 id: 'name',
-                header: t('Project name'),
+                header: t('项目名称'),
                 cell: (row) => (
                   <Input
                     ref={(node) => {
@@ -266,7 +264,7 @@ function TemporaryQuotaProjectsEditor(props: {
                     }}
                     value={row.name}
                     maxLength={100}
-                    aria-label={t('Project name')}
+                    aria-label={t('项目名称')}
                     aria-invalid={Boolean(visibleError && !row.name.trim())}
                     disabled={props.disabled}
                     onChange={(event) =>
@@ -283,12 +281,12 @@ function TemporaryQuotaProjectsEditor(props: {
               },
               {
                 id: 'enabled',
-                header: t('Selectable'),
+                header: t('可选'),
                 className: 'w-24',
                 cell: (row) => (
                   <Switch
                     checked={row.enabled}
-                    aria-label={`${t('Selectable')}: ${row.name || t('Project name')}`}
+                    aria-label={`${t('可选')}: ${row.name || t('项目名称')}`}
                     disabled={props.disabled}
                     onCheckedChange={(enabled) =>
                       syncRows(
@@ -310,7 +308,7 @@ function TemporaryQuotaProjectsEditor(props: {
                     type='button'
                     size='icon'
                     variant='ghost'
-                    aria-label={t('Delete project')}
+                    aria-label={t('删除项目')}
                     disabled={props.disabled}
                     onClick={() =>
                       syncRows(rows.filter((item) => item.id !== row.id))
@@ -328,7 +326,7 @@ function TemporaryQuotaProjectsEditor(props: {
             onChange={handleJsonChange}
             disabled={props.disabled}
             heightClassName='h-64 min-h-64 max-h-64'
-            ariaLabel={t('Temporary quota projects JSON')}
+            ariaLabel={t('临时额度项目 JSON')}
             aria-invalid={Boolean(visibleError)}
           />
         )}
@@ -352,18 +350,18 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
           settlement_lead_minutes: z.coerce
             .number()
             .int()
-            .min(3, t('Enter a value from 3 to 60 minutes'))
-            .max(60, t('Enter a value from 3 to 60 minutes')),
+            .min(3, t('请输入 3 至 60 分钟'))
+            .max(60, t('请输入 3 至 60 分钟')),
           settlement_prompt: z
             .string()
             .trim()
-            .min(1, t('Settlement message is required'))
-            .max(200, t('Settlement message must be 200 characters or fewer')),
+            .min(1, t('请输入结算提示语'))
+            .max(200, t('结算提示语不能超过 200 个字符')),
           temporary_quota_projects: z
             .string()
             .refine(
               (value) => parseProjects(value) !== null,
-              t('JSON must map project names to true or false')
+              t('JSON 必须是项目名称到 true 或 false 的映射')
             ),
         }),
       }),
@@ -384,7 +382,7 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
     })
 
   return (
-    <SettingsSection title={t('Cycle Quota Management')} className='shrink-0'>
+    <SettingsSection title={t('周期额度管理')} className='shrink-0'>
       <FormNavigationGuard when={isDirty} />
       <Form {...form}>
         <SettingsForm onSubmit={handleSubmit}>
@@ -395,10 +393,8 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
           <FormDirtyIndicator isDirty={isDirty} />
 
           <SettingsFormSection
-            title={t('Quota cycle settlement')}
-            description={t(
-              'Stop new requests before the cycle ends, then handle balances and close the cycle after in-progress requests finish'
-            )}
+            title={t('额度周期结算')}
+            description={t('周期结束前停止新请求，待进行中的请求完成后处理余额并关闭周期')}
           >
             <SettingsFormGrid>
               <FormField
@@ -406,7 +402,7 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
                 name='quota_setting.settlement_lead_minutes'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Lead time')}</FormLabel>
+                    <FormLabel>{t('提前时间')}</FormLabel>
                     <FormControl>
                       <Input
                         type='number'
@@ -417,7 +413,7 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Minutes, from 3 to 60')}
+                      {t('分钟，范围 3 至 60')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -428,14 +424,12 @@ function CycleQuotaSettingsForm(props: { defaultValues: FormValues }) {
                 name='quota_setting.settlement_prompt'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Message')}</FormLabel>
+                    <FormLabel>{t('提示语')}</FormLabel>
                     <FormControl>
                       <Textarea rows={3} maxLength={200} {...field} />
                     </FormControl>
                     <FormDescription>
-                      {t(
-                        'Managed users see this message when starting a new request during settlement'
-                      )}
+                      {t('结算期间，受管用户发起新请求时返回此内容')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -488,7 +482,7 @@ export function CycleQuotaSettingsPage() {
       defaultSettings={defaultCycleQuotaSettings}
       defaultSection='settings'
       getSectionContent={getCycleQuotaSectionContent}
-      getSectionMeta={() => ({ titleKey: 'Cycle Quota Management' })}
+      getSectionMeta={() => ({ titleKey: '周期额度管理' })}
       loadingMessage='Loading cycle quota management settings'
     />
   )

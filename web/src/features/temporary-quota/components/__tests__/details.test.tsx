@@ -42,10 +42,10 @@ test('the detail sheet presents the application and result without internal deci
   )
 
   expect(
-    screen.getByRole('heading', { name: 'Temporary quota request details' })
+    screen.getByRole('heading', { name: '临时额度申请详情' })
   ).toBeInTheDocument()
   expect(screen.getByText('Project A')).toBeInTheDocument()
-  expect(screen.getByText('Granted')).toBeInTheDocument()
+  expect(screen.getByText('已发放')).toBeInTheDocument()
   expect(screen.getByText('Approved for current delivery')).toBeInTheDocument()
   expect(document.body).not.toHaveTextContent('auto')
   expect(document.body).not.toHaveTextContent('manual')

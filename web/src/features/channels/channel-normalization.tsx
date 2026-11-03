@@ -182,7 +182,7 @@ export function ChannelNormalization() {
         queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all }),
       ])
       toast.success(
-        t('{{count}} channels normalized', { count: applied.updated })
+        t('已规范化 {{count}} 个渠道', { count: applied.updated })
       )
     },
     onError: (error: unknown) => handleServerError(error),
@@ -198,7 +198,7 @@ export function ChannelNormalization() {
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Batch Normalize')}</SectionPageLayout.Title>
+      <SectionPageLayout.Title>{t('批量规范化')}</SectionPageLayout.Title>
       <SectionPageLayout.Breadcrumb>
         <Button
           variant='ghost'
@@ -207,7 +207,7 @@ export function ChannelNormalization() {
           render={<Link to='/channels' />}
         >
           <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-          {t('Back to Channels')}
+          {t('返回渠道')}
         </Button>
       </SectionPageLayout.Breadcrumb>
       <SectionPageLayout.Content>
@@ -223,7 +223,7 @@ export function ChannelNormalization() {
                 >
                   <Spinner
                     className='size-6'
-                    aria-label={t('Loading normalization task')}
+                    aria-label={t('正在加载规范化任务')}
                   />
                 </div>
               )
@@ -232,7 +232,7 @@ export function ChannelNormalization() {
               return (
                 <Alert variant='destructive'>
                   <AlertTitle>
-                    {t('Unable to load normalization status')}
+                    {t('无法加载规范化状态')}
                   </AlertTitle>
                   <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                     <span>{t('Request failed')}</span>
@@ -251,31 +251,27 @@ export function ChannelNormalization() {
                 <Card>
                   <CardHeader>
                     <CardTitle>
-                      {t('Scanning channel configurations')}
+                      {t('正在扫描渠道配置')}
                     </CardTitle>
                     <CardDescription className='flex flex-col gap-1'>
                       <span>
                         {task?.status === 'pending'
-                          ? t('Waiting for a task runner...')
-                          : t(
-                              'Checking upstream models and normalization rules...'
-                            )}
+                          ? t('正在等待任务执行器……')
+                          : t('正在检查上游模型和规范化规则……')}
                       </span>
                       <span>
-                        {t(
-                          'The scan runs in the background. Leaving this page does not stop it, and completion never applies changes automatically.'
-                        )}
+                        {t('扫描在后台运行。离开此页面不会停止任务，完成后也绝不会自动应用修改。')}
                       </span>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className='space-y-3'>
                     <Progress
                       value={progressValue}
-                      aria-label={t('Scan progress')}
+                      aria-label={t('扫描进度')}
                     />
                     <div className='text-muted-foreground flex flex-wrap justify-between gap-2 text-sm tabular-nums'>
                       <span>
-                        {t('{{processed}} of {{total}} channels', {
+                        {t('已处理 {{processed}} / {{total}} 个渠道', {
                           processed: progressProcessed,
                           total: progressTotal,
                         })}
@@ -284,7 +280,7 @@ export function ChannelNormalization() {
                     </div>
                     {task?.state?.current_channel_id ? (
                       <p className='text-muted-foreground text-sm'>
-                        {t('Current channel: #{{id}}', {
+                        {t('当前渠道：#{{id}}', {
                           id: task.state.current_channel_id,
                         })}
                       </p>
@@ -311,8 +307,7 @@ export function ChannelNormalization() {
                     {hasPreviewItems ? (
                       <div className={channelSetupLayoutClasses.footer}>
                         <p className='text-muted-foreground text-sm sm:mr-auto'>
-                          {t(
-                            'Selected changes: {{changes}} · Channels: {{channels}}',
+                          {t('已选变更：{{changes}} · 渠道：{{channels}}',
                             {
                               changes: selectedActionCount,
                               channels: selectedChanges.length,
@@ -327,7 +322,7 @@ export function ChannelNormalization() {
                             onClick={startScan}
                           >
                             <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
-                            {t('Scan again')}
+                            {t('重新扫描')}
                           </Button>
                           <Button
                             className={channelSetupLayoutClasses.mobileAction}
@@ -335,7 +330,7 @@ export function ChannelNormalization() {
                             onClick={() => {
                               if (hasInvalidSelection) {
                                 toast.error(
-                                  t('Mapping targets cannot be empty')
+                                  t('映射目标不能为空')
                                 )
                                 return
                               }
@@ -355,7 +350,7 @@ export function ChannelNormalization() {
                           onClick={startScan}
                         >
                           <HugeiconsIcon icon={ReloadIcon} strokeWidth={2} />
-                          {t('Scan again')}
+                          {t('重新扫描')}
                         </Button>
                       </div>
                     )}
@@ -366,18 +361,18 @@ export function ChannelNormalization() {
             if (task?.status === 'failed') {
               return (
                 <Alert variant='destructive'>
-                  <AlertTitle>{t('Normalization scan failed')}</AlertTitle>
+                  <AlertTitle>{t('规范化扫描失败')}</AlertTitle>
                   <AlertDescription className='space-y-3'>
                     <p>
                       {task.error ||
-                        t('The task failed without an error message.')}
+                        t('任务失败，但未返回错误信息。')}
                     </p>
                     <Button
                       variant='outline'
                       disabled={!canScan || startMutation.isPending}
                       onClick={startScan}
                     >
-                      {t('Try again')}
+                      {t('重试')}
                     </Button>
                   </AlertDescription>
                 </Alert>
@@ -394,23 +389,17 @@ export function ChannelNormalization() {
                       strokeWidth={1.8}
                     />
                     {result?.applied_at
-                      ? t('Last normalization was applied')
-                      : t('Start a normalization scan')}
+                      ? t('上次规范化已应用')
+                      : t('开始规范化扫描')}
                   </CardTitle>
                   <CardDescription className='flex flex-col gap-1'>
                     <span>
                       {result?.applied_at
-                        ? t(
-                            'Run a new scan to check for later upstream changes.'
-                          )
-                        : t(
-                            'The scan produces an editable preview of model and mapping changes.'
-                          )}
+                        ? t('运行新扫描以检查后续上游变化。')
+                        : t('扫描会生成可编辑的模型和映射修改预览。')}
                     </span>
                     <span>
-                      {t(
-                        'The scan runs in the background. Leaving this page does not stop it, and completion never applies changes automatically.'
-                      )}
+                      {t('扫描在后台运行。离开此页面不会停止任务，完成后也绝不会自动应用修改。')}
                     </span>
                   </CardDescription>
                 </CardHeader>
@@ -418,12 +407,10 @@ export function ChannelNormalization() {
                   <Field orientation='horizontal'>
                     <div>
                       <FieldLabel htmlFor='normalization-disabled'>
-                        {t('Fetch models for disabled channels')}
+                        {t('获取已禁用渠道的上游模型')}
                       </FieldLabel>
                       <FieldDescription>
-                        {t(
-                          'When off, disabled channels are normalized from stored configuration without contacting upstream.'
-                        )}
+                        {t('关闭时，不会请求已禁用渠道的上游，仍会根据已存配置进行规范化。')}
                       </FieldDescription>
                     </div>
                     <Switch
@@ -443,8 +430,8 @@ export function ChannelNormalization() {
                       <HugeiconsIcon icon={AiScanIcon} strokeWidth={2} />
                     )}
                     {startMutation.isPending
-                      ? t('Starting...')
-                      : t('Start scan')}
+                      ? t('正在启动……')
+                      : t('开始扫描')}
                   </Button>
                 </CardContent>
               </Card>
@@ -455,15 +442,13 @@ export function ChannelNormalization() {
         <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <DialogContent className={channelSetupLayoutClasses.mobileControls}>
             <DialogHeader>
-              <DialogTitle>{t('Apply normalization changes?')}</DialogTitle>
+              <DialogTitle>{t('应用规范化修改？')}</DialogTitle>
               <DialogDescription>
-                {t(
-                  'All selected channels are updated atomically. If any channel changed after the scan, nothing will be applied and you must scan again.'
-                )}
+                {t('所有选中渠道将以原子方式更新。如果扫描后任一渠道发生变化，则不会应用任何修改，必须重新扫描。')}
               </DialogDescription>
             </DialogHeader>
             <p className='text-sm font-medium'>
-              {t('Selected changes: {{changes}} · Channels: {{channels}}', {
+              {t('已选变更：{{changes}} · 渠道：{{channels}}', {
                 changes: selectedActionCount,
                 channels: selectedChanges.length,
               })}

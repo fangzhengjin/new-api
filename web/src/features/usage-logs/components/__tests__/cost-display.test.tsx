@@ -47,8 +47,8 @@ describe('log cost display', () => {
       Subscription: 'Subscription',
       Wallet: 'Wallet',
       'Includes tool-call surcharge': 'Includes tool-call surcharge',
-      'Request failed, no fee was charged':
-        'Request failed, no fee was charged',
+      '请求失败，未产生费用':
+        '请求失败，未产生费用',
     })
   })
 
@@ -279,7 +279,7 @@ describe('log cost display', () => {
     })
 
     const costBadge = screen.getByLabelText(
-      `Request failed, no fee was charged: $0`
+      `请求失败，未产生费用: $0`
     )
     expect(costBadge).toHaveAttribute('data-cost-tone', 'error')
 
@@ -287,7 +287,7 @@ describe('log cost display', () => {
 
     expect(costBadge).toHaveFocus()
     expect(
-      await screen.findByText('Request failed, no fee was charged')
+      await screen.findByText('请求失败，未产生费用')
     ).toBeVisible()
   })
 

@@ -190,7 +190,7 @@ describe('Request header audit details', () => {
     )
     expect(metadataGroup.querySelector('pre')).not.toBeInTheDocument()
     expect(screen.getByText('X-Large-Debug')).toBeInTheDocument()
-    expect(screen.getByText('20000 bytes')).toBeInTheDocument()
+    expect(screen.getByText('20000 字节')).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'View audit rules' })
     ).not.toBeInTheDocument()
@@ -204,7 +204,7 @@ describe('Request header audit details', () => {
     const reasoning = screen.getByText('Reasoning Effort')
     const conversion = screen.getByText('Request Conversion')
     const mapping = screen.getByText('Model Mapping')
-    const headers = screen.getByText('Request Headers')
+    const headers = screen.getByText('请求头')
     expect(
       reasoning.compareDocumentPosition(conversion) &
         Node.DOCUMENT_POSITION_FOLLOWING
@@ -229,7 +229,7 @@ describe('Request header audit details', () => {
     )
 
     expect(screen.queryByText('OpenAI/Python 2.24.0')).not.toBeInTheDocument()
-    expect(screen.queryByText('Request Headers')).not.toBeInTheDocument()
+    expect(screen.queryByText('请求头')).not.toBeInTheDocument()
   })
 
   test('hides User-Agent details when the rendered text fits within two lines', async () => {

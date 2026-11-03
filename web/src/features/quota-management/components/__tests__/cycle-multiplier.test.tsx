@@ -65,7 +65,7 @@ test('defaults the cycle allocation limit to 1.5× and allows another option', a
   assert.ok(select)
   assert.equal(
     select.labels?.[0]?.textContent?.trim(),
-    'Automatic allocation limit'
+    '自动分配上限'
   )
   assert.equal(select.value, '15000')
 
@@ -90,7 +90,7 @@ test('defaults the cycle allocation limit to 1.5× and allows another option', a
   assert.ok(multiplierErrorId)
   assert.match(
     document.querySelector(`#${multiplierErrorId}`)?.textContent ?? '',
-    /Select an automatic allocation limit/
+    /请选择自动分配上限/
   )
 
   await act(async () => root.unmount())

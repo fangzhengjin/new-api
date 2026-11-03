@@ -117,17 +117,13 @@ export function ChannelNormalizationPreview(
       <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
         <div>
           <h2 className='text-base font-semibold'>
-            {t('Normalization preview')}
+            {t('规范化预览')}
           </h2>
           <p className='text-muted-foreground mt-1 text-sm'>
-            {t(
-              'Review each model and mapping adjustment. Nothing has been applied yet.'
-            )}
+            {t('逐项检查模型和映射调整。目前尚未应用任何修改。')}
           </p>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t(
-              'Safe defaults select additions and new mappings. Removals and existing mapping changes stay unselected.'
-            )}
+            {t('安全默认值会选择新增模型和新增映射；删除项和已有映射变更保持未选择。')}
           </p>
         </div>
         {items.length > 0 ? (
@@ -149,7 +145,7 @@ export function ChannelNormalizationPreview(
               {t('Clear selection')}
             </Button>
             <Button variant='outline' onClick={props.onResetSafeDefaults}>
-              {t('Restore safe defaults')}
+              {t('恢复安全默认项')}
             </Button>
           </div>
         ) : null}
@@ -158,9 +154,9 @@ export function ChannelNormalizationPreview(
       {result && (
         <dl className='bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-4'>
           {[
-            [t('Scanned'), result.summary.scanned],
+            [t('已扫描'), result.summary.scanned],
             [t('Changed'), result.summary.changed],
-            [t('Skipped'), result.summary.skipped],
+            [t('已跳过'), result.summary.skipped],
             [t('Failed'), result.summary.failed],
           ].map(([label, value]) => (
             <div key={String(label)} className='bg-card p-3'>
@@ -174,7 +170,7 @@ export function ChannelNormalizationPreview(
       {failures.length > 0 && (
         <Alert variant='destructive'>
           <AlertTitle>
-            {t('{{count}} channels could not be fully scanned', {
+            {t('{{count}} 个渠道未能完整扫描', {
               count: failures.length,
             })}
           </AlertTitle>
@@ -198,9 +194,7 @@ export function ChannelNormalizationPreview(
             <CardTitle>{t('No changes')}</CardTitle>
             {failures.length === 0 ? (
               <CardDescription>
-                {t(
-                  'All scanned channels already follow the normalization rules.'
-                )}
+                {t('所有已扫描渠道均已符合规范化规则。')}
               </CardDescription>
             ) : null}
           </CardHeader>
@@ -239,20 +233,20 @@ export function ChannelNormalizationPreview(
                     <Badge
                       variant={selectedCount > 0 ? 'secondary' : 'outline'}
                     >
-                      {t('Selected changes: {{count}}', {
+                      {t('已选变更：{{count}}', {
                         count: selectedCount,
                       })}
                     </Badge>
                     {mappingWarnings.length > 0 && (
                       <Badge variant='warning'>
-                        {t('Warnings: {{count}}', {
+                        {t('警告：{{count}}', {
                           count: mappingWarnings.length,
                         })}
                       </Badge>
                     )}
                   </CardTitle>
                   <CardDescription>
-                    {t('Models: {{before}} → {{after}}', {
+                    {t('模型：{{before}} → {{after}}', {
                       before: metadata.models.length,
                       after: projectedModels.size,
                     })}
@@ -299,9 +293,7 @@ export function ChannelNormalizationPreview(
                   {mappingWarnings.length > 0 ? (
                     <Alert>
                       <AlertTitle>
-                        {t(
-                          'Some retained mapping targets were not returned by the upstream model list.'
-                        )}
+                        {t('部分已保留的映射目标未出现在上游模型列表中。')}
                       </AlertTitle>
                       <AlertDescription>
                         <ul className='mt-1 space-y-1'>
@@ -381,7 +373,7 @@ export function ChannelNormalizationPreview(
                   {Object.keys(item.mapping_set ?? {}).length > 0 && (
                     <section className='space-y-2'>
                       <h3 className='text-sm font-medium'>
-                        {t('Set model mappings')}
+                        {t('设置模型映射')}
                       </h3>
                       <div className='space-y-1.5'>
                         {Object.entries(item.mapping_set ?? {}).map(
@@ -396,7 +388,7 @@ export function ChannelNormalizationPreview(
                               >
                                 <Checkbox
                                   checked={selectedTarget !== undefined}
-                                  aria-label={t('Apply mapping for {{model}}', {
+                                  aria-label={t('应用 {{model}} 的映射', {
                                     model: source,
                                   })}
                                   onCheckedChange={(checked) => {
@@ -432,7 +424,7 @@ export function ChannelNormalizationPreview(
                                   {source}
                                   {overwrites && (
                                     <Badge variant='warning' className='ml-2'>
-                                      {t('Overwrite')}
+                                      {t('覆盖')}
                                     </Badge>
                                   )}
                                 </span>
@@ -443,8 +435,7 @@ export function ChannelNormalizationPreview(
                                     selectedTarget !== undefined &&
                                     selectedTarget.trim() === ''
                                   }
-                                  aria-label={t(
-                                    'Mapping target for {{model}}',
+                                  aria-label={t('{{model}} 的映射目标',
                                     {
                                       model: source,
                                     }
@@ -470,7 +461,7 @@ export function ChannelNormalizationPreview(
                   {(item.mapping_remove?.length ?? 0) > 0 && (
                     <section className='space-y-2'>
                       <h3 className='text-sm font-medium'>
-                        {t('Remove model mappings')}
+                        {t('移除模型映射')}
                       </h3>
                       <div className='grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3'>
                         {item.mapping_remove?.map((source) => (
@@ -513,21 +504,19 @@ export function ChannelNormalizationPreview(
                       <div>
                         {modelChangesSelected ? (
                           <p className='text-sm font-medium'>
-                            {t('Sort model names')}
+                            {t('排序模型名称')}
                           </p>
                         ) : (
                           <FieldLabel
                             htmlFor={`normalize-${item.channel_id}-sort`}
                           >
-                            {t('Sort model names')}
+                            {t('排序模型名称')}
                           </FieldLabel>
                         )}
                         <p className='text-muted-foreground text-xs'>
                           {modelChangesSelected
-                            ? t(
-                                'Model names are sorted automatically when models change.'
-                              )
-                            : t('Keeps the stored model list deterministic.')}
+                            ? t('模型发生变化时会自动按名称排序。')
+                            : t('让存储的模型列表保持确定顺序。')}
                         </p>
                       </div>
                       {!modelChangesSelected && (

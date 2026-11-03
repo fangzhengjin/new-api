@@ -73,20 +73,20 @@ describe('model request IP rate limit settings', () => {
     )
 
     const accountLimits = screen.getByRole('group', {
-      name: 'Account Request Limits',
+      name: '账户请求限制',
     })
-    const ipLimits = screen.getByRole('group', { name: 'IP Request Limits' })
+    const ipLimits = screen.getByRole('group', { name: 'IP 请求限制' })
     const period = screen.getByRole('spinbutton', {
-      name: 'Limit period (minutes)',
+      name: '限制周期（分钟）',
     })
     const ipLimit = screen.getByRole('spinbutton', {
-      name: 'Max requests per IP per period',
+      name: '每 IP 周期内最大请求数',
     })
     const accountSuccessLimit = screen.getByRole('spinbutton', {
-      name: 'Max successful requests per account per period',
+      name: '每账户周期内最大成功请求数',
     })
     const ipSuccessLimit = screen.getByRole('spinbutton', {
-      name: 'Max successful requests per IP per period',
+      name: '每 IP 周期内最大成功请求数',
     })
     const groupLabel = screen.getByText('Group-based rate limits')
 
@@ -95,7 +95,7 @@ describe('model request IP rate limit settings', () => {
     expect(accountSuccessLimit).toHaveValue(100)
     expect(ipSuccessLimit).toHaveValue(0)
     expect(
-      screen.getByRole('button', { name: 'Rejection messages' })
+      screen.getByRole('button', { name: '拒绝提示' })
     ).toHaveAttribute('aria-expanded', 'true')
     expect(ipLimit).toHaveAttribute('min', '0')
     expect(ipLimit).toHaveAttribute('max', '100000000')
@@ -110,17 +110,17 @@ describe('model request IP rate limit settings', () => {
     ipSuccessLimit.focus()
     expect(ipSuccessLimit).toHaveFocus()
     expect(
-      screen.getByText('Account and IP limits share this period')
+      screen.getByText('账号限制与 IP 限制共用此周期')
     ).toBeVisible()
     expect(screen.queryByText('times')).not.toBeInTheDocument()
     expect(
       screen.getByText(
-        'Counts all requests from the same IP, including failures, 0 = unlimited'
+        '统计同一 IP 的全部请求，包括失败请求，0 表示不限制'
       )
     ).toBeVisible()
     expect(
       screen.getByText(
-        'Only overrides account request limits, does not affect IP limits, and accounts in the same group do not share counters'
+        '仅覆盖账号请求数限制，不影响 IP 限制，且同组账号不共享计数'
       )
     ).toBeVisible()
     expect(
@@ -141,7 +141,7 @@ describe('model request IP rate limit settings', () => {
 
     fireEvent.change(
       screen.getByRole('spinbutton', {
-        name: 'Max successful requests per IP per period',
+        name: '每 IP 周期内最大成功请求数',
       }),
       { target: { value: '25' } }
     )
@@ -193,14 +193,14 @@ describe('model request IP rate limit settings', () => {
 
     fireEvent.change(
       screen.getByRole('spinbutton', {
-        name: 'Max successful requests per IP per period',
+        name: '每 IP 周期内最大成功请求数',
       }),
       { target: { value: '100000001' } }
     )
     fireEvent.submit(form)
 
     expect(
-      await screen.findByText('Enter an integer from 0 to 100000000')
+      await screen.findByText('请输入 0 至 100000000 的整数')
     ).toBeVisible()
     expect(mutateAsync).not.toHaveBeenCalled()
   })
@@ -214,14 +214,14 @@ describe('model request IP rate limit settings', () => {
     )
 
     expect(
-      screen.getByRole('button', { name: 'Account total requests' })
+      screen.getByRole('button', { name: '账号总请求数' })
     ).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText(/Account limit 200 per 1m/)).toBeVisible()
     expect(screen.getByText(/账号限制 200 次/)).toBeVisible()
 
-    fireEvent.click(screen.getByRole('button', { name: 'IP total requests' }))
+    fireEvent.click(screen.getByRole('button', { name: 'IP 总请求数' }))
     const textarea = screen.getByRole('textbox', {
-      name: 'Custom rejection message (optional)',
+      name: '自定义拒绝提示（可选）',
     }) as HTMLTextAreaElement
     fireEvent.change(textarea, {
       target: {
@@ -249,12 +249,12 @@ describe('model request IP rate limit settings', () => {
     )
 
     const textarea = screen.getByRole('textbox', {
-      name: 'Custom rejection message (optional)',
+      name: '自定义拒绝提示（可选）',
     }) as HTMLTextAreaElement
     fireEvent.change(textarea, { target: { value: 'Retry ' } })
     textarea.setSelectionRange(6, 6)
     fireEvent.click(
-      screen.getByRole('button', { name: 'Insert variable {{.Limit}}' })
+      screen.getByRole('button', { name: '插入变量 {{.Limit}}' })
     )
 
     expect(textarea).toHaveValue('Retry {{.Limit}}')
@@ -270,16 +270,16 @@ describe('model request IP rate limit settings', () => {
     )
 
     const textarea = screen.getByRole('textbox', {
-      name: 'Custom rejection message (optional)',
+      name: '自定义拒绝提示（可选）',
     })
     const descriptionId = textarea.getAttribute('aria-describedby')
 
     expect(descriptionId).toBeTruthy()
     const descriptions = container.querySelectorAll(`[id="${descriptionId}"]`)
     expect(descriptions).toHaveLength(1)
-    expect(descriptions[0]).toHaveTextContent('45s, 2m 15s, and 1h 5m')
+    expect(descriptions[0]).toHaveTextContent('45s、2m 15s、1h 5m')
     expect(descriptions[0]).toHaveTextContent(
-      'English and Chinese are returned on separate lines'
+      '固定按英文换行中文返回'
     )
   })
 })

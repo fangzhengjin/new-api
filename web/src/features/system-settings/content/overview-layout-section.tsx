@@ -132,7 +132,7 @@ export function OverviewLayoutSection(props: OverviewLayoutSectionProps) {
   }
 
   return (
-    <SettingsSection title={t('Overview Layout')}>
+    <SettingsSection title={t('概览布局')}>
       <SettingsPageFormActions
         onSave={handleSave}
         onReset={() =>
@@ -147,11 +147,9 @@ export function OverviewLayoutSection(props: OverviewLayoutSectionProps) {
       />
 
       <div className='flex max-w-3xl flex-col gap-1'>
-        <h3 className='text-sm font-medium'>{t('Overview content order')}</h3>
+        <h3 className='text-sm font-medium'>{t('概览内容顺序')}</h3>
         <p className='text-muted-foreground text-sm leading-relaxed'>
-          {t(
-            'Drag cards to reorder. Drag the right edge to change their width'
-          )}
+          {t('拖动卡片调整顺序，拖动右侧边缘调整宽度')}
         </p>
       </div>
 

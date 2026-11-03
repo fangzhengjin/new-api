@@ -173,7 +173,7 @@ export function OverviewLayoutPreview(props: OverviewLayoutPreviewProps) {
   if (props.items.length === 0) {
     return (
       <div className='text-muted-foreground flex min-h-32 items-center justify-center rounded-xl border border-dashed px-4 text-sm'>
-        {t('Only enabled panels appear on the overview page.')}
+        {t('概览页只显示已启用的模块')}
       </div>
     )
   }
@@ -183,7 +183,7 @@ export function OverviewLayoutPreview(props: OverviewLayoutPreviewProps) {
       <div
         ref={gridRef}
         role='list'
-        aria-label={t('Overview content order')}
+        aria-label={t('概览内容顺序')}
         className='grid min-w-2xl grid-cols-3 gap-3'
       >
         {props.items.map((item) => {
@@ -253,7 +253,7 @@ export function OverviewLayoutPreview(props: OverviewLayoutPreviewProps) {
               <div
                 role='separator'
                 tabIndex={0}
-                aria-label={t('Resize {{name}}', { name: panelName })}
+                aria-label={t('调整 {{name}} 的宽度', { name: panelName })}
                 aria-orientation='vertical'
                 aria-valuemin={1}
                 aria-valuemax={3}

@@ -134,7 +134,7 @@ export function DataTableRowActions<TData>({
           window.open(launchURL, '_blank', 'noopener')
         } catch (error) {
           toast.error(
-            t('Unable to open chat preset: {{reason}}', {
+            t('无法打开聊天预设：{{reason}}', {
               reason: getServerErrorMessage(error),
             })
           )

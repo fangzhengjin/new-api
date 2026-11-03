@@ -61,14 +61,14 @@ describe('chat preset menu rules', () => {
   it('parses only standard entries and hides explicitly disabled entries', () => {
     const raw = [
       {
-        name: 'Embedded',
+        name: '内嵌',
         url: 'https://embedded.example',
         enabled: true,
         icon: 'Palette',
         sandbox: ['allow-scripts', 'allow-same-origin'],
       },
       {
-        name: 'New tab',
+        name: '新标签页',
         url: 'https://new-tab.example',
         enabled: true,
         open_mode: 'new_tab',
@@ -101,7 +101,7 @@ describe('chat preset menu rules', () => {
 
     expect(parseChatConfigEntries(raw)).toEqual([
       {
-        name: 'Embedded',
+        name: '内嵌',
         url: 'https://embedded.example',
         enabled: true,
         icon: 'Palette',
@@ -109,7 +109,7 @@ describe('chat preset menu rules', () => {
         sandbox: ['allow-scripts', 'allow-same-origin'],
       },
       {
-        name: 'New tab',
+        name: '新标签页',
         url: 'https://new-tab.example',
         enabled: true,
         openMode: 'new_tab',
@@ -122,8 +122,8 @@ describe('chat preset menu rules', () => {
       },
     ])
     expect(parseChatConfig(raw).map(({ id, name }) => ({ id, name }))).toEqual([
-      { id: '0', name: 'Embedded' },
-      { id: '1', name: 'New tab' },
+      { id: '0', name: '内嵌' },
+      { id: '1', name: '新标签页' },
     ])
   })
 

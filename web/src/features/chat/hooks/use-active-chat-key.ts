@@ -43,7 +43,7 @@ export async function fetchChatKey(tokenId?: number) {
     if (!active) {
       throw createServerError(
         undefined,
-        t('No enabled API keys found. Create or enable one first.')
+        t('未找到已启用的 API 密钥，请先创建或启用。')
       )
     }
     selectedTokenId = active.id
@@ -51,7 +51,7 @@ export async function fetchChatKey(tokenId?: number) {
 
   const keyResult = await fetchTokenKey(selectedTokenId)
   if (!keyResult.success || !keyResult.data?.key) {
-    throw createServerError(keyResult, t('Failed to load API key'))
+    throw createServerError(keyResult, t('加载 API 密钥失败'))
   }
 
   return `sk-${keyResult.data.key}`

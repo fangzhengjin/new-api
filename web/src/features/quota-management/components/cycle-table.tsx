@@ -38,8 +38,8 @@ export function CycleTable(props: { cycles: QuotaCycle[] }) {
   if (!props.cycles.length) {
     return (
       <EmptyData
-        title={t('No quota cycles')}
-        description={t('Create a cycle to start managing quota allocation')}
+        title={t('没有额度周期')}
+        description={t('创建周期以开始管理额度分配')}
       />
     )
   }
@@ -48,12 +48,12 @@ export function CycleTable(props: { cycles: QuotaCycle[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t('Cycle')}</TableHead>
+            <TableHead>{t('周期')}</TableHead>
             <TableHead>{t('Status')}</TableHead>
-            <TableHead>{t('Cycle total')}</TableHead>
-            <TableHead>{t('Allocated quota')}</TableHead>
-            <TableHead>{t('Cycle remaining')}</TableHead>
-            <TableHead>{t('Created by')}</TableHead>
+            <TableHead>{t('周期总额度')}</TableHead>
+            <TableHead>{t('已分配额度')}</TableHead>
+            <TableHead>{t('周期剩余额度')}</TableHead>
+            <TableHead>{t('创建人')}</TableHead>
             <TableHead className='text-right'>{t('Actions')}</TableHead>
           </TableRow>
         </TableHeader>

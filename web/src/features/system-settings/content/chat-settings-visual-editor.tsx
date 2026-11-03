@@ -115,7 +115,7 @@ export function ChatSettingsVisualEditor({
           <Search className='text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4' />
           <Input
             placeholder={t('Search chat presets...')}
-            aria-label={t('Search chat presets')}
+            aria-label={t('搜索聊天预设')}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className='pl-9'
@@ -152,10 +152,10 @@ export function ChatSettingsVisualEditor({
           },
           {
             id: 'open-mode',
-            header: t('Open mode'),
+            header: t('打开方式'),
             cell: (chat) =>
               chat.openMode
-                ? t(chat.openMode === 'new_tab' ? 'New tab' : 'Embedded')
+                ? t(chat.openMode === 'new_tab' ? '新标签页' : '内嵌')
                 : '—',
           },
           {

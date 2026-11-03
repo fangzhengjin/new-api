@@ -46,6 +46,7 @@ describe('usage log token summary', () => {
       outputTotal: 7,
       cacheRead: 30,
       cacheWrite: 20,
+      cacheWrite12h: 0,
       cacheWrite5m: 12,
       cacheWrite30m: 0,
       cacheWrite1h: 8,

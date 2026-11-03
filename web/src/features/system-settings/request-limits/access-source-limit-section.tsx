@@ -62,30 +62,30 @@ const createSchema = (t: (key: string) => string) =>
     AccessSourceLimitEnabled: z.boolean(),
     AccessSourceAssociationWindowHours: z
       .number()
-      .int(t('Enter an integer from 1 to 168'))
-      .min(1, t('Enter an integer from 1 to 168'))
+      .int(t('请输入 1 至 168 的整数'))
+      .min(1, t('请输入 1 至 168 的整数'))
       .max(
         ACCESS_SOURCE_ASSOCIATION_WINDOW_HOURS_MAX,
-        t('Enter an integer from 1 to 168')
+        t('请输入 1 至 168 的整数')
       ),
     AccessSourceMaxIPsPerUser: z
       .number()
-      .int(t('Enter an integer from 0 to 1000'))
-      .min(0, t('Enter an integer from 0 to 1000'))
-      .max(ACCESS_SOURCE_ASSOCIATION_MAX, t('Enter an integer from 0 to 1000')),
+      .int(t('请输入 0 至 1000 的整数'))
+      .min(0, t('请输入 0 至 1000 的整数'))
+      .max(ACCESS_SOURCE_ASSOCIATION_MAX, t('请输入 0 至 1000 的整数')),
     AccessSourceSwitchCooldownMinutes: z
       .number()
-      .int(t('Enter an integer from 0 to 1440'))
-      .min(0, t('Enter an integer from 0 to 1440'))
+      .int(t('请输入 0 至 1440 的整数'))
+      .min(0, t('请输入 0 至 1440 的整数'))
       .max(
         ACCESS_SOURCE_SWITCH_COOLDOWN_MINUTES_MAX,
-        t('Enter an integer from 0 to 1440')
+        t('请输入 0 至 1440 的整数')
       ),
     AccessSourceMaxUsersPerIP: z
       .number()
-      .int(t('Enter an integer from 0 to 1000'))
-      .min(0, t('Enter an integer from 0 to 1000'))
-      .max(ACCESS_SOURCE_ASSOCIATION_MAX, t('Enter an integer from 0 to 1000')),
+      .int(t('请输入 0 至 1000 的整数'))
+      .min(0, t('请输入 0 至 1000 的整数'))
+      .max(ACCESS_SOURCE_ASSOCIATION_MAX, t('请输入 0 至 1000 的整数')),
     AccessSourceSwitchCooldownErrorTemplate: createLimitErrorTemplateSchema(t),
     AccessSourceAccountIPLimitErrorTemplate: createLimitErrorTemplateSchema(t),
     AccessSourceIPAccountLimitErrorTemplate: createLimitErrorTemplateSchema(t),
@@ -118,7 +118,7 @@ export function AccessSourceLimitSection(props: {
     [
       {
         name: 'AccessSourceSwitchCooldownErrorTemplate',
-        label: t('IP switch wait'),
+        label: t('IP 切换等待'),
         code: 'access_source_switch_cooldown',
         variables: ['RetryAfter'],
         samples: {
@@ -128,7 +128,7 @@ export function AccessSourceLimitSection(props: {
       },
       {
         name: 'AccessSourceAccountIPLimitErrorTemplate',
-        label: t('Account associated IPs'),
+        label: t('账号关联 IP 数'),
         code: 'access_source_account_ip_limit',
         variables: ['Limit', 'Period'],
         samples: {
@@ -138,7 +138,7 @@ export function AccessSourceLimitSection(props: {
       },
       {
         name: 'AccessSourceIPAccountLimitErrorTemplate',
-        label: t('IP associated accounts'),
+        label: t('IP 关联账号数'),
         code: 'access_source_ip_account_limit',
         variables: ['Limit', 'Period'],
         samples: {
@@ -161,13 +161,13 @@ export function AccessSourceLimitSection(props: {
   }
 
   return (
-    <SettingsSection title={t('Access Source Limits')}>
+    <SettingsSection title={t('访问来源限制')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
-            saveLabel={t('Save access source limits')}
+            saveLabel={t('保存访问来源限制')}
           />
           <FormField
             control={form.control}
@@ -175,11 +175,9 @@ export function AccessSourceLimitSection(props: {
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable access source limits')}</FormLabel>
+                  <FormLabel>{t('启用访问来源限制')}</FormLabel>
                   <FormDescription>
-                    {t(
-                      'Limits one account using multiple IPs, one IP using multiple accounts, and frequent IP switching'
-                    )}
+                    {t('限制同一账户使用多个 IP、同一 IP 使用多个账户以及频繁切换 IP')}
                   </FormDescription>
                 </SettingsSwitchContent>
                 <FormControl>
@@ -198,7 +196,7 @@ export function AccessSourceLimitSection(props: {
               name='AccessSourceAssociationWindowHours'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Association period (hours)')}</FormLabel>
+                  <FormLabel>{t('关联统计周期（小时）')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -209,9 +207,7 @@ export function AccessSourceLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Counts associations active during the last 1–168 hours'
-                    )}
+                    {t('统计最近 1–168 小时内活跃的关联关系')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -223,7 +219,7 @@ export function AccessSourceLimitSection(props: {
               name='AccessSourceSwitchCooldownMinutes'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('IP switch wait (minutes)')}</FormLabel>
+                  <FormLabel>{t('IP 切换等待时间（分钟）')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -234,9 +230,7 @@ export function AccessSourceLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'A different IP can be used after the current IP has been inactive for this many minutes, 0 = no wait'
-                    )}
+                    {t('当前 IP 停止活动达到此时长后才可使用其他 IP，0 表示不等待')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -248,7 +242,7 @@ export function AccessSourceLimitSection(props: {
               name='AccessSourceMaxIPsPerUser'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Max IPs per account')}</FormLabel>
+                  <FormLabel>{t('每账户最大 IP 数')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -259,9 +253,7 @@ export function AccessSourceLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Maximum active IP associations per account, 0 = unlimited'
-                    )}
+                    {t('同一账户可关联的最大活跃 IP 数，0 表示不限制')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -273,7 +265,7 @@ export function AccessSourceLimitSection(props: {
               name='AccessSourceMaxUsersPerIP'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Max accounts per IP')}</FormLabel>
+                  <FormLabel>{t('每 IP 最大账户数')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -284,9 +276,7 @@ export function AccessSourceLimitSection(props: {
                     />
                   </FormControl>
                   <FormDescription>
-                    {t(
-                      'Maximum active account associations per IP, 0 = unlimited'
-                    )}
+                    {t('同一 IP 可关联的最大活跃账户数，0 表示不限制')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

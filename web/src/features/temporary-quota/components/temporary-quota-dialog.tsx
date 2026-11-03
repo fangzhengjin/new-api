@@ -91,9 +91,9 @@ export function TemporaryQuotaDialog(props: {
         amountPattern,
         amountError,
         amountIsValid: (value) => quotaFromDisplayAmount(value) !== null,
-        projectError: t('Project is required'),
-        reasonRequiredError: t('Reason is required'),
-        reasonLengthError: t('Reason must be 500 characters or fewer'),
+        projectError: t('请选择项目'),
+        reasonRequiredError: t('必须填写原因'),
+        reasonLengthError: t('原因不得超过 500 个字符'),
       }),
     [amountError, amountPattern, t]
   )
@@ -114,9 +114,9 @@ export function TemporaryQuotaDialog(props: {
         queryKey: temporaryQuotaQueryKeys.all,
       })
       if (result.request.status === 'executed') {
-        toast.success(t('Temporary quota granted'))
+        toast.success(t('临时额度已发放'))
       } else if (result.request.status === 'pending') {
-        toast.success(t('Temporary quota request sent for review'))
+        toast.success(t('临时额度申请已提交审核'))
       } else {
         toast.error(result.request.review_reason)
       }
@@ -145,17 +145,15 @@ export function TemporaryQuotaDialog(props: {
       <DialogContent className='sm:max-w-lg'>
         <form onSubmit={submit} className='contents'>
           <DialogHeader>
-            <DialogTitle>{t('Request temporary quota')}</DialogTitle>
+            <DialogTitle>{t('申请临时额度')}</DialogTitle>
             <DialogDescription>
-              {t(
-                'When your balance is insufficient and affects your work, submit a temporary quota request for the current cycle'
-              )}
+              {t('余额不足并影响工作时，可提交一笔当前周期的临时额度申请')}
             </DialogDescription>
           </DialogHeader>
 
           <div className='bg-muted/40 rounded-xl border px-4 py-3'>
             <div className='text-muted-foreground text-sm'>
-              {t('Current account balance')}
+              {t('当前账户余额')}
             </div>
             <div className='mt-1 text-xl font-semibold tabular-nums'>
               {quotaToDisplayAmount(props.overview?.current_quota ?? '0')}{' '}
@@ -189,9 +187,9 @@ export function TemporaryQuotaDialog(props: {
                     shouldValidate: true,
                   })
                 }
-                placeholder={t('Select a project')}
-                searchPlaceholder={t('Search projects')}
-                emptyText={t('No matching projects')}
+                placeholder={t('选择项目')}
+                searchPlaceholder={t('搜索项目')}
+                emptyText={t('没有匹配的项目')}
                 allowCustomValue={false}
                 disabled={mutation.isPending}
               />

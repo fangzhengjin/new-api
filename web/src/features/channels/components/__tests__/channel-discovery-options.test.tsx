@@ -72,13 +72,13 @@ describe('channel discovery options', () => {
 
     await act(async () => root.render(render(['old-model'])))
     const mappingTab = [...container.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Mapping'
+      (button) => button.textContent === '映射'
     )
     assert.ok(mappingTab)
     await act(async () => mappingTab.click())
 
     const sourceInput = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Exposed model name"]'
+      'input[aria-label="对外模型名称"]'
     )
     assert.ok(sourceInput)
     await act(async () => {
@@ -93,7 +93,7 @@ describe('channel discovery options', () => {
 
     await act(async () => root.render(render(['new-model'])))
     const targetSelect = container.querySelector<HTMLSelectElement>(
-      'select[aria-label="Upstream model"]'
+      'select[aria-label="上游模型"]'
     )
     assert.ok(targetSelect)
     assert.equal(targetSelect.value, 'new-model')
@@ -139,7 +139,7 @@ describe('channel discovery options', () => {
         (tab) => tab.textContent
       )
     )
-    assert.deepEqual(tabLabels, new Set(['Models', 'Mapping']))
+    assert.deepEqual(tabLabels, new Set(['Models', '映射']))
     assert.ok(container.textContent?.includes('Endpoints'))
 
     await act(async () => root.unmount())
@@ -174,7 +174,7 @@ describe('channel discovery options', () => {
       (button) => button.textContent === 'Select all'
     )
     const invert = buttons.find(
-      (button) => button.textContent === 'Invert selection'
+      (button) => button.textContent === '反选'
     )
     const clear = buttons.find(
       (button) => button.textContent === 'Clear selection'

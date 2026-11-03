@@ -257,10 +257,8 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
           />
 
           <SettingsFormSection
-            title={t('Claude Code Client Version Validation')}
-            description={t(
-              'Validate the minimum version for Claude Code and Claude Desktop Code mode.'
-            )}
+            title={t('Claude Code 客户端版本校验')}
+            description={t('校验 Claude Code 与 Claude Desktop Code 模式的最低允许版本')}
             action={
               <FormField
                 control={form.control}
@@ -269,7 +267,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
                   <FormItem className='space-y-0'>
                     <FormControl>
                       <Switch
-                        aria-label={t('Claude Code Client Version Validation')}
+                        aria-label={t('Claude Code 客户端版本校验')}
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />
@@ -284,7 +282,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
               name='claude.minimum_client_version'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Minimum Allowed Version')}</FormLabel>
+                  <FormLabel>{t('最低允许版本')}</FormLabel>
                   <FormControl>
                     <Input {...field} disabled={!versionCheckEnabled} />
                   </FormControl>
@@ -297,10 +295,8 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
           <Separator />
 
           <SettingsFormSection
-            title={t('Claude Code Client Identity Simulation')}
-            description={t(
-              'For matching mapped upstream models, replace a different client identity with Claude Code identity.'
-            )}
+            title={t('Claude Code 客户端身份模拟')}
+            description={t('对匹配的映射后上游模型，将其他客户端身份替换为 Claude Code 身份')}
             action={
               <FormField
                 control={form.control}
@@ -309,7 +305,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
                   <FormItem className='space-y-0'>
                     <FormControl>
                       <Switch
-                        aria-label={t('Claude Code Client Identity Simulation')}
+                        aria-label={t('Claude Code 客户端身份模拟')}
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />
@@ -321,7 +317,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
           >
             <FieldSet disabled={!headerFallbackEnabled}>
               <FieldLegend className='sr-only'>
-                {t('Claude Code Client Identity Simulation')}
+                {t('Claude Code 客户端身份模拟')}
               </FieldLegend>
               <SettingsFormGrid>
                 <FormField
@@ -329,7 +325,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
                   name='claude.request_header_fallback_version'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Client Version')}</FormLabel>
+                      <FormLabel>{t('客户端版本')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -342,14 +338,12 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
                   name='claude.request_header_model_patterns'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Target Model Patterns')}</FormLabel>
+                      <FormLabel>{t('目标模型规则')}</FormLabel>
                       <FormControl>
                         <Textarea {...field} rows={3} />
                       </FormControl>
                       <FormDescription>
-                        {t(
-                          'One regular expression per line. Match the mapped model name that is actually sent upstream.'
-                        )}
+                        {t('每行一个正则表达式，匹配实际发送给上游的映射后模型名称')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -358,7 +352,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
               </SettingsFormGrid>
               <div className='bg-muted/40 rounded-lg p-3'>
                 <p className='text-muted-foreground text-xs font-medium'>
-                  {t('Generated User-Agent')}
+                  {t('生成的 User-Agent')}
                 </p>
                 <code className='mt-1 block text-xs break-all'>
                   {`claude-cli/${identityVersion.trim()} (external, cli)`}
@@ -370,10 +364,8 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
           <Separator />
 
           <SettingsFormSection
-            title={t('Model Request Configuration')}
-            description={t(
-              'Configure request headers and default max tokens by model.'
-            )}
+            title={t('模型请求配置')}
+            description={t('按模型设置请求头和默认最大 Token 数')}
           >
             <div className='space-y-6'>
               <FormField
@@ -436,10 +428,8 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
           <Separator />
 
           <SettingsFormSection
-            title={t('Thinking Suffix Adaptation')}
-            description={t(
-              'Convert -thinking suffix requests to Anthropic native thinking requests.'
-            )}
+            title={t('Thinking 后缀适配')}
+            description={t('将带 -thinking 后缀的请求转换为 Anthropic 原生 Thinking 请求')}
             action={
               <FormField
                 control={form.control}
@@ -448,7 +438,7 @@ export function ClaudeSettingsCard(props: ClaudeSettingsCardProps) {
                   <FormItem className='space-y-0'>
                     <FormControl>
                       <Switch
-                        aria-label={t('Thinking Suffix Adaptation')}
+                        aria-label={t('Thinking 后缀适配')}
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />

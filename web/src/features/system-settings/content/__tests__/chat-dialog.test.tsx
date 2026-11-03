@@ -37,7 +37,7 @@ describe('chat preset dialog', () => {
       <ChatDialog open onOpenChange={vi.fn()} onSave={onSave} editData={null} />
     )
 
-    const iconInput = screen.getByRole('textbox', { name: 'Menu icon' })
+    const iconInput = screen.getByRole('textbox', { name: '菜单图标' })
     expect(iconInput).toBe(screen.getAllByRole('textbox')[0])
     await user.type(iconInput, 'Palette')
     expect(await screen.findByTestId('lucide-palette')).toBeInTheDocument()
@@ -69,13 +69,13 @@ describe('chat preset dialog', () => {
     )
 
     await user.type(
-      screen.getByRole('textbox', { name: 'Menu icon' }),
+      screen.getByRole('textbox', { name: '菜单图标' }),
       'UnknownIcon'
     )
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     expect(
-      await screen.findByText('Icon not found. Enter a valid Lucide icon name.')
+      await screen.findByText('未找到该图标，请填写有效的 Lucide 图标名称')
     ).toBeVisible()
     expect(screen.queryByTestId('lucide-unknown-icon')).not.toBeInTheDocument()
     expect(onSave).not.toHaveBeenCalled()
@@ -96,8 +96,8 @@ describe('chat preset dialog', () => {
       screen.getByRole('textbox', { name: 'URL' }),
       'https://canvas.example'
     )
-    expect(screen.getByText('Open mode')).toBeInTheDocument()
-    expect(screen.getByText('Embedded')).toBeInTheDocument()
+    expect(screen.getByText('打开方式')).toBeInTheDocument()
+    expect(screen.getByText('内嵌')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     await waitFor(() =>
@@ -124,7 +124,7 @@ describe('chat preset dialog', () => {
       screen.getByRole('textbox', { name: 'URL' }),
       'cherrystudio://import'
     )
-    expect(screen.queryByText('Open mode')).not.toBeInTheDocument()
+    expect(screen.queryByText('打开方式')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     await waitFor(() =>
@@ -150,20 +150,20 @@ describe('chat preset dialog', () => {
     )
     await user.type(screen.getByRole('textbox', { name: 'URL' }), canvasURL)
     const permissionsSelect = screen.getByRole('combobox', {
-      name: 'Embedded page permissions',
+      name: '嵌入页面权限',
     })
     permissionsSelect.focus()
     expect(permissionsSelect).toHaveFocus()
     await user.keyboard('{Enter}')
     const originOption = screen.getByRole('option', {
-      name: /Keep the original origin/,
+      name: /保留原始来源/,
     })
     originOption.focus()
     await user.keyboard('{Enter}')
 
     expect(
       screen.getByText(
-        'Scripts and original-origin access together remove reliable iframe isolation.'
+        '同时允许脚本运行和保留原始来源后，iframe 将不再具备可靠的隔离能力'
       )
     ).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Add' }))

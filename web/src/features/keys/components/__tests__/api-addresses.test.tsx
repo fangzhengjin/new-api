@@ -67,7 +67,7 @@ it('shows every configured address and copies only the chosen visible URL', asyn
     api_info_enabled: true,
     api_info: [
       {
-        route: 'Global',
+        route: '全局',
         description: 'Worldwide access',
         url: 'https://api.example.com/v1',
         color: 'blue',
@@ -85,7 +85,7 @@ it('shows every configured address and copies only the chosen visible URL', asyn
   const dialog = await screen.findByRole('dialog', { name: 'API Addresses' })
   const rows = within(dialog).getAllByRole('listitem')
   expect(rows).toHaveLength(2)
-  expect(rows[0]).toHaveTextContent('Global')
+  expect(rows[0]).toHaveTextContent('全局')
   expect(rows[0]).toHaveTextContent('Worldwide access')
   expect(within(rows[0]).getByText('https://api.example.com/v1')).toBeVisible()
   expect(rows[1]).toHaveTextContent('Asia')

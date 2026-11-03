@@ -2,14 +2,12 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -204,39 +202,6 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
-}
-
-// quotaLifecycleHandler closes and activates quota cycles independently of the admin page.
-type quotaLifecycleHandler struct{}
-
-func (quotaLifecycleHandler) Type() string { return model.SystemTaskTypeQuotaLifecycle }
-
-func (quotaLifecycleHandler) Enabled() bool {
-	due, err := quotaService.QuotaLifecycleDue(time.Now().Unix())
-	if err != nil {
-		common.SysError(fmt.Sprintf("quota lifecycle due check failed: %v", err))
-		return false
-	}
-	return due
-}
-
-func (quotaLifecycleHandler) Interval() time.Duration { return time.Minute }
-
-func (quotaLifecycleHandler) NewPayload() any { return nil }
-
-func (quotaLifecycleHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	select {
-	case <-ctx.Done():
-		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, context.Cause(ctx))
-		return
-	default:
-	}
-	result, err := quotaService.RunQuotaLifecycle(time.Now().Unix())
-	if err != nil {
-		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
-		return
-	}
-	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }
 
 func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status model.SystemTaskStatus, result any, runErr error) {

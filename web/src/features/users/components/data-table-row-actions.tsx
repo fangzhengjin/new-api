@@ -219,10 +219,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         proof.proof_token
       )
       if (result.success) {
-        toast.success(t('Quota whitelist updated successfully'))
+        toast.success(t('额度白名单已更新'))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to update quota whitelist'))
+        handleServerError(result, t('更新额度白名单失败'))
       }
     } catch (error) {
       handleServerError(
@@ -312,8 +312,8 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             }}
           >
             {user.quota_whitelist
-              ? t('Remove quota whitelist')
-              : t('Add to quota whitelist')}
+              ? t('移出额度白名单')
+              : t('加入额度白名单')}
             <DropdownMenuShortcut>
               <ShieldAlert size={16} />
             </DropdownMenuShortcut>
@@ -327,7 +327,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           }}
           disabled={!canManageLimits}
         >
-          {t('Limit Settings')}
+          {t('限制设置')}
           <DropdownMenuShortcut>
             <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
           </DropdownMenuShortcut>
@@ -404,22 +404,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setWhitelistDialogOpen}
         title={
           user.quota_whitelist
-            ? t('Remove quota whitelist')
-            : t('Add to quota whitelist')
+            ? t('移出额度白名单')
+            : t('加入额度白名单')
         }
         desc={
           user.quota_whitelist
-            ? t(
-                'Removing this user from the quota whitelist returns the current balance to allocation control. All unexecuted drafts in the current cycle will be cancelled'
-              )
-            : t(
-                'Whitelist users are excluded from cycle quota allocation and manual adjustment. Their existing balance remains unchanged. All unexecuted drafts in the current cycle will be cancelled'
-              )
+            ? t('移出白名单后，这名用户的当前余额会重新纳入额度调配，当前周期所有未执行草稿都会被取消')
+            : t('白名单用户不参与周期额度调配和管理员调额，其现有余额保持不变，当前周期内所有未执行草稿将被取消')
         }
         confirmText={
           user.quota_whitelist
-            ? t('Remove quota whitelist')
-            : t('Add to quota whitelist')
+            ? t('移出额度白名单')
+            : t('加入额度白名单')
         }
         handleConfirm={handleWhitelist}
       />

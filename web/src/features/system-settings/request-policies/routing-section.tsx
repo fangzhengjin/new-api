@@ -251,10 +251,8 @@ function AffinitySettings() {
                     disabled={!enabled}
                     checked={renewField.value}
                     onCheckedChange={renewField.onChange}
-                    label={t('Renew affinity TTL on success')}
-                    description={t(
-                      'A successful request extends the binding lifetime.'
-                    )}
+                    label={t('成功请求自动续期')}
+                    description={t('成功请求会延长绑定存活时间。')}
                   />
                 )}
               />

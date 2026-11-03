@@ -22,14 +22,14 @@ import { z } from 'zod'
 export const discoveryTextSchema = z
   .string()
   .trim()
-  .min(1, 'Enter an upstream URL and at least one API key')
+  .min(1, '请输入上游 URL 和至少一个 API 密钥')
 
 /** Validates every editable field used to build a discovery preview draft. */
 export const discoveryFormSchema = z.object({
   text: discoveryTextSchema,
   operation: z.enum(['create', 'update']),
   channelId: z.number().int().nonnegative(),
-  baseUrl: z.string().trim().url('Enter a valid Base URL'),
+  baseUrl: z.string().trim().url('请输入有效的 Base URL'),
   name: z.string().trim(),
   tag: z.string().trim(),
   priority: z.number().int(),

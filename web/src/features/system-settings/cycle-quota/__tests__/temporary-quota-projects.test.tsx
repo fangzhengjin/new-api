@@ -57,22 +57,22 @@ describe('temporary quota project settings', () => {
     const user = userEvent.setup()
     render(<CycleQuotaSettingsPage />)
 
-    const addButton = screen.getByRole('button', { name: 'Add project' })
+    const addButton = screen.getByRole('button', { name: '添加项目' })
     await user.click(addButton)
 
-    const projectName = screen.getByRole('textbox', { name: 'Project name' })
+    const projectName = screen.getByRole('textbox', { name: '项目名称' })
     expect(projectName).toHaveFocus()
     expect(addButton).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Switch to JSON' })
     ).toBeDisabled()
     expect(
-      screen.queryByText('Project name is required')
+      screen.queryByText('请输入项目名称')
     ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Save Changes' }))
 
-    expect(await screen.findByText('Project name is required')).toBeVisible()
+    expect(await screen.findByText('请输入项目名称')).toBeVisible()
     expect(projectName).toHaveAttribute('aria-invalid', 'true')
     expect(mutateAsync).not.toHaveBeenCalled()
   })
@@ -81,11 +81,11 @@ describe('temporary quota project settings', () => {
     const user = userEvent.setup()
     render(<CycleQuotaSettingsPage />)
 
-    const addButton = screen.getByRole('button', { name: 'Add project' })
+    const addButton = screen.getByRole('button', { name: '添加项目' })
     for (const name of ['alpha', 'beta', 'gamma', 'delta', 'epsilon']) {
       await user.click(addButton)
       const projectNames = screen.getAllByRole('textbox', {
-        name: 'Project name',
+        name: '项目名称',
       })
       const projectName = projectNames.at(-1)
       if (!projectName) throw new Error('Project draft was not rendered')
@@ -93,11 +93,11 @@ describe('temporary quota project settings', () => {
     }
 
     expect(
-      screen.getAllByRole('textbox', { name: 'Project name' })
+      screen.getAllByRole('textbox', { name: '项目名称' })
     ).toHaveLength(5)
 
     const projectCard = screen
-      .getByText('Temporary quota projects')
+      .getByText('临时额度项目')
       .closest('[data-slot=card]')
     expect(projectCard?.closest('section')).toHaveClass('shrink-0')
   })

@@ -25,7 +25,7 @@ export const createLimitErrorTemplateSchema = (t: (key: string) => string) =>
     .string()
     .refine(
       (value) => [...value].length <= REQUEST_LIMIT_ERROR_TEMPLATE_MAX_LENGTH,
-      t('Enter no more than 2000 characters')
+      t('最多输入 2000 个字符')
     )
 
 /** Formats the language-neutral duration used by request-limit error messages */

@@ -66,9 +66,9 @@ export function ChatPresetTokenDialog(props: ChatPresetTokenDialogProps) {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className='sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{t('Choose a Token')}</DialogTitle>
+          <DialogTitle>{t('选择 Token')}</DialogTitle>
           <DialogDescription>
-            {t('This Token will be used to open the selected chat preset.')}
+            {t('将使用此 Token 打开所选聊天预设')}
           </DialogDescription>
         </DialogHeader>
         {props.tokens.length > 0 ? (
@@ -122,12 +122,12 @@ export function ChatPresetTokenDialog(props: ChatPresetTokenDialogProps) {
               className='text-muted-foreground size-9'
             />
             <div className='space-y-1'>
-              <p className='font-medium'>{t('No usable Token')}</p>
+              <p className='font-medium'>{t('没有可用的 Token')}</p>
               <p className='text-muted-foreground text-sm'>
-                {t('Create or enable a Token before opening this preset.')}
+                {t('请先创建或启用 Token，再打开此预设')}
               </p>
             </div>
-            <Button render={<Link to='/keys' />}>{t('Go to Tokens')}</Button>
+            <Button render={<Link to='/keys' />}>{t('前往 Token 页面')}</Button>
           </div>
         )}
         {props.tokens.length > 0 && (
@@ -141,7 +141,7 @@ export function ChatPresetTokenDialog(props: ChatPresetTokenDialogProps) {
               }
             />
             <Label htmlFor={rememberId} className='text-sm font-normal'>
-              {t('Remember my choice')}
+              {t('记住我的选择')}
             </Label>
           </div>
         )}
@@ -225,7 +225,7 @@ export function useChatPresetLauncher(
         })
       } catch (error) {
         toast.error(
-          t('Unable to open chat preset: {{reason}}', {
+          t('无法打开聊天预设：{{reason}}', {
             reason: getServerErrorMessage(error),
           })
         )
@@ -245,7 +245,7 @@ export function useChatPresetLauncher(
           ? writeRememberedTokenId(storageKey, token.id)
           : clearRememberedTokenId(storageKey)
         if (!storageUpdated) {
-          toast.error(t('The Token was selected, but could not be remembered.'))
+          toast.error(t('已选择 Token，但无法记住该选择'))
         }
       }
       if (
@@ -312,7 +312,7 @@ export function useChatPresetLauncher(
         setDialogOpen(true)
       } catch (error) {
         toast.error(
-          t('Unable to prepare chat preset: {{reason}}', {
+          t('无法准备聊天预设：{{reason}}', {
             reason: getServerErrorMessage(error),
           })
         )

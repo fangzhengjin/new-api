@@ -121,7 +121,7 @@ async function renderDetail(data: PlanDetailData) {
     root.render(<RouterProvider router={router} />)
   })
   await waitFor(() => {
-    assert.ok(container.textContent?.includes('Cycle total'))
+    assert.ok(container.textContent?.includes('周期总额度'))
   })
 
   return {
@@ -139,25 +139,25 @@ describe('quota plan fund flow', () => {
     const view = await renderDetail(detail)
     try {
       const expectedMetrics = [
-        ['Cycle total', detail.summary.budget],
-        ['Total issued after this plan', detail.summary.occupied_after],
-        ['Cycle remaining', detail.summary.pool_remaining],
+        ['周期总额度', detail.summary.budget],
+        ['本方案后累计已发放', detail.summary.occupied_after],
+        ['周期剩余额度', detail.summary.pool_remaining],
       ] as const
       for (const [label, value] of expectedMetrics) {
         const block = findLeaf(view.container, label).parentElement
         assert.ok(block)
         assert.ok(block.textContent?.includes(formatQuota(value)))
       }
-      assert.ok(view.container.textContent?.includes('Issued in this plan'))
+      assert.ok(view.container.textContent?.includes('本方案发放'))
       assert.ok(
-        view.container.textContent?.includes('Reclaimed from user accounts')
+        view.container.textContent?.includes('从用户账户收回')
       )
       const reissuedLabels = [
         ...view.container.querySelectorAll<HTMLElement>('*'),
       ].filter(
         (element) =>
           element.childElementCount === 0 &&
-          element.textContent === 'Reclaimed and reissued'
+          element.textContent === '已回收并重新发放'
       )
       assert.equal(reissuedLabels.length, 1)
     } finally {
@@ -167,10 +167,10 @@ describe('quota plan fund flow', () => {
 
   test('shows every fund destination for non-zero and zero values', async () => {
     const destinations = [
-      ['Issued from cycle remaining quota', 'cycle_pool_issued_quota'],
-      ['Reclaimed and reissued', 'reclaimed_used_for_increases'],
-      ['Reclaimed to cover existing excess', 'reclaimed_used_to_cover_overage'],
-      ['Reclaimed and returned to cycle quota pool', 'reclaimed_unused'],
+      ['使用周期剩余额度发放', 'cycle_pool_issued_quota'],
+      ['已回收并重新发放', 'reclaimed_used_for_increases'],
+      ['收回用于冲抵原有超额', 'reclaimed_used_to_cover_overage'],
+      ['收回额度返还周期额度池', 'reclaimed_unused'],
     ] as const
     const view = await renderDetail(detail)
     try {

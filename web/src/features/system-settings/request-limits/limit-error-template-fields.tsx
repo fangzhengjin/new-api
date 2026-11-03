@@ -72,9 +72,9 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
   }, [props.defaultTemplates])
 
   const variableDescriptions: Record<TemplateVariable, string> = {
-    Limit: t('Triggered limit value'),
+    Limit: t('触发的限制值'),
     Period: t('Limit period'),
-    RetryAfter: t('Suggested wait time'),
+    RetryAfter: t('建议等待时间'),
   }
 
   return (
@@ -84,21 +84,19 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
     >
       <SettingsAccordion
         value='rejection-messages'
-        title={t('Rejection messages')}
+        title={t('拒绝提示')}
         className='border-b-0'
       >
         <p className='text-muted-foreground mb-4 text-sm'>
-          {t(
-            'Customize the bilingual message returned when a request limit is reached'
-          )}
+          {t('自定义达到请求限制时返回的双语提示')}
         </p>
 
         <div className='mb-4 space-y-2'>
-          <div className='text-sm font-medium'>{t('Rejection scenario')}</div>
+          <div className='text-sm font-medium'>{t('拒绝场景')}</div>
           <div
             className='flex flex-wrap gap-2'
             role='group'
-            aria-label={t('Rejection scenario')}
+            aria-label={t('拒绝场景')}
           >
             {props.scenarios.map((scenario) => (
               <Button
@@ -128,7 +126,7 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
             const usesDefault = value.trim() === ''
             const source = usesDefault
               ? defaults[activeScenario.name] ||
-                t('Default preview unavailable')
+                t('暂无默认提示预览')
               : value
             let preview = source
             for (const variable of activeScenario.variables) {
@@ -160,7 +158,7 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
               <div className='grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)]'>
                 <FormItem>
                   <FormLabel>
-                    {t('Custom rejection message (optional)')}
+                    {t('自定义拒绝提示（可选）')}
                   </FormLabel>
                   <FormControl>
                     <Textarea
@@ -171,16 +169,14 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
                       }}
                       value={value}
                       className='min-h-40 font-mono text-sm'
-                      placeholder={t(
-                        'Leave blank to use the built-in bilingual message'
-                      )}
+                      placeholder={t('留空时使用内置双语提示')}
                     />
                   </FormControl>
                   <FormMessage />
 
                   <div className='space-y-2 pt-2'>
                     <div className='text-sm font-medium'>
-                      {t('Available variables')}
+                      {t('可用变量')}
                     </div>
                     <div className='grid gap-2 sm:grid-cols-2'>
                       {activeScenario.variables.map((variable) => (
@@ -190,7 +186,7 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
                           size='sm'
                           variant='outline'
                           className='h-auto min-w-0 justify-start gap-2 py-2'
-                          aria-label={t('Insert variable {{variable}}', {
+                          aria-label={t('插入变量 {{variable}}', {
                             variable: `{{.${variable}}}`,
                           })}
                           onClick={() => insertVariable(variable)}
@@ -209,14 +205,10 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
                   <div className='flex flex-wrap items-center justify-between gap-2 pt-2'>
                     <FormDescription className='space-y-1'>
                       <span className='block'>
-                        {t(
-                          'Wait times use formats such as 45s, 2m 15s, and 1h 5m'
-                        )}
+                        {t('等待时间格式为 45s、2m 15s、1h 5m')}
                       </span>
                       <span className='block'>
-                        {t(
-                          'English and Chinese are returned on separate lines, variables use {{.Variable}}'
-                        )}
+                        {t('固定按英文换行中文返回，变量使用 {{.Variable}} 格式')}
                       </span>
                     </FormDescription>
                     <Button
@@ -227,7 +219,7 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
                         field.onChange(defaults[activeScenario.name] ?? '')
                       }
                     >
-                      {t('Use default as starting point')}
+                      {t('使用默认提示作为起点')}
                     </Button>
                   </div>
                 </FormItem>
@@ -266,9 +258,7 @@ export function LimitErrorTemplateFields<TValues extends FieldValues>(props: {
                     )}
                   </dl>
                   <p className='text-muted-foreground mt-3 border-t pt-3 text-xs leading-relaxed'>
-                    {t(
-                      'Internal cache or storage failures continue to use fixed system messages'
-                    )}
+                    {t('缓存或存储故障仍使用系统固定提示')}
                   </p>
                 </aside>
               </div>

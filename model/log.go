@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ type Log struct {
 	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
 	Content           string `json:"content"`
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
+	DisplayName       string `json:"display_name,omitempty" gorm:"-"`
 	TokenName         string `json:"token_name" gorm:"index;default:''"`
 	ModelName         string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota             int    `json:"quota" gorm:"default:0"`
@@ -322,76 +324,74 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int               `json:"channel_id"`
-	PromptTokens     int               `json:"prompt_tokens"`
-	CompletionTokens int               `json:"completion_tokens"`
-	ModelName        string            `json:"model_name"`
-	TokenName        string            `json:"token_name"`
-	Quota            int               `json:"quota"`
-	Content          []*common.Message `json:"content"`
-	TokenId          int               `json:"token_id"`
-	UseTimeSeconds   int               `json:"use_time_seconds"`
-	IsStream         bool              `json:"is_stream"`
-	Group            string            `json:"group"`
-	Other            *LogOther         `json:"other"`
+	ChannelId        int `json:"channel_id"`
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	// QuotaDataTokenUsed is the normalized analytics total; zero preserves the legacy prompt-plus-completion fallback.
+	QuotaDataTokenUsed int               `json:"quota_data_token_used,omitempty"`
+	ModelName          string            `json:"model_name"`
+	TokenName          string            `json:"token_name"`
+	Quota              int               `json:"quota"`
+	Content            []*common.Message `json:"content"`
+	TokenId            int               `json:"token_id"`
+	UseTimeSeconds     int               `json:"use_time_seconds"`
+	IsStream           bool              `json:"is_stream"`
+	Group              string            `json:"group"`
+	Other              *LogOther         `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
-	if !common.LogConsumeEnabled {
+	if !common.LogConsumeEnabled && !common.DataExportEnabled {
 		return
 	}
-	logger.LogInfo(c, common.LogText("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
-	requestId := c.GetString(common.RequestIdKey)
-	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
-	other := params.Other
-	content := other.setContent(params.Content)
-	otherStr := other.JSONString()
-	// 判断是否需要记录 IP
-	needRecordIp := false
-	if settingMap, err := GetUserSetting(userId, false); err == nil {
-		if settingMap.RecordIpLog {
-			needRecordIp = true
+
+	if common.LogConsumeEnabled {
+		logger.LogInfo(c, common.LogText("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
+		needRecordIp := false
+		if settingMap, err := GetUserSetting(userId, false); err == nil {
+			needRecordIp = settingMap.RecordIpLog
+		}
+		log := &Log{
+			UserId:            userId,
+			Username:          username,
+			CreatedAt:         createdAt,
+			Type:              LogTypeConsume,
+			Content:           params.Other.setContent(params.Content),
+			PromptTokens:      params.PromptTokens,
+			CompletionTokens:  params.CompletionTokens,
+			TokenName:         params.TokenName,
+			ModelName:         params.ModelName,
+			Quota:             params.Quota,
+			ChannelId:         params.ChannelId,
+			TokenId:           params.TokenId,
+			UseTime:           params.UseTimeSeconds,
+			IsStream:          params.IsStream,
+			Group:             params.Group,
+			RequestId:         c.GetString(common.RequestIdKey),
+			UpstreamRequestId: c.GetString(common.UpstreamRequestIdKey),
+			Other:             params.Other.JSONString(),
+		}
+		if needRecordIp {
+			log.Ip = c.ClientIP()
+		}
+		if err := createLog(log); err != nil {
+			logger.LogError(c, common.LogText("failed to record log: %s", err.Error()))
 		}
 	}
-	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        createdAt,
-		Type:             LogTypeConsume,
-		Content:          content,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		TokenName:        params.TokenName,
-		ModelName:        params.ModelName,
-		Quota:            params.Quota,
-		ChannelId:        params.ChannelId,
-		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
-		IsStream:         params.IsStream,
-		Group:            params.Group,
-		Ip: func() string {
-			if needRecordIp {
-				return c.ClientIP()
-			}
-			return ""
-		}(),
-		RequestId:         requestId,
-		UpstreamRequestId: upstreamRequestId,
-		Other:             otherStr,
-	}
-	err := createLog(log)
-	if err != nil {
-		logger.LogError(c, common.LogText("failed to record log: %s", err.Error()))
-	}
+
 	if common.DataExportEnabled {
+		tokenUsed := params.QuotaDataTokenUsed
+		if tokenUsed == 0 {
+			tokenUsed = params.PromptTokens + params.CompletionTokens
+		}
 		var cacheReadTokens, cacheCreationTokens int
-		if other != nil {
-			cacheReadTokens, _ = other.public["cache_tokens"].(int)
+		if params.Other != nil {
+			cacheReadTokens, _ = params.Other.public["cache_tokens"].(int)
 			// The settlement path already normalizes the cache creation total.
 			// Do not add the 5m/1h breakdown again or infer tokens from prices.
-			cacheCreationTokens, _ = other.public["cache_write_tokens"].(int)
+			cacheCreationTokens, _ = params.Other.public["cache_write_tokens"].(int)
 		}
 		LogQuotaData(QuotaDataLogParams{
 			UserID:              userId,
@@ -399,7 +399,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			ModelName:           params.ModelName,
 			Quota:               params.Quota,
 			CreatedAt:           createdAt,
-			TokenUsed:           params.PromptTokens + params.CompletionTokens,
+			TokenUsed:           tokenUsed,
 			CacheReadTokens:     int64(cacheReadTokens),
 			CacheCreationTokens: int64(cacheCreationTokens),
 			UseGroup:            params.Group,
@@ -424,37 +424,42 @@ type RecordTaskBillingLogParams struct {
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
-	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
+	isConsume := params.LogType == LogTypeConsume
+	shouldRecordLog := !isConsume || common.LogConsumeEnabled
+	shouldExport := isConsume && common.DataExportEnabled
+	if !shouldRecordLog && !shouldExport {
 		return
 	}
 	username, _ := GetUsernameById(params.UserId, false)
-	tokenName := ""
-	if params.TokenId > 0 {
-		if token, err := GetTokenById(params.TokenId); err == nil {
-			tokenName = token.Name
+	createdAt := common.GetTimestamp()
+
+	if shouldRecordLog {
+		tokenName := ""
+		if params.TokenId > 0 {
+			if token, err := GetTokenById(params.TokenId); err == nil {
+				tokenName = token.Name
+			}
+		}
+		log := &Log{
+			UserId:    params.UserId,
+			Username:  username,
+			CreatedAt: createdAt,
+			Type:      params.LogType,
+			Content:   params.Other.setContent(params.Content),
+			TokenName: tokenName,
+			ModelName: params.ModelName,
+			Quota:     params.Quota,
+			ChannelId: params.ChannelId,
+			TokenId:   params.TokenId,
+			Group:     params.Group,
+			Other:     params.Other.JSONString(),
+		}
+		if err := createLog(log); err != nil {
+			common.SysLog("failed to record task billing log: " + err.Error())
 		}
 	}
-	createdAt := common.GetTimestamp()
-	other := params.Other
-	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   other.setContent(params.Content),
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     other.JSONString(),
-	}
-	err := createLog(log)
-	if err != nil {
-		common.SysLog(common.LogText("failed to record task billing log: %s", err.Error()))
-	}
-	if params.LogType == LogTypeConsume && common.DataExportEnabled {
+
+	if shouldExport {
 		nodeName := params.NodeName
 		if nodeName == "" {
 			nodeName = common.NodeName
@@ -545,9 +550,13 @@ func GetAllLogs(filter LogFilter, startIdx int, num int) (logs []*Log, total int
 	}
 
 	channelIds := types.NewSet[int]()
+	userIds := types.NewSet[int]()
 	for _, log := range logs {
 		if log.ChannelId != 0 {
 			channelIds.Add(log.ChannelId)
+		}
+		if log.UserId != 0 {
+			userIds.Add(log.UserId)
 		}
 	}
 
@@ -581,6 +590,25 @@ func GetAllLogs(filter LogFilter, startIdx int, num int) (logs []*Log, total int
 		}
 		for i := range logs {
 			logs[i].ChannelName = channelMap[logs[i].ChannelId]
+		}
+	}
+
+	if userIds.Len() > 0 {
+		// Logs may use a separate database, so enrich current display names from
+		// the main database after pagination instead of joining across databases.
+		var users []struct {
+			Id          int    `gorm:"column:id"`
+			DisplayName string `gorm:"column:display_name"`
+		}
+		if err = DB.Model(&User{}).Select("id, display_name").Where("id IN ?", userIds.Items()).Find(&users).Error; err != nil {
+			return logs, total, err
+		}
+		userDisplayNameMap := make(map[int]string, len(users))
+		for _, user := range users {
+			userDisplayNameMap[user.Id] = user.DisplayName
+		}
+		for i := range logs {
+			logs[i].DisplayName = userDisplayNameMap[logs[i].UserId]
 		}
 	}
 
@@ -744,6 +772,44 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	stat.Rpm = rateStat.Rpm
 	stat.Tpm = rateStat.Tpm
+
+	// Legacy Anthropic logs store cache tokens outside prompt_tokens. Add only
+	// the missing portion so migrated and newly normalized rows are not doubled.
+	var anthropicLogs []struct {
+		PromptTokens int
+		Other        string
+	}
+	if err := rpmTpmQuery.
+		Select("prompt_tokens, other").
+		Where("other LIKE ?", `%"usage_semantic":"anthropic"%`).
+		Scan(&anthropicLogs).Error; err != nil {
+		common.SysError("failed to query anthropic log token details: " + err.Error())
+		return stat, errors.New("查询统计数据失败")
+	}
+	for _, log := range anthropicLogs {
+		var other struct {
+			UsageSemantic         string `json:"usage_semantic"`
+			InputTokensTotal      int    `json:"input_tokens_total"`
+			CacheTokens           int    `json:"cache_tokens"`
+			CacheWriteTokens      int    `json:"cache_write_tokens"`
+			CacheCreationTokens   int    `json:"cache_creation_tokens"`
+			CacheCreationTokens5m int    `json:"cache_creation_tokens_5m"`
+			CacheCreationTokens1h int    `json:"cache_creation_tokens_1h"`
+		}
+		if common.UnmarshalJsonStr(log.Other, &other) != nil || other.UsageSemantic != "anthropic" {
+			continue
+		}
+		if other.InputTokensTotal > 0 {
+			stat.Tpm += max(other.InputTokensTotal-log.PromptTokens, 0)
+			continue
+		}
+		cacheWriteTokens := max(
+			other.CacheWriteTokens,
+			other.CacheCreationTokens,
+			other.CacheCreationTokens5m+other.CacheCreationTokens1h,
+		)
+		stat.Tpm += max(other.CacheTokens, 0) + max(cacheWriteTokens, 0)
+	}
 
 	return stat, nil
 }

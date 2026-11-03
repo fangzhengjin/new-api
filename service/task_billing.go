@@ -77,6 +77,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		setTaskImageCount(other, info.PriceData.OtherRatios()["image_count"])
 	}
 	appendTaskLogInfo(task, other)
+	AppendRelayLogAdminInfo(c, info, other)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,

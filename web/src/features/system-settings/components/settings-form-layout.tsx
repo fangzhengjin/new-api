@@ -108,7 +108,6 @@ export function SettingsSwitchRow({
 }
 
 export function SettingsSwitchField({
-  controlId,
   checked,
   onCheckedChange,
   label,
@@ -117,6 +116,8 @@ export function SettingsSwitchField({
   className,
   ...props
 }: SettingsSwitchFieldProps) {
+  const controlId = useId()
+
   return (
     <SettingsSwitchRow className={className} {...props}>
       <SettingsSwitchContent>

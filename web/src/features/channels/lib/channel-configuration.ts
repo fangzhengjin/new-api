@@ -63,7 +63,7 @@ const CONFIGURATION_BLOCKS = {
       'responses_websocket_enabled',
       'ollama_openai_chat',
       'system_prompt',
-      'system_prompt_override',
+      'system_prompt_mode',
     ],
   },
   fieldPassthrough: {
@@ -85,6 +85,8 @@ const CONFIGURATION_BLOCKS = {
       'http_protocol',
       'http2_connection_shards',
       'tls_insecure_skip_verify',
+      'max_concurrency',
+      'concurrency_wait_timeout_seconds',
       'disable_task_polling_sleep',
     ],
   },
@@ -159,7 +161,7 @@ export function getChannelConfigurationState(
         values.responses_websocket_enabled) ||
       (values.type === CHANNEL_TYPE_OLLAMA && values.ollama_openai_chat) ||
       values.system_prompt?.trim() ||
-      values.system_prompt_override
+      (values.system_prompt_mode ?? 'none') !== 'none'
     ),
     fieldPassthrough: Boolean(
       ((openaiPassthrough || claudePassthrough) &&
@@ -177,6 +179,7 @@ export function getChannelConfigurationState(
       (values.http_protocol && values.http_protocol !== 'auto') ||
       (values.http2_connection_shards ?? 1) > 1 ||
       values.tls_insecure_skip_verify ||
+      (values.max_concurrency ?? 0) > 0 ||
       values.disable_task_polling_sleep
     ),
     upstreamModelDetection:

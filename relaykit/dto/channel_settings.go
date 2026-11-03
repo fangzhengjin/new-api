@@ -12,14 +12,18 @@ import (
 )
 
 type ChannelSettings struct {
-	TaskPluginKey             string `json:"task_plugin_key,omitempty"`
-	ForceFormat               bool   `json:"force_format,omitempty"`
-	ThinkingToContent         bool   `json:"thinking_to_content,omitempty"`
-	Proxy                     string `json:"proxy"`
-	PassThroughBodyEnabled    bool   `json:"pass_through_body_enabled,omitempty"`
-	ResponsesWebSocketEnabled bool   `json:"responses_websocket_enabled,omitempty"`
-	SystemPrompt              string `json:"system_prompt,omitempty"`
-	SystemPromptOverride      bool   `json:"system_prompt_override,omitempty"`
+	TaskPluginKey             string   `json:"task_plugin_key,omitempty"`
+	ForceFormat               bool     `json:"force_format,omitempty"`
+	ThinkingToContent         bool     `json:"thinking_to_content,omitempty"`
+	Proxy                     string   `json:"proxy"`
+	PassThroughBodyEnabled    bool     `json:"pass_through_body_enabled,omitempty"`
+	ResponsesWebSocketEnabled bool     `json:"responses_websocket_enabled,omitempty"`
+	SystemPrompt              string   `json:"system_prompt,omitempty"`
+	SystemPromptMode          string   `json:"system_prompt_mode,omitempty"`
+	UserHiddenModelMappings   []string `json:"user_hidden_model_mappings,omitempty"`
+	// SystemPromptOverride is kept for compatibility with older channel settings.
+	// A true value maps to prepend when SystemPromptMode is absent.
+	SystemPromptOverride bool `json:"system_prompt_override,omitempty"`
 	// TaskExtendPluginKeys lists the task plugins a New API channel (type 60)
 	// is extended with. The upstream gateway may host many plugins, so the
 	// channel serves every listed plugin's models while the request still pins
@@ -35,6 +39,12 @@ type ChannelSettings struct {
 	// TLSInsecureSkipVerify accepts upstream certificates that fail
 	// verification, such as self-signed ones, for this channel only.
 	TLSInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty"`
+	// MaxConcurrency limits in-flight requests for this channel across all instances.
+	// Zero means unlimited.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
+	// ConcurrencyWaitTimeoutSeconds controls how long a request waits for a slot.
+	// Nil uses the default; zero fails immediately.
+	ConcurrencyWaitTimeoutSeconds *int `json:"concurrency_wait_timeout_seconds,omitempty"`
 }
 
 // BindsTaskPlugin reports whether the channel is bound to the task plugin,
@@ -62,11 +72,88 @@ func (s ChannelSettings) TaskPluginBindings() []string {
 	return bindings
 }
 
+// IsModelMappingVisibleToUsers reports whether ordinary users may see a
+// mapped model name in logs and API responses.
+func (s *ChannelSettings) IsModelMappingVisibleToUsers(model string) bool {
+	return s == nil || !slices.Contains(s.UserHiddenModelMappings, model)
+}
+
 const (
-	HTTPProtocolAuto         = "auto"
-	HTTPProtocolHTTP1        = "http1"
-	MaxHTTP2ConnectionShards = 8
+	SystemPromptModeNone     = "none"
+	SystemPromptModePrepend  = "prepend"
+	SystemPromptModeAppend   = "append"
+	SystemPromptModeOverride = "override"
+	// SystemPromptModeLegacy is a computed effective mode for channels saved
+	// before system_prompt_mode existed: the prompt only fills an empty
+	// target and never touches existing content. It is never a valid stored
+	// value.
+	SystemPromptModeLegacy               = "legacy"
+	HTTPProtocolAuto                     = "auto"
+	HTTPProtocolHTTP1                    = "http1"
+	MaxHTTP2ConnectionShards             = 8
+	MaxChannelConcurrency                = 10000
+	DefaultConcurrencyWaitTimeoutSeconds = 90
+	MaxConcurrencyWaitTimeoutSeconds     = 3600
 )
+
+// ValidateSystemPromptMode validates the configured system prompt rewrite mode.
+func (s *ChannelSettings) ValidateSystemPromptMode() error {
+	if s == nil {
+		return nil
+	}
+	switch s.SystemPromptMode {
+	case "", SystemPromptModeNone, SystemPromptModePrepend, SystemPromptModeAppend, SystemPromptModeOverride:
+		return nil
+	default:
+		return fmt.Errorf("invalid system_prompt_mode: %s", s.SystemPromptMode)
+	}
+}
+
+// EffectiveSystemPromptMode returns the configured mode and maps the legacy
+// SystemPromptOverride flag to prepend, and prompt-only legacy channels to
+// legacy fill-if-empty behavior, when the new setting is absent.
+func (s ChannelSettings) EffectiveSystemPromptMode() string {
+	if s.SystemPromptMode != "" {
+		return s.SystemPromptMode
+	}
+	if s.SystemPromptOverride {
+		return SystemPromptModePrepend
+	}
+	if s.SystemPrompt != "" {
+		return SystemPromptModeLegacy
+	}
+	return SystemPromptModeNone
+}
+
+// RewriteSystemPrompt applies the configured channel prompt to an identified
+// request system prompt. It reports whether the target should be updated.
+func (s ChannelSettings) RewriteSystemPrompt(existing string) (string, bool) {
+	if s.SystemPrompt == "" {
+		return existing, false
+	}
+
+	switch s.EffectiveSystemPromptMode() {
+	case SystemPromptModePrepend:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return s.SystemPrompt + "\n\n" + existing, true
+	case SystemPromptModeAppend:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return existing + "\n\n" + s.SystemPrompt, true
+	case SystemPromptModeOverride:
+		return s.SystemPrompt, true
+	case SystemPromptModeLegacy:
+		if existing == "" {
+			return s.SystemPrompt, true
+		}
+		return existing, false
+	default:
+		return existing, false
+	}
+}
 
 // ValidateHTTPTransport validates save-time HTTP transport channel settings.
 func (s *ChannelSettings) ValidateHTTPTransport() error {
@@ -86,6 +173,30 @@ func (s *ChannelSettings) ValidateHTTPTransport() error {
 		return fmt.Errorf("http2_connection_shards must be 1 when http_protocol is http1")
 	}
 	return nil
+}
+
+// ValidateConcurrency validates the per-channel concurrency limit and wait timeout.
+// It returns an error when either configured value is outside its supported range.
+func (s *ChannelSettings) ValidateConcurrency() error {
+	if s == nil {
+		return nil
+	}
+	if s.MaxConcurrency < 0 || s.MaxConcurrency > MaxChannelConcurrency {
+		return fmt.Errorf("invalid max_concurrency: %d", s.MaxConcurrency)
+	}
+	if s.ConcurrencyWaitTimeoutSeconds != nil && (*s.ConcurrencyWaitTimeoutSeconds < 0 || *s.ConcurrencyWaitTimeoutSeconds > MaxConcurrencyWaitTimeoutSeconds) {
+		return fmt.Errorf("invalid concurrency_wait_timeout_seconds: %d", *s.ConcurrencyWaitTimeoutSeconds)
+	}
+	return nil
+}
+
+// ConcurrencyWaitTimeout returns the configured wait timeout in seconds.
+// It returns 90 seconds when the setting is absent and preserves an explicit zero.
+func (s *ChannelSettings) ConcurrencyWaitTimeout() int {
+	if s == nil || s.ConcurrencyWaitTimeoutSeconds == nil {
+		return DefaultConcurrencyWaitTimeoutSeconds
+	}
+	return *s.ConcurrencyWaitTimeoutSeconds
 }
 
 type VertexKeyType string

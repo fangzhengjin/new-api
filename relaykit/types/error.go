@@ -39,6 +39,7 @@ type ErrorCode string
 
 const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
+	ErrorCodeClientVersionTooLow    ErrorCode = "client_version_too_low"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
 	ErrorCodeRequestRejected        ErrorCode = "request_rejected"
 	ErrorCodeRequestPluginFailed    ErrorCode = "request_plugin_failed"
@@ -46,15 +47,25 @@ const (
 	ErrorCodeViolationFeeGrokCSAM   ErrorCode = "violation_fee.grok.csam"
 
 	// new api error
-	ErrorCodeCountTokenFailed              ErrorCode = "count_token_failed"
-	ErrorCodeModelPriceError               ErrorCode = "model_price_error"
-	ErrorCodeInvalidApiType                ErrorCode = "invalid_api_type"
-	ErrorCodeJsonMarshalFailed             ErrorCode = "json_marshal_failed"
-	ErrorCodeDoRequestFailed               ErrorCode = "do_request_failed"
-	ErrorCodeGetChannelFailed              ErrorCode = "get_channel_failed"
-	ErrorCodeGenRelayInfoFailed            ErrorCode = "gen_relay_info_failed"
-	ErrorCodeChannelConcurrencyLimit       ErrorCode = "channel_concurrency_limit"
-	ErrorCodeChannelConcurrencyUnavailable ErrorCode = "channel_concurrency_unavailable"
+	ErrorCodeCountTokenFailed                   ErrorCode = "count_token_failed"
+	ErrorCodeModelPriceError                    ErrorCode = "model_price_error"
+	ErrorCodeInvalidApiType                     ErrorCode = "invalid_api_type"
+	ErrorCodeJsonMarshalFailed                  ErrorCode = "json_marshal_failed"
+	ErrorCodeDoRequestFailed                    ErrorCode = "do_request_failed"
+	ErrorCodeGetChannelFailed                   ErrorCode = "get_channel_failed"
+	ErrorCodeGenRelayInfoFailed                 ErrorCode = "gen_relay_info_failed"
+	ErrorCodeChannelConcurrencyLimit            ErrorCode = "channel_concurrency_limit"
+	ErrorCodeChannelConcurrencyUnavailable      ErrorCode = "channel_concurrency_unavailable"
+	ErrorCodeAccountConcurrencyLimit            ErrorCode = "account_concurrency_limit"
+	ErrorCodeIPConcurrencyLimit                 ErrorCode = "ip_concurrency_limit"
+	ErrorCodeModelRequestConcurrencyUnavailable ErrorCode = "model_request_concurrency_unavailable"
+	ErrorCodeRateLimitAccountTotal              ErrorCode = "rate_limit_account_total"
+	ErrorCodeRateLimitAccountSuccess            ErrorCode = "rate_limit_account_success"
+	ErrorCodeRateLimitIPTotal                   ErrorCode = "rate_limit_ip_total"
+	ErrorCodeRateLimitIPSuccess                 ErrorCode = "rate_limit_ip_success"
+	ErrorCodeAccessSourceSwitchCooldown         ErrorCode = "access_source_switch_cooldown"
+	ErrorCodeAccessSourceAccountIPLimit         ErrorCode = "access_source_account_ip_limit"
+	ErrorCodeAccessSourceIPAccountLimit         ErrorCode = "access_source_ip_account_limit"
 
 	// channel error
 	ErrorCodeChannelNoAvailableKey        ErrorCode = "channel:no_available_key"
@@ -100,7 +111,9 @@ type NewAPIError struct {
 	errorType      ErrorType
 	errorCode      ErrorCode
 	StatusCode     int
-	Metadata       json.RawMessage
+	// UpstreamStatusCode is the original HTTP status parsed from an upstream response.
+	UpstreamStatusCode int
+	Metadata           json.RawMessage
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

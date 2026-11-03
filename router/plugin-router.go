@@ -145,13 +145,39 @@ func productionPluginRouteHandlers(generation *jsplugin.RoutingGeneration, group
 			c.Writer.Status(),
 		)
 	}
+	if binding.Route.Type == jsplugin.RouteTypeQuery {
+		return []gin.HandlerFunc{
+			pinRoute,
+			middleware.NativeRouteCredential(keys...),
+			middleware.TokenAuth(),
+			middleware.SystemPerformanceCheck(),
+			middleware.ModelRequestTrafficLimit(),
+			middleware.PrepareTaskPluginRoute(),
+			middleware.Distribute(),
+			controller.RelayTask,
+		}
+	}
+	if binding.Route.Type == jsplugin.RouteTypeSubmit {
+		return []gin.HandlerFunc{
+			pinRoute,
+			middleware.NativeRouteCredential(keys...),
+			middleware.TokenAuth(),
+			middleware.SystemPerformanceCheck(),
+			middleware.AccessSourceLimit(),
+			middleware.ModelRequestTrafficLimit(),
+			middleware.PrepareTaskPluginRoute(),
+			middleware.Distribute(),
+			controller.RelayTask,
+		}
+	}
 	return []gin.HandlerFunc{
 		pinRoute,
 		middleware.NativeRouteCredential(keys...),
 		middleware.TokenAuth(),
 		middleware.SystemPerformanceCheck(),
-		middleware.ModelRequestRateLimit(),
 		middleware.PrepareTaskPluginRoute(),
+		middleware.AccessSourceLimit(),
+		middleware.ModelRequestTrafficLimit(),
 		middleware.Distribute(),
 		controller.RelayTask,
 	}

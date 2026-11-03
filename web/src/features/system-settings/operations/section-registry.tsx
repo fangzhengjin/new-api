@@ -36,6 +36,7 @@ const OPERATIONS_SECTIONS = [
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
+          CycleQuotaManagementEnabled: settings.CycleQuotaManagementEnabled,
         }}
       />
     ),
@@ -111,6 +112,11 @@ const OPERATIONS_SECTIONS = [
           'system_task_setting.retention_days':
             settings['system_task_setting.retention_days'] ?? 30,
         }}
+        defaultRules={settings.RequestHeaderRules}
+        builtInRules={settings.RequestHeaderRulesDefault}
+        cdnRuleGroups={settings.RequestHeaderCDNRuleGroups}
+        systemRules={settings.RequestHeaderSystemRules}
+        capacityBytes={settings.RequestHeaderAuditCapacityBytes}
       />
     ),
   },

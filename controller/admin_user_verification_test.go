@@ -76,6 +76,17 @@ func TestAdminUserRiskOperationsRequireProofBeforeMutation(t *testing.T) {
 			},
 		},
 		{
+			name: "manage quota whitelist", method: http.MethodPost, path: "/api/user/manage", handler: ManageUser,
+			body: func(target *model.User) string {
+				return fmt.Sprintf(`{"id":%d,"action":"quota_whitelist","mode":"enable"}`, target.Id)
+			},
+			unchanged: func(t *testing.T, target *model.User) {
+				stored, err := model.GetUserById(target.Id, false)
+				require.NoError(t, err)
+				assert.False(t, stored.QuotaWhitelist)
+			},
+		},
+		{
 			name: "manage promote", method: http.MethodPost, path: "/api/user/manage", handler: ManageUser,
 			body: func(target *model.User) string { return fmt.Sprintf(`{"id":%d,"action":"promote"}`, target.Id) },
 			unchanged: func(t *testing.T, target *model.User) {

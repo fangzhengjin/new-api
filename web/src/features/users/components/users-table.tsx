@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
+import { ShieldCheck, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -34,6 +35,7 @@ import {
   createServerError,
   requireServerSuccess,
 } from '@/lib/server-error-message'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { getGroups, getUsers, searchUsers } from '../api'
 import {
@@ -64,7 +66,10 @@ function isDisabledUserRow(user: User) {
 
 export function UsersTable() {
   const { t } = useTranslation()
-  const columns = useUsersColumns()
+  const cycleQuotaManagementEnabled = useSystemConfigStore(
+    (state) => state.config.cycleQuotaManagementEnabled === true
+  )
+  const columns = useUsersColumns(cycleQuotaManagementEnabled)
   const { refreshTrigger } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const [sorting, setSorting] = useState<SortingState>([])
@@ -86,6 +91,11 @@ export function UsersTable() {
       { columnId: 'status', searchKey: 'status', type: 'array' },
       { columnId: 'role', searchKey: 'role', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
+      {
+        columnId: 'quota_whitelist',
+        searchKey: 'quotaWhitelist',
+        type: 'array',
+      },
     ],
   })
   const statusFilter =
@@ -106,6 +116,19 @@ export function UsersTable() {
     queryFn: async () => requireServerSuccess(await getGroups()),
     staleTime: 5 * 60 * 1000,
   })
+  const quotaWhitelistFilter =
+    (columnFilters.find((filter) => filter.id === 'quota_whitelist')?.value as
+      | string[]
+      | undefined) ?? []
+  let quotaWhitelist: boolean | undefined
+  if (cycleQuotaManagementEnabled && quotaWhitelistFilter[0] === 'true') {
+    quotaWhitelist = true
+  } else if (
+    cycleQuotaManagementEnabled &&
+    quotaWhitelistFilter[0] === 'false'
+  ) {
+    quotaWhitelist = false
+  }
 
   const sortParams = useMemo(() => {
     const activeSort = sorting[0]
@@ -139,6 +162,7 @@ export function UsersTable() {
       statusFilter,
       roleFilter,
       groupFilter,
+      quotaWhitelist,
       sortParams,
       refreshTrigger,
     ],
@@ -147,7 +171,8 @@ export function UsersTable() {
       const hasColumnFilter =
         statusFilter.length > 0 ||
         roleFilter.length > 0 ||
-        groupFilter.length > 0
+        groupFilter.length > 0 ||
+        quotaWhitelist !== undefined
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -162,6 +187,7 @@ export function UsersTable() {
               status: statusFilter[0] ?? '',
               role: roleFilter[0] ?? '',
               group: groupFilter[0] ?? '',
+              quota_whitelist: quotaWhitelist,
             })
           : await getUsers(params)
 
@@ -190,6 +216,7 @@ export function UsersTable() {
     globalFilter,
     pagination,
     sorting,
+    initialColumnVisibility: { quota_whitelist: false },
     globalFilterFn: (row, _columnId, filterValue) => {
       const searchValue = String(filterValue).toLowerCase()
       const fields = [
@@ -251,6 +278,27 @@ export function UsersTable() {
             })),
             singleSelect: true,
           },
+          ...(cycleQuotaManagementEnabled
+            ? [
+                {
+                  columnId: 'quota_whitelist',
+                  title: t('Quota Management'),
+                  options: [
+                    {
+                      label: t('Managed users'),
+                      value: 'false',
+                      icon: Users,
+                    },
+                    {
+                      label: t('Whitelist'),
+                      value: 'true',
+                      icon: ShieldCheck,
+                    },
+                  ],
+                  singleSelect: true,
+                },
+              ]
+            : []),
         ],
       }}
       getRowClassName={(row, { isMobile }) => {

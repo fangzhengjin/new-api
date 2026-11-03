@@ -252,7 +252,9 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 						len(intent.taskIDs),
 						time.Since(hookStarted).Milliseconds(),
 					)
-					renderTaskPluginQuery(c, pinned, candidateContext, intent.taskIDs, candidate.Route.Render, true)
+					runModelRequestTrafficLimit(c, func() {
+						renderTaskPluginQuery(c, pinned, candidateContext, intent.taskIDs, candidate.Route.Render, true)
+					})
 					return
 				}
 				owned, lookupErr := taskPluginOwnsTasks(c, candidate.Plugin.Meta, intent.taskIDs)
@@ -265,7 +267,9 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 					c.Set(pluginruntime.ContextKeyPinnedRoute, pinned)
 					c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Generation: pinned.Generation, Plugin: candidate.Plugin})
 					c.Set(pluginruntime.ContextKeyRouteRequest, candidateContext)
-					renderTaskPluginQuery(c, pinned, candidateContext, intent.taskIDs, candidate.Route.Render, true)
+					runModelRequestTrafficLimit(c, func() {
+						renderTaskPluginQuery(c, pinned, candidateContext, intent.taskIDs, candidate.Route.Render, true)
+					})
 					return
 				}
 				queryMissed = true

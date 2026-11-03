@@ -51,11 +51,13 @@ var reservedRouteNamespaces = []string{
 	"/request-processing",
 	"/security",
 	"/subscriptions",
+	"/temporary-quota",
 	"/system-info",
 	"/task-plugins",
 	"/usage-logs",
 	"/users",
 	"/wallet",
+	"/quota-management",
 }
 
 // The settings are read on every use, so values loaded from the environment

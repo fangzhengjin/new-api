@@ -27,6 +27,7 @@ const (
 	SystemTaskTypeAsyncTaskPoll    = "async_task_poll"
 	SystemTaskTypeChannelBalance   = "channel_balance"
 	SystemTaskTypeCleanup          = "system_task_cleanup"
+	SystemTaskTypeQuotaLifecycle   = "quota_lifecycle"
 
 	systemTaskCleanupBatchSize = 500
 )

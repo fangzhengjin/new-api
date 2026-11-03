@@ -56,11 +56,11 @@ func ConfirmPaymentCompliance(c *gin.Context) {
 		"payment_setting.compliance_confirmed_ip":  clientIP,
 	}
 
-	for key, value := range updates {
-		if err := model.UpdateOption(key, value); err != nil {
-			common.ApiError(c, err)
-			return
-		}
+	// One transaction: a partially written compliance record would leave the
+	// stored confirmation inconsistent with the version it confirmed.
+	if err := model.UpdateOptionsBulk(updates); err != nil {
+		common.ApiError(c, err)
+		return
 	}
 
 	logger.LogInfo(c.Request.Context(), common.LogText(

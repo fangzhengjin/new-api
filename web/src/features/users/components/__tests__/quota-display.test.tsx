@@ -66,7 +66,7 @@ await i18n.init({
 })
 
 function QuotaTable(props: { remaining: number; used: number }) {
-  const columns = useUsersColumns().filter((column) =>
+  const columns = useUsersColumns(false).filter((column) =>
     ['quota', 'used_quota'].includes(
       column.id ?? ('accessorKey' in column ? String(column.accessorKey) : '')
     )

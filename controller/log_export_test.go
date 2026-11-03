@@ -107,7 +107,9 @@ func TestLogExportDatabaseMatrix(t *testing.T) {
 				mainType = common.DatabaseTypeSQLite
 			}
 			useLogExportDatabases(t, mainDB, db, mainType, tc.typ)
-			require.NoError(t, mainDB.AutoMigrate(&model.Channel{}))
+			// The export path enriches log rows with the current display name read
+			// from the main database, so the fixture needs that table as well.
+			require.NoError(t, mainDB.AutoMigrate(&model.Channel{}, &model.User{}))
 			if tc.kind == "clickhouse" {
 				t.Setenv("LOG_SQL_DSN", isolatedDSN)
 				require.NoError(t, model.InitLogDB())

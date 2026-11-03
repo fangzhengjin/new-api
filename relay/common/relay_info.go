@@ -76,6 +76,14 @@ type ChannelMeta struct {
 	SupportStreamOptions bool // 是否支持流式选项
 }
 
+// RelayRetryTarget identifies one relay handler attempt without exposing the key value.
+type RelayRetryTarget struct {
+	ChannelId     int    `json:"channel_id"`
+	MultiKeyIndex *int   `json:"multi_key_index,omitempty"`
+	StatusCode    int    `json:"status_code,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
 type TokenCountMeta struct {
 	//promptTokens int
 	estimatePromptTokens int
@@ -118,6 +126,10 @@ type RelayInfo struct {
 	IsFirstRequest     bool
 	AudioUsage         bool
 	ReasoningEffort    string
+	// ReasoningEffortRequest and ReasoningEffortChecked preserve the explicit
+	// client value and whether the final upstream JSON was inspected for audit.
+	ReasoningEffortRequest string
+	ReasoningEffortChecked bool
 	// ReasoningConversion is the suffix-derived reasoning intent attached
 	// after model mapping. Converters read it via ReasoningState().
 	ReasoningConversion *dto.ReasoningConversionState
@@ -161,6 +173,8 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
+	RetryTargets                          []RelayRetryTarget
+	RetryTargetsTruncated                 bool
 	RuntimeHeadersOverride                map[string]any
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
@@ -360,6 +374,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		delete(info.ResponsesUsageInfo.BuiltInTools, info.requestInferredToolKey)
 	}
 	info.requestInferredToolKey = ""
+	info.ReasoningEffortChecked = false
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelMeta.ChannelSetting.PassThroughBodyEnabled {
 		info.ReasoningEffort = ""
 		info.ReasoningConversion = nil
@@ -565,41 +580,72 @@ func GenRelayInfoOpenAI(c *gin.Context, request dto.Request) *RelayInfo {
 	return info
 }
 
+func normalizeReasoningEffort(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func reasoningEffortFromRawJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	value := ojson.GetBytes(raw, "effort")
+	if value.Type == ojson.String {
+		return normalizeReasoningEffort(value.String())
+	}
+	if enabled := ojson.GetBytes(raw, "enabled"); enabled.Exists() && enabled.Type == ojson.False {
+		return "none"
+	}
+	return ""
+}
+
 func reasoningEffortFromRequest(request dto.Request) string {
-	var effort string
 	switch req := request.(type) {
 	case *dto.GeneralOpenAIRequest:
 		if req == nil {
 			return ""
 		}
-		effort = req.ReasoningEffort
-		if strings.TrimSpace(effort) == "" && len(req.Reasoning) > 0 {
-			value := ojson.GetBytes(req.Reasoning, "effort")
-			if value.Type == ojson.String {
-				effort = value.String()
-			}
+		if effort := normalizeReasoningEffort(req.ReasoningEffort); effort != "" {
+			return effort
+		}
+		if effort := reasoningEffortFromRawJSON(req.Reasoning); effort != "" {
+			return effort
+		}
+		if effort := reasoningEffortFromRawJSON(req.THINKING); effort != "" {
+			return effort
+		}
+		if enabled := ojson.ParseBytes(req.EnableThinking); enabled.Exists() && enabled.Type == ojson.False {
+			return "none"
 		}
 	case *dto.OpenAIResponsesRequest:
 		if req != nil && req.Reasoning != nil {
-			effort = req.Reasoning.Effort
+			return normalizeReasoningEffort(req.Reasoning.Effort)
+		}
+	case *dto.OpenAIResponsesCompactionRequest:
+		if req != nil && req.Reasoning != nil {
+			return normalizeReasoningEffort(req.Reasoning.Effort)
 		}
 	case *dto.ClaudeRequest:
 		if req != nil {
-			effort = req.GetEfforts()
+			return normalizeReasoningEffort(req.GetEfforts())
 		}
 	case *dto.GeminiChatRequest:
 		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
 			config := req.GenerationConfig.ThinkingConfig
-			effort = config.ThinkingLevel
-			if canonical, err := kitreasoning.ParseEffort(effort); err == nil {
-				effort = string(canonical)
+			level := strings.TrimSpace(config.ThinkingLevel)
+			if level != "" {
+				if canonical, err := kitreasoning.ParseEffort(level); err == nil {
+					return string(canonical)
+				}
+				// 非标准强度保留调用方显式写法的小写原文：审计需要区分「未设置」与「设置了
+				// 上游无法识别的强度」，返回空值会丢后一种信息。
+				return normalizeReasoningEffort(level)
 			}
-			if effort == "" && config.ThinkingBudget != nil {
-				effort = string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
+			if config.ThinkingBudget != nil {
+				return string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
 			}
 		}
 	}
-	return strings.TrimSpace(effort)
+	return ""
 }
 
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
@@ -635,8 +681,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	reasoningEffort := reasoningEffortFromRequest(request)
 	originModelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 	info := &RelayInfo{
-		Request:         request,
-		ReasoningEffort: reasoningEffort,
+		Request:                request,
+		ReasoningEffort:        reasoningEffort,
+		ReasoningEffortRequest: reasoningEffort,
 
 		RequestId:  reqId,
 		UserId:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
@@ -707,6 +754,55 @@ func cloneRequestHeaders(c *gin.Context) map[string]string {
 		return nil
 	}
 	return headers
+}
+
+func extractReasoningEffortFromUpstreamJSON(jsonData []byte) string {
+	for _, path := range []string{
+		"reasoning_effort",
+		"reasoning.effort",
+		"output_config.effort",
+		"generationConfig.thinkingConfig.thinkingLevel",
+		"generation_config.thinking_config.thinking_level",
+	} {
+		value := ojson.GetBytes(jsonData, path)
+		if value.Exists() {
+			if effort := normalizeReasoningEffort(value.String()); effort != "" {
+				return effort
+			}
+		}
+	}
+	for _, path := range []string{"reasoning.enabled", "enable_thinking"} {
+		value := ojson.GetBytes(jsonData, path)
+		if value.Exists() && value.Type == ojson.False {
+			return "none"
+		}
+	}
+	if thinkingType := ojson.GetBytes(jsonData, "thinking.type"); thinkingType.Exists() &&
+		strings.EqualFold(thinkingType.String(), "disabled") &&
+		strings.HasPrefix(strings.ToLower(ojson.GetBytes(jsonData, "model").String()), "deepseek-v4-") {
+		return "none"
+	}
+	return ""
+}
+
+// UpdateReasoningEffortForUpstreamJSON records the reasoning effort represented
+// by jsonData as the final upstream value while preserving the original request.
+func UpdateReasoningEffortForUpstreamJSON(info *RelayInfo, jsonData []byte) {
+	if info == nil {
+		return
+	}
+	info.ReasoningEffortChecked = true
+	info.ReasoningEffort = extractReasoningEffortFromUpstreamJSON(jsonData)
+}
+
+// FinalizeReasoningEffortForPassthrough records the explicit unmodified request
+// value as final without materializing the raw body solely for log metadata.
+func FinalizeReasoningEffortForPassthrough(info *RelayInfo) {
+	if info == nil {
+		return
+	}
+	info.ReasoningEffortChecked = true
+	info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
 }
 
 func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Request, ws *websocket.Conn) (*RelayInfo, error) {
@@ -892,6 +988,49 @@ func (info *RelayInfo) GetUpstreamModelName() string {
 		return ""
 	}
 	return info.UpstreamModelName
+}
+
+// ShouldHideModelMappingFromUsers reports whether this text mapping must be
+// hidden from ordinary users in both logs and responses.
+func (info *RelayInfo) ShouldHideModelMappingFromUsers() bool {
+	if info == nil || info.ChannelMeta == nil || !info.IsModelMapped {
+		return false
+	}
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI,
+		types.RelayFormatClaude,
+		types.RelayFormatOpenAIResponses,
+		types.RelayFormatOpenAIResponsesCompaction:
+	case types.RelayFormatGemini:
+		if info.RelayMode == relayconstant.RelayModeEmbeddings {
+			return false
+		}
+		switch info.Request.(type) {
+		case *dto.GeminiEmbeddingRequest, *dto.GeminiBatchEmbeddingRequest:
+			return false
+		}
+	default:
+		return false
+	}
+	return !info.ChannelSetting.IsModelMappingVisibleToUsers(info.OriginModelName)
+}
+
+// GetUserResponseModelOverride returns the requested model name only when the
+// selected mapping must be hidden from ordinary users.
+func (info *RelayInfo) GetUserResponseModelOverride() string {
+	if info.ShouldHideModelMappingFromUsers() {
+		return info.OriginModelName
+	}
+	return ""
+}
+
+// GetUserResponseModelName returns the model name for converted responses
+// that must populate a model field themselves.
+func (info *RelayInfo) GetUserResponseModelName() string {
+	if override := info.GetUserResponseModelOverride(); override != "" {
+		return override
+	}
+	return info.GetUpstreamModelName()
 }
 
 func (info *RelayInfo) HasChannelMeta() bool { return info != nil && info.ChannelMeta != nil }

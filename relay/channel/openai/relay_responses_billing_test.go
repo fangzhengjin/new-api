@@ -125,6 +125,7 @@ func TestOaiResponsesStreamHandlerCompletionLifecycle(t *testing.T) {
 		failFlush         bool
 		wantEnd           relaycommon.StreamEndReason
 		wantError         bool
+		wantReturnError   bool
 	}{
 		{name: "completed without upstream EOF", event: "response.completed", responseStatus: "completed", wantEnd: relaycommon.StreamEndReasonDone},
 		{name: "done alias without upstream EOF", event: "response.done", responseStatus: "completed", wantEnd: relaycommon.StreamEndReasonDone},
@@ -132,11 +133,11 @@ func TestOaiResponsesStreamHandlerCompletionLifecycle(t *testing.T) {
 		{name: "completion then cancellation and cleanup EOF", event: "response.completed", responseStatus: "completed", cancel: true, closeEOF: true, wantEnd: relaycommon.StreamEndReasonDone},
 		{name: "midstream disconnect", event: "response.output_text.delta", cancel: true, wantEnd: relaycommon.StreamEndReasonClientGone, wantError: true},
 		{name: "midstream disconnect followed by cleanup EOF", event: "response.output_text.delta", cancel: true, closeEOF: true, wantEnd: relaycommon.StreamEndReasonClientGone, wantError: true},
-		{name: "cancellation before flush", event: "response.completed", responseStatus: "completed", cancel: true, cancelBeforeFlush: true, wantEnd: relaycommon.StreamEndReasonClientGone, wantError: true},
-		{name: "event write failure", event: "response.completed", responseStatus: "completed", failWrite: 1, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
-		{name: "data write failure", event: "response.completed", responseStatus: "completed", failWrite: 2, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
-		{name: "delimiter write failure", event: "response.completed", responseStatus: "completed", failWrite: 3, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
-		{name: "flush failure", event: "response.completed", responseStatus: "completed", failFlush: true, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
+		{name: "cancellation before flush", wantReturnError: true, event: "response.completed", responseStatus: "completed", cancel: true, cancelBeforeFlush: true, wantEnd: relaycommon.StreamEndReasonClientGone, wantError: true},
+		{name: "event write failure", wantReturnError: true, event: "response.completed", responseStatus: "completed", failWrite: 1, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
+		{name: "data write failure", wantReturnError: true, event: "response.completed", responseStatus: "completed", failWrite: 2, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
+		{name: "delimiter write failure", wantReturnError: true, event: "response.completed", responseStatus: "completed", failWrite: 3, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
+		{name: "flush failure", wantReturnError: true, event: "response.completed", responseStatus: "completed", failFlush: true, wantEnd: relaycommon.StreamEndReasonHandlerStop, wantError: true},
 		{name: "protocol error before completion", event: "response.completed", responseStatus: "completed", priorError: true, cancel: true, wantEnd: relaycommon.StreamEndReasonClientGone, wantError: true},
 		{name: "upstream read failure before handler returns", event: "response.completed", responseStatus: "completed", scannerError: true, wantEnd: relaycommon.StreamEndReasonScannerErr, wantError: true},
 		{name: "done with failed response", event: "response.done", responseStatus: "failed", eof: true, wantEnd: relaycommon.StreamEndReasonEOF, wantError: true},
@@ -187,14 +188,24 @@ func TestOaiResponsesStreamHandlerCompletionLifecycle(t *testing.T) {
 			info.SetEstimatePromptTokens(7)
 			resp := &http.Response{StatusCode: http.StatusOK, Body: upstream, Header: http.Header{"Content-Type": {"text/event-stream"}}}
 			usage, apiErr := OaiResponsesStreamHandler(c, info, resp)
-			require.Nil(t, apiErr)
-			require.NotNil(t, usage)
+			// In-stream failures inside the data callback are also returned to
+			// the caller so retry and billing decisions cannot record a broken
+			// stream as a success; failures observed only after the callback
+			// (cancellation during cleanup, upstream read errors) surface
+			// through StreamStatus alone.
+			if tc.wantReturnError {
+				require.NotNil(t, apiErr)
+				require.Nil(t, usage)
+			} else {
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+			}
 			require.NotNil(t, info.StreamStatus)
 			assert.Equal(t, tc.wantEnd, info.StreamStatus.EndReason)
 			assert.Equal(t, tc.responseStatus, info.StreamStatus.ResponseOutcome())
 			log := service.GenerateTextOtherInfo(c, info, 1, 1, 1, 0, 1, 0, 1).Snapshot()["stream_status"].(map[string]any)
 			assert.Equal(t, tc.wantError, log["status"] == "error")
-			if tc.responseStatus != "" {
+			if tc.responseStatus != "" && usage != nil {
 				assert.Equal(t, 7, usage.PromptTokens)
 				assert.Equal(t, 5, usage.CompletionTokens)
 				assert.Equal(t, 12, usage.TotalTokens)
@@ -219,6 +230,31 @@ func TestOaiResponsesStreamHandlerCompletionLifecycle(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOaiResponsesStreamHandlerReturnsDecodeError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{DisablePing: true}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":{}}\n\n" +
+				"data: [DONE]\n\n",
+		)),
+		Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	_, apiErr := OaiResponsesStreamHandler(c, info, resp)
+
+	require.NotNil(t, apiErr)
+	assert.Equal(t, types.ErrorCodeBadResponseBody, apiErr.GetErrorCode())
+	assert.Contains(t, apiErr.Error(), "delta")
 }
 
 func TestOaiResponsesHandlerCountsOutputCallsNotDeclarations(t *testing.T) {

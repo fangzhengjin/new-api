@@ -197,6 +197,11 @@ export type RequestPluginAdminStep = {
   error_class?: string
   rule?: string
   findings?: { rule: string; category?: string; count: number }[]
+export interface RelayRetryTarget {
+  channel_id: number
+  multi_key_index?: number
+  status_code?: number
+  error?: string
 }
 
 export interface LogOtherData {
@@ -205,7 +210,9 @@ export interface LogOtherData {
     request_plugins?: RequestPluginAdminStep[]
     is_multi_key?: boolean
     multi_key_index?: number
-    use_channel?: number[]
+    use_channel?: Array<number | string>
+    retry_targets?: RelayRetryTarget[]
+    retry_targets_truncated?: boolean
     local_count_tokens?: boolean
     usage_billing_path?: UsageBillingPath | string
     channel_affinity?: ChannelAffinityInfo
@@ -274,11 +281,14 @@ export interface LogOtherData {
   cache_tokens?: number
   image_cache_tokens?: number
   billing_tokens?: Record<string, number>
+  cache_write_tokens?: number
   cache_creation_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number
   cache_creation_tokens_12h?: number
   claude?: boolean
+  usage_semantic?: string
+  input_tokens_total?: number
   model_ratio?: number
   completion_ratio?: number
   model_price?: number
@@ -313,7 +323,12 @@ export interface LogOtherData {
   matched_tier?: string
   request_rules?: RequestRuleTrace[]
   usage_facts?: Record<string, string | number>
-  reasoning_effort?: string
+  reasoning_effort?:
+    | string
+    | {
+        original?: string
+        final?: string
+      }
   image?: boolean
   image_ratio?: number
   image_output?: number

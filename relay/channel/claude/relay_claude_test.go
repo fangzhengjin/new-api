@@ -501,6 +501,8 @@ func TestClaudeResponsePassesInputTransformationsThrough(t *testing.T) {
 		transformations + `,"usage":{"input_tokens":5,"output_tokens":1}}}`
 	require.Nil(t, HandleStreamResponseData(c, info, &ClaudeResponseInfo{Usage: &dto.Usage{}}, event))
 	assert.Contains(t, w.Body.String(), "data: "+event+"\n")
+	// ClaudeChunkData 的 data 帧不带尾换行：writeData 只统一补 "\n\n"，帧间不得出现第三换行。
+	assert.Equal(t, "event: message_start\ndata: "+event+"\n\n", w.Body.String())
 }
 
 func TestClaudeThinkingTokensMapToOpenAIReasoningTokens(t *testing.T) {

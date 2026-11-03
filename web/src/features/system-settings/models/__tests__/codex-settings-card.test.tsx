@@ -79,16 +79,16 @@ describe('Codex settings card', () => {
         .map((heading) => heading.textContent)
     ).toEqual([
       'Codex',
-      'Codex Client Version Validation',
-      'Codex Client Identity Simulation',
-      'Codex Error Response Mappings',
+      'Codex 客户端版本校验',
+      'Codex 客户端身份模拟',
+      'Codex 错误响应映射',
     ])
 
     const identityHeading = screen.getByRole('heading', {
-      name: 'Codex Client Identity Simulation',
+      name: 'Codex 客户端身份模拟',
     })
     const mappingHeading = screen.getByRole('heading', {
-      name: 'Codex Error Response Mappings',
+      name: 'Codex 错误响应映射',
     })
     expect(
       identityHeading.compareDocumentPosition(mappingHeading) &
@@ -98,19 +98,19 @@ describe('Codex settings card', () => {
     expect(mappingSection).toHaveClass('pb-10')
     const actionGroup = within(mappingSection as HTMLElement).getByRole(
       'group',
-      { name: 'Error response mapping actions' }
+      { name: '错误响应映射操作' }
     )
     expect(
-      within(actionGroup).getByRole('button', { name: 'Add mapping rule' })
+      within(actionGroup).getByRole('button', { name: '新建映射规则' })
     ).toBeVisible()
     expect(
-      within(actionGroup).getByRole('button', { name: 'Fill template' })
+      within(actionGroup).getByRole('button', { name: '填充模板' })
     ).toBeVisible()
     expect(
       within(actionGroup).getByRole('button', { name: 'Switch to JSON' })
     ).toBeVisible()
     const status = within(mappingSection as HTMLElement).getByText(
-      'Configured · 0 rules'
+      '已配置 · 0 条规则'
     )
     expect(actionGroup).not.toContainElement(status)
     expect(
@@ -119,10 +119,10 @@ describe('Codex settings card', () => {
     ).toBeTruthy()
 
     const cliSwitch = screen.getByRole('switch', {
-      name: 'Codex CLI Client Version Validation',
+      name: 'Codex CLI 客户端版本校验',
     })
     const desktopSwitch = screen.getByRole('switch', {
-      name: 'Codex Desktop Client Version Validation',
+      name: 'Codex Desktop 客户端版本校验',
     })
     expect(
       cliSwitch.compareDocumentPosition(desktopSwitch) &
@@ -139,11 +139,11 @@ describe('Codex settings card', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: 'Fill template' }))
-    expect(screen.getByText('Configured · 1 rule')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '填充模板' }))
+    expect(screen.getByText('已配置 · 1 条规则')).toBeVisible()
     expect(
       screen.getByRole<HTMLTextAreaElement>('textbox', {
-        name: 'Message patterns',
+        name: '消息匹配条件',
       }).value
     ).toContain('Request rate increased too quickly.')
     expect(screen.getByText('HTTP 503 · application/json')).toBeVisible()
@@ -168,19 +168,19 @@ describe('Codex settings card', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: 'Add mapping rule' }))
+    await user.click(screen.getByRole('button', { name: '新建映射规则' }))
     const targetStatus = screen.getByRole('spinbutton', {
-      name: 'Return status code',
+      name: '返回状态码',
     })
     await user.clear(targetStatus)
     await user.type(targetStatus, '200')
     expect(
-      screen.getByRole('spinbutton', { name: 'Return status code' })
+      screen.getByRole('spinbutton', { name: '返回状态码' })
     ).toHaveValue(200)
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
     const message = await screen.findByText(
-      'Enter an HTTP error status code from 400 to 599'
+      '请输入 400 到 599 之间的 HTTP 错误状态码'
     )
     const error = message.closest('[role="alert"]')
     expect(error).not.toBeNull()
@@ -197,12 +197,12 @@ describe('Codex settings card', () => {
     )
 
     const minimumVersion = screen.getByRole('textbox', {
-      name: 'Minimum Codex CLI Version',
+      name: 'Codex CLI 最低版本',
     })
     expect(minimumVersion).toBeDisabled()
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Codex CLI Client Version Validation',
+        name: 'Codex CLI 客户端版本校验',
       })
     )
     expect(minimumVersion).toBeEnabled()
@@ -227,17 +227,17 @@ describe('Codex settings card', () => {
     )
 
     const cliMinimum = screen.getByRole('textbox', {
-      name: 'Minimum Codex CLI Version',
+      name: 'Codex CLI 最低版本',
     })
     const desktopMinimum = screen.getByRole('textbox', {
-      name: 'Minimum Codex Desktop Version',
+      name: 'Codex Desktop 最低版本',
     })
     expect(cliMinimum).toBeDisabled()
     expect(desktopMinimum).toBeDisabled()
 
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Codex Desktop Client Version Validation',
+        name: 'Codex Desktop 客户端版本校验',
       })
     )
     expect(cliMinimum).toBeDisabled()
@@ -261,7 +261,7 @@ describe('Codex settings card', () => {
     )
 
     const simulatedVersion = screen.getByRole('textbox', {
-      name: 'Client Version',
+      name: '客户端版本',
     })
     expect(simulatedVersion).toBeDisabled()
     expect(
@@ -270,23 +270,23 @@ describe('Codex settings card', () => {
       )
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('textbox', { name: 'Operating System' })
+      screen.getByRole('textbox', { name: '操作系统' })
     ).toBeDisabled()
     expect(
       screen.getByRole('textbox', { name: 'System Version' })
     ).toBeDisabled()
-    expect(screen.getByRole('textbox', { name: 'Architecture' })).toBeDisabled()
-    expect(screen.getByRole('textbox', { name: 'Terminal' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: '架构' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: '终端' })).toBeDisabled()
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Codex Client Identity Simulation',
+        name: 'Codex 客户端身份模拟',
       })
     )
     expect(simulatedVersion).toBeEnabled()
     expect(
-      screen.getByRole('textbox', { name: 'Operating System' })
+      screen.getByRole('textbox', { name: '操作系统' })
     ).toBeEnabled()
-    expect(screen.getByRole('textbox', { name: 'Terminal' })).toBeEnabled()
+    expect(screen.getByRole('textbox', { name: '终端' })).toBeEnabled()
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
     await waitFor(() => {
@@ -307,16 +307,16 @@ describe('Codex settings card', () => {
 
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Codex Client Identity Simulation',
+        name: 'Codex 客户端身份模拟',
       })
     )
     fireEvent.change(
-      screen.getByRole('textbox', { name: 'Client Identifier' }),
+      screen.getByRole('textbox', { name: '客户端标识' }),
       {
         target: { value: 'custom-cli' },
       }
     )
-    fireEvent.change(screen.getByRole('textbox', { name: 'Terminal' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: '终端' }), {
       target: { value: 'Apple_Terminal/2.14' },
     })
     expect(
@@ -351,7 +351,7 @@ describe('Codex settings card', () => {
     )
 
     fireEvent.change(
-      screen.getByRole('textbox', { name: 'Client Identifier' }),
+      screen.getByRole('textbox', { name: '客户端标识' }),
       {
         target: { value: 'codex tui' },
       }
@@ -359,7 +359,7 @@ describe('Codex settings card', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
     expect(
-      await screen.findByText('Enter a valid User-Agent component')
+      await screen.findByText('请输入有效的 User-Agent 组成字段')
     ).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
   })
@@ -374,17 +374,17 @@ describe('Codex settings card', () => {
 
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Codex CLI Client Version Validation',
+        name: 'Codex CLI 客户端版本校验',
       })
     )
     fireEvent.change(
-      screen.getByRole('textbox', { name: 'Minimum Codex CLI Version' }),
+      screen.getByRole('textbox', { name: 'Codex CLI 最低版本' }),
       { target: { value: '0.147.0-beta..1' } }
     )
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
 
     expect(
-      await screen.findByText('Enter a valid semantic version')
+      await screen.findByText('请输入有效的语义化版本号')
     ).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
   })
@@ -406,7 +406,7 @@ describe('Codex settings card', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Restore defaults' }))
     expect(
-      screen.getByRole('textbox', { name: 'Minimum Codex CLI Version' })
+      screen.getByRole('textbox', { name: 'Codex CLI 最低版本' })
     ).toHaveValue('0.147.0')
     expect(mutateAsync).not.toHaveBeenCalled()
     expect(

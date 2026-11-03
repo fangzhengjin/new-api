@@ -66,14 +66,14 @@ const userAgentComponent = z
   .string()
   .trim()
   .regex(/^[0-9A-Za-z][0-9A-Za-z ._/-]{0,63}$/, {
-    message: 'Enter a valid User-Agent component',
+    message: '请输入有效的 User-Agent 组成字段',
   })
 
 const userAgentClient = z
   .string()
   .trim()
   .regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/, {
-    message: 'Enter a valid User-Agent component',
+    message: '请输入有效的 User-Agent 组成字段',
   })
 
 const schema = z.object({
@@ -255,10 +255,8 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
           />
 
           <SettingsFormSection
-            title={t('Codex Client Version Validation')}
-            description={t(
-              'Configure minimum versions for Codex CLI and Codex Desktop independently.'
-            )}
+            title={t('Codex 客户端版本校验')}
+            description={t('分别配置 Codex CLI 和 Codex Desktop 的最低允许版本')}
           >
             <div className='space-y-8'>
               <div className='space-y-4'>
@@ -269,17 +267,15 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                     <SettingsSwitchItem className='items-start py-0'>
                       <SettingsSwitchContent>
                         <FormLabel>
-                          {t('Codex CLI Client Version Validation')}
+                          {t('Codex CLI 客户端版本校验')}
                         </FormLabel>
                         <FormDescription>
-                          {t(
-                            'Identify Codex CLI by its User-Agent and reject requests below the configured minimum version.'
-                          )}
+                          {t('通过 User-Agent 识别 Codex CLI，并拒绝低于最低版本的请求')}
                         </FormDescription>
                       </SettingsSwitchContent>
                       <FormControl>
                         <Switch
-                          aria-label={t('Codex CLI Client Version Validation')}
+                          aria-label={t('Codex CLI 客户端版本校验')}
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
@@ -292,7 +288,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.minimum_client_version'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Minimum Codex CLI Version')}</FormLabel>
+                      <FormLabel>{t('Codex CLI 最低版本')}</FormLabel>
                       <FormControl>
                         <Input {...field} disabled={!versionCheckEnabled} />
                       </FormControl>
@@ -310,19 +306,15 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                     <SettingsSwitchItem className='items-start py-0'>
                       <SettingsSwitchContent>
                         <FormLabel>
-                          {t('Codex Desktop Client Version Validation')}
+                          {t('Codex Desktop 客户端版本校验')}
                         </FormLabel>
                         <FormDescription>
-                          {t(
-                            'Identify Codex Desktop by its User-Agent application version and reject requests below the configured minimum version.'
-                          )}
+                          {t('通过 User-Agent 中的应用版本识别 Codex Desktop，并拒绝低于最低版本的请求')}
                         </FormDescription>
                       </SettingsSwitchContent>
                       <FormControl>
                         <Switch
-                          aria-label={t(
-                            'Codex Desktop Client Version Validation'
-                          )}
+                          aria-label={t('Codex Desktop 客户端版本校验')}
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
@@ -336,7 +328,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {t('Minimum Codex Desktop Version')}
+                        {t('Codex Desktop 最低版本')}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -355,10 +347,8 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
           <Separator />
 
           <SettingsFormSection
-            title={t('Codex Client Identity Simulation')}
-            description={t(
-              'For matching mapped upstream models, replace a different client identity with the Codex identity configured below.'
-            )}
+            title={t('Codex 客户端身份模拟')}
+            description={t('对匹配的映射后上游模型，将其他客户端身份替换为下方配置的 Codex 身份')}
             action={
               <FormField
                 control={form.control}
@@ -367,7 +357,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   <FormItem className='space-y-0'>
                     <FormControl>
                       <Switch
-                        aria-label={t('Codex Client Identity Simulation')}
+                        aria-label={t('Codex 客户端身份模拟')}
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />
@@ -379,7 +369,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
           >
             <FieldSet disabled={!headerFallbackEnabled}>
               <FieldLegend className='sr-only'>
-                {t('Codex Client Identity Simulation')}
+                {t('Codex 客户端身份模拟')}
               </FieldLegend>
               <SettingsFormGrid>
                 <FormField
@@ -387,7 +377,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_fallback_client'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Client Identifier')}</FormLabel>
+                      <FormLabel>{t('客户端标识')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -400,7 +390,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_fallback_version'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Client Version')}</FormLabel>
+                      <FormLabel>{t('客户端版本')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -413,7 +403,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_fallback_os'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Operating System')}</FormLabel>
+                      <FormLabel>{t('操作系统')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -439,7 +429,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_fallback_architecture'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Architecture')}</FormLabel>
+                      <FormLabel>{t('架构')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -452,7 +442,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_fallback_terminal'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Terminal')}</FormLabel>
+                      <FormLabel>{t('终端')}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -465,14 +455,12 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
                   name='codex.request_header_model_patterns'
                   render={({ field }) => (
                     <FormItem className='sm:col-span-2'>
-                      <FormLabel>{t('Target Model Patterns')}</FormLabel>
+                      <FormLabel>{t('目标模型规则')}</FormLabel>
                       <FormControl>
                         <Textarea {...field} rows={3} />
                       </FormControl>
                       <FormDescription>
-                        {t(
-                          'One regular expression per line. Match the mapped model name that is actually sent upstream.'
-                        )}
+                        {t('每行一个正则表达式，匹配实际发送给上游的映射后模型名称')}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -481,7 +469,7 @@ export function CodexSettingsCard(props: CodexSettingsCardProps) {
               </SettingsFormGrid>
               <div className='bg-muted/40 rounded-lg p-3'>
                 <p className='text-muted-foreground text-xs font-medium'>
-                  {t('Generated User-Agent')}
+                  {t('生成的 User-Agent')}
                 </p>
                 <code className='mt-1 block text-xs break-all'>
                   {generatedUserAgent}

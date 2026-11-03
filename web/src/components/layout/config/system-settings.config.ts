@@ -80,7 +80,7 @@ function getSystemSettingsNavGroups(
         ...(cycleQuotaManagementEnabled
           ? [
               {
-                title: t('Cycle Quota Management'),
+                title: t('周期额度管理'),
                 icon: Building2,
                 url: '/system-settings/cycle-quota',
               },

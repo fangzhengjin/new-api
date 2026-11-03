@@ -486,7 +486,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                   {t('Upstream Model Name')}
                 </div>
                 <div className='justify-self-center whitespace-nowrap text-sm font-medium'>
-                  {t('Visible to users')}
+                  {t('用户可见')}
                 </div>
                 <div />
                 {visibleRows.map((row) => (
@@ -531,7 +531,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
                           props.disabled ||
                           props.userHiddenModelMappingsDisabled
                         }
-                        aria-label={t('Visible to users')}
+                        aria-label={t('用户可见')}
                       />
                     </div>
                     <Button

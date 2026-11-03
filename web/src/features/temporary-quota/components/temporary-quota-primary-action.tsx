@@ -51,7 +51,7 @@ export function TemporaryQuotaPrimaryAction(props: {
       }
     >
       <Plus className='size-4' aria-hidden='true' />
-      {t('Request temporary quota')}
+      {t('申请临时额度')}
     </Button>
   )
 
@@ -64,7 +64,7 @@ export function TemporaryQuotaPrimaryAction(props: {
           <span
             className='focus-visible:outline-ring inline-flex rounded-md focus-visible:outline-2 focus-visible:outline-offset-2'
             tabIndex={0}
-            aria-label={`${t('Request temporary quota')}: ${unavailableReason}`}
+            aria-label={`${t('申请临时额度')}: ${unavailableReason}`}
           />
         }
       >

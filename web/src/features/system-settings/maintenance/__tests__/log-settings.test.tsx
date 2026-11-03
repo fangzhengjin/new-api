@@ -95,8 +95,8 @@ test('the page shows the log modules in order, each with its own controls', asyn
     'System task records',
     'Clean history logs',
     'Server Log Management',
-    'General request headers',
-    'CDN request headers',
+    '通用请求头',
+    'CDN 请求头',
   ])
   const recording = screen.getByRole('group', { name: 'Log recording' })
   expect(within(recording).getAllByRole('switch')).toHaveLength(1)

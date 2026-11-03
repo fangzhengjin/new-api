@@ -101,8 +101,8 @@ export function CreateCycleDialog(props: {
     () =>
       z
         .object({
-          startAt: z.string().min(1, t('Start time is required')),
-          endAt: z.string().min(1, t('End time is required')),
+          startAt: z.string().min(1, t('请输入开始时间')),
+          endAt: z.string().min(1, t('请输入结束时间')),
           budgetAmount: z
             .string()
             .regex(amountPattern, amountError)
@@ -133,7 +133,7 @@ export function CreateCycleDialog(props: {
             .string()
             .regex(
               concentrationMultiplierPattern,
-              t('Select an automatic allocation limit')
+              t('请选择自动分配上限')
             ),
           carryOverBalance: z.boolean(),
           carryOverCountsTowardBudget: z.boolean(),
@@ -175,7 +175,7 @@ export function CreateCycleDialog(props: {
             context.addIssue({
               code: 'custom',
               path: ['temporaryQuotaAutoApprovalMaxCount'],
-              message: t('Enter a positive whole number'),
+              message: t('请输入正整数'),
             })
           }
         }),
@@ -229,7 +229,7 @@ export function CreateCycleDialog(props: {
         queryClient.invalidateQueries({ queryKey: queryKeys.cycles }),
         queryClient.invalidateQueries({ queryKey: queryKeys.options }),
       ])
-      toast.success(t('Quota cycle created'))
+      toast.success(t('额度周期已创建'))
       props.onOpenChange(false)
     },
     onError: (error: unknown) => handleServerError(error),
@@ -240,7 +240,7 @@ export function CreateCycleDialog(props: {
     const endAt = fromShanghaiInput(values.endAt)
     if (endAt <= startAt) {
       form.setError('endAt', {
-        message: t('End time must be later than start time'),
+        message: t('结束时间必须晚于开始时间'),
       })
       return
     }
@@ -305,11 +305,9 @@ export function CreateCycleDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
-          <DialogTitle>{t('Create quota cycle')}</DialogTitle>
+          <DialogTitle>{t('创建额度周期')}</DialogTitle>
           <DialogDescription>
-            {t(
-              'Define the valid time range and cycle total quota. Allocation is handled through plans after the cycle starts'
-            )}
+            {t('定义有效时间范围和周期总额度，周期开始后通过方案进行分配')}
           </DialogDescription>
         </DialogHeader>
         <form id='create-quota-cycle' onSubmit={submit}>
@@ -323,7 +321,7 @@ export function CreateCycleDialog(props: {
             <div className='grid gap-4 sm:grid-cols-2'>
               <Field data-invalid={!!form.formState.errors.startAt}>
                 <FieldLabel htmlFor='quota-cycle-start'>
-                  {t('Start time')}
+                  {t('开始时间')}
                 </FieldLabel>
                 <Input
                   id='quota-cycle-start'
@@ -343,7 +341,7 @@ export function CreateCycleDialog(props: {
               </Field>
               <Field data-invalid={!!form.formState.errors.endAt}>
                 <FieldLabel htmlFor='quota-cycle-end'>
-                  {t('End time')}
+                  {t('结束时间')}
                 </FieldLabel>
                 <Input
                   id='quota-cycle-end'
@@ -365,7 +363,7 @@ export function CreateCycleDialog(props: {
             <div className='grid gap-4 sm:grid-cols-2'>
               <Field data-invalid={!!form.formState.errors.budgetAmount}>
                 <FieldLabel htmlFor='quota-cycle-budget'>
-                  {t('Budget')} ({currencyLabel})
+                  {t('预算')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='quota-cycle-budget'
@@ -386,7 +384,7 @@ export function CreateCycleDialog(props: {
               </Field>
               <Field data-invalid={!!form.formState.errors.initialGrantAmount}>
                 <FieldLabel htmlFor='quota-cycle-grant'>
-                  {t('Initial grant per user')} ({currencyLabel})
+                  {t('每人首次发放额度')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='quota-cycle-grant'
@@ -409,7 +407,7 @@ export function CreateCycleDialog(props: {
                 data-invalid={!!form.formState.errors.concentrationMultiplier}
               >
                 <FieldLabel htmlFor='quota-cycle-concentration-multiplier'>
-                  {t('Automatic allocation limit')}
+                  {t('自动分配上限')}
                 </FieldLabel>
                 <NativeSelect
                   id='quota-cycle-concentration-multiplier'
@@ -428,7 +426,7 @@ export function CreateCycleDialog(props: {
                 </NativeSelect>
                 <FieldDescription id='quota-cycle-concentration-multiplier-description'>
                   {t(
-                    "The system compares each user's period spend plus current balance with the per-user share for the ordinary allocation pool, 1.5× is strictest and 3× allows the most, initial grants, manual grants, and temporary quota are not limited"
+                    "按用户本周期已用额度与当前余额之和，对比普通分配池的人均份额；1.5 倍最严格，3 倍最宽松，首次发放、手工发放和临时额度不受此上限限制"
                   )}
                 </FieldDescription>
                 <FieldError
@@ -442,7 +440,7 @@ export function CreateCycleDialog(props: {
                 }
               >
                 <FieldLabel htmlFor='quota-cycle-temporary-reserve'>
-                  {t('Temporary quota reserve')} ({currencyLabel})
+                  {t('临时额度预留')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='quota-cycle-temporary-reserve'
@@ -463,9 +461,7 @@ export function CreateCycleDialog(props: {
                   errors={[form.formState.errors.temporaryQuotaReserveAmount]}
                 />
                 <FieldDescription id='quota-cycle-temporary-reserve-description'>
-                  {t(
-                    'Reserved from the cycle quota for temporary quota requests'
-                  )}
+                  {t('从周期额度中预留，用于临时额度申请')}
                 </FieldDescription>
               </Field>
             </div>
@@ -476,14 +472,10 @@ export function CreateCycleDialog(props: {
                 <Field orientation='horizontal'>
                   <div className='flex-1'>
                     <FieldLabel htmlFor='quota-cycle-auto-temporary-quota'>
-                      {t(
-                        'Automatically approve eligible temporary quota requests'
-                      )}
+                      {t('自动批准符合条件的临时额度申请')}
                     </FieldLabel>
                     <FieldDescription>
-                      {t(
-                        'Disabled by default, configure every limit before activation because the policy is frozen after the cycle starts'
-                      )}
+                      {t('默认关闭，开启前需配置全部限制，周期开始后策略将被冻结')}
                     </FieldDescription>
                   </div>
                   <Switch
@@ -503,7 +495,7 @@ export function CreateCycleDialog(props: {
                   }
                 >
                   <FieldLabel htmlFor='quota-cycle-auto-single'>
-                    {t('Automatic single-request limit')} ({currencyLabel})
+                    {t('单次最多自动批准额度')} ({currencyLabel})
                   </FieldLabel>
                   <Input
                     id='quota-cycle-auto-single'
@@ -535,7 +527,7 @@ export function CreateCycleDialog(props: {
                   }
                 >
                   <FieldLabel htmlFor='quota-cycle-auto-threshold'>
-                    {t('Automatic balance threshold')} ({currencyLabel})
+                    {t('仅在余额低于此值时自动批准')} ({currencyLabel})
                   </FieldLabel>
                   <Input
                     id='quota-cycle-auto-threshold'
@@ -568,7 +560,7 @@ export function CreateCycleDialog(props: {
                   }
                 >
                   <FieldLabel htmlFor='quota-cycle-auto-count'>
-                    {t('Automatic requests per user')}
+                    {t('每人最多自动批准次数')}
                   </FieldLabel>
                   <Input
                     id='quota-cycle-auto-count'
@@ -598,7 +590,7 @@ export function CreateCycleDialog(props: {
                   }
                 >
                   <FieldLabel htmlFor='quota-cycle-auto-total'>
-                    {t('Automatic total per user')} ({currencyLabel})
+                    {t('每人最多自动批准总额')} ({currencyLabel})
                   </FieldLabel>
                   <Input
                     id='quota-cycle-auto-total'
@@ -630,10 +622,10 @@ export function CreateCycleDialog(props: {
                 <Field orientation='horizontal'>
                   <div className='flex-1'>
                     <FieldLabel htmlFor='quota-cycle-carry-over'>
-                      {t('Carry over balance')}
+                      {t('余额结转')}
                     </FieldLabel>
                     <FieldDescription>
-                      {t('Keep managed user balances when this cycle closes')}
+                      {t('周期关闭时保留受管用户余额')}
                     </FieldDescription>
                   </div>
                   <Switch
@@ -655,11 +647,11 @@ export function CreateCycleDialog(props: {
                   >
                     <div className='flex-1'>
                       <FieldLabel htmlFor='quota-cycle-carry-over-budget'>
-                        {t('Count toward new cycle quota')}
+                        {t('占用新周期额度')}
                       </FieldLabel>
                       <FieldDescription>
                         {t(
-                          "Include carried balances in the next cycle's allocated quota"
+                          "将结转余额计入新周期已发放额度"
                         )}
                       </FieldDescription>
                     </div>

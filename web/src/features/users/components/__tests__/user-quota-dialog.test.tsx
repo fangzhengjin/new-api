@@ -54,11 +54,11 @@ test('cycle quota management submits one adjustment with a required reason', asy
   )
 
   expect(screen.queryByRole('button', { name: 'Override' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Increase' })).toHaveAttribute(
+  expect(screen.getByRole('button', { name: '调增' })).toHaveAttribute(
     'aria-pressed',
     'true'
   )
-  expect(screen.getByRole('button', { name: 'Decrease' })).toHaveAttribute(
+  expect(screen.getByRole('button', { name: '调减' })).toHaveAttribute(
     'aria-pressed',
     'false'
   )
@@ -70,8 +70,8 @@ test('cycle quota management submits one adjustment with a required reason', asy
     target: { value: 'Project need' },
   })
 
-  expect(screen.getByText(/Balance after increase:/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
+  expect(screen.getByText(/调增后余额：/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
   await waitFor(() =>
     expect(mocks.adjustUserQuota).toHaveBeenCalledWith({
       id: 7,
@@ -98,8 +98,8 @@ test('cycle quota management rejects an empty reason before submission', () => {
   fireEvent.change(screen.getByLabelText(/Amount/), {
     target: { value: '2' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
-  expect(screen.getByRole('alert')).toHaveTextContent('Reason is required')
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('必须填写原因')
   expect(mocks.adjustUserQuota).not.toHaveBeenCalled()
 })
 
@@ -124,7 +124,7 @@ test('disabled cycle quota management keeps override and submits without a reaso
   fireEvent.change(screen.getByLabelText(/Amount/), {
     target: { value: '1' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
 
   await waitFor(() =>
     expect(mocks.adjustUserQuota).toHaveBeenCalledWith({
@@ -150,23 +150,23 @@ test('cycle quota management rejects empty, zero, and negative amounts before su
     </I18nextProvider>
   )
 
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
-  expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid amount')
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('请输入有效金额')
 
   fireEvent.change(screen.getByLabelText(/Amount/), {
     target: { value: '0' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Enter an amount greater than 0'
+    '请输入大于 0 的金额'
   )
 
   fireEvent.change(screen.getByLabelText(/Amount/), {
     target: { value: '-1' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm increase' }))
+  fireEvent.click(screen.getByRole('button', { name: '确认调增' }))
   expect(screen.getByRole('alert')).toHaveTextContent(
-    'Enter an amount greater than 0'
+    '请输入大于 0 的金额'
   )
   expect(mocks.adjustUserQuota).not.toHaveBeenCalled()
 })

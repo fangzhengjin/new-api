@@ -191,7 +191,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
             context.addIssue({
               code: 'custom',
               path: ['temporaryQuotaAutoApprovalMaxCount'],
-              message: t('Enter a positive whole number'),
+              message: t('请输入正整数'),
             })
           }
         }),
@@ -319,7 +319,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
         queryClient.invalidateQueries({ queryKey: queryKeys.cycles }),
         queryClient.invalidateQueries({ queryKey: queryKeys.options }),
       ])
-      toast.success(t('Quota cycle updated'))
+      toast.success(t('额度周期已更新'))
       setEditOpen(false)
     },
     onError: (error: unknown) => handleServerError(error),
@@ -334,8 +334,8 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       ])
       toast.success(
         status === 'settling'
-          ? t('Quota cycle settlement started')
-          : t('Quota cycle closed')
+          ? t('额度周期已开始结算')
+          : t('额度周期已关闭')
       )
       await navigate({ to: '/quota-management' })
     },
@@ -344,7 +344,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
   if (query.isPending) {
     return (
       <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Quota cycle')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>{t('额度周期')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <PageLoading />
         </SectionPageLayout.Content>
@@ -354,10 +354,10 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
   if (query.isError) {
     return (
       <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Quota cycle')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>{t('额度周期')}</SectionPageLayout.Title>
         <SectionPageLayout.Content>
           <PageError
-            title={t('Failed to load quota cycle')}
+            title={t('加载额度周期失败')}
             error={query.error}
           />
         </SectionPageLayout.Content>
@@ -367,24 +367,20 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
   const { cycle, plans, recommendation } = query.data
   const closeCycleDescription =
     cycle.status === 'scheduled'
-      ? t(
-          'This cancels the scheduled cycle and every draft without changing user balances'
-        )
-      : t(
-          'This starts cycle settlement, blocks new requests, handles balances by the rollover rule, and closes the cycle after in-progress requests finish'
-        )
-  let rolloverDescription = t('Managed balances reset when the cycle closes')
+      ? t('此操作将取消排定的周期及所有草稿，且不会改变用户余额')
+      : t('进入周期结算并阻止新请求，待进行中的请求完成后按结转规则处理余额并关闭周期')
+  let rolloverDescription = t('周期关闭时清零受管用户余额')
   if (cycle.balance_policy === 'carry') {
     rolloverDescription = cycle.carry_over_counts_toward_budget
-      ? t('Counts toward new cycle quota')
-      : t('Does not count toward new cycle quota')
+      ? t('占用新周期额度')
+      : t('不占用新周期额度')
   }
 
   return (
     <>
       <SectionPageLayout>
         <SectionPageLayout.Title>
-          {t('Quota cycle')} #{cycle.id}
+          {t('额度周期')} #{cycle.id}
         </SectionPageLayout.Title>
         <SectionPageLayout.Breadcrumb>
           <Button
@@ -394,7 +390,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
             render={<Link to='/quota-management' />}
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
-            {t('Back to cycle quota management')}
+            {t('返回周期额度管理')}
           </Button>
         </SectionPageLayout.Breadcrumb>
         <SectionPageLayout.Actions>
@@ -411,7 +407,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               strokeWidth={2}
               data-icon='inline-start'
             />
-            {t('Create plan')}
+            {t('创建方案')}
           </Button>
           <Button
             variant='outline'
@@ -423,21 +419,21 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               strokeWidth={2}
               data-icon='inline-start'
             />
-            {t('Edit cycle')}
+            {t('编辑周期')}
           </Button>
           <Button
             variant='destructive'
             onClick={() => setCloseOpen(true)}
             disabled={cycle.status === 'closed'}
           >
-            {t('Close cycle')}
+            {t('关闭周期')}
           </Button>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='grid gap-4'>
             {optionsQuery.isError && (
               <PageError
-                title={t('Generate plan')}
+                title={t('生成调配草稿')}
                 error={optionsQuery.error}
               />
             )}
@@ -452,11 +448,9 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 role='alert'
                 className='border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3'
               >
-                <p className='font-medium'>{t('Allocation data error')}</p>
+                <p className='font-medium'>{t('额度数据异常')}</p>
                 <p className='mt-1 text-sm'>
-                  {t(
-                    'The saved allocation data is invalid. Contact a system maintainer before creating or executing plans. User API usage remains available from each user balance'
-                  )}
+                  {t('已保存的额度数据无效。请联系系统维护人员处理，处理前无法创建或执行方案。用户仍可使用各自账户余额调用 API')}
                 </p>
               </div>
             )}
@@ -468,12 +462,10 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   className='border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-4 py-3'
                 >
                   <p className='font-medium'>
-                    {t('Allocation data setup required')}
+                    {t('分配数据需要初始化')}
                   </p>
                   <p className='mt-1 text-sm'>
-                    {t(
-                      'This cycle requires a one-time allocation data setup by a system maintainer before plans can be created or executed. API usage remains available from each user balance'
-                    )}
+                    {t('当前周期需要由系统维护人员完成一次分配数据初始化，之后才能创建或执行方案。用户仍可按账户余额正常使用 API')}
                   </p>
                 </div>
               )}
@@ -492,15 +484,15 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               </Card>
               <Card>
                 <CardHeader>
-                  <CardDescription>{t('Cycle total')}</CardDescription>
+                  <CardDescription>{t('周期总额度')}</CardDescription>
                   <CardTitle>{formatQuota(cycle.budget_quota)}</CardTitle>
                 </CardHeader>
-                <CardContent>{t('Total available in this cycle')}</CardContent>
+                <CardContent>{t('本周期可用总额')}</CardContent>
               </Card>
               <Card>
                 <CardHeader>
                   <CardDescription>
-                    {t('Opening allocated quota')}
+                    {t('期初已发放额度')}
                   </CardDescription>
                   <CardTitle>
                     {cycle.opening_allocated_quota === null
@@ -509,12 +501,12 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {t('Managed balances recorded when the cycle started')}
+                  {t('周期开始时登记的受管账户余额')}
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader>
-                  <CardDescription>{t('Allocated quota')}</CardDescription>
+                  <CardDescription>{t('已分配额度')}</CardDescription>
                   <CardTitle>
                     {cycle.allocated_quota === null
                       ? '—'
@@ -522,61 +514,61 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {t('Issued and not reclaimed in this cycle')}
+                  {t('周期内已发放且尚未收回')}
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader>
-                  <CardDescription>{t('Cycle remaining')}</CardDescription>
+                  <CardDescription>{t('周期剩余额度')}</CardDescription>
                   <CardTitle>
                     {cycle.remaining_quota === null
                       ? '—'
                       : formatQuota(cycle.remaining_quota)}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>{t('Available for future plans')}</CardContent>
+                <CardContent>{t('可用于后续方案')}</CardContent>
               </Card>
               <Card>
                 <CardHeader>
                   <CardDescription>
-                    {t('Starting amount per user')}
+                    {t('每位用户的初始额度')}
                   </CardDescription>
                   <CardTitle>
                     {formatQuota(cycle.initial_grant_quota)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {t('Used by the first allocation plan')}
+                  {t('由第一个分配方案使用')}
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader>
                   <CardDescription>
-                    {t('Automatic allocation limit')}
+                    {t('自动分配上限')}
                   </CardDescription>
                   <CardTitle>
                     {cycle.concentration_multiplier_basis_points / 10_000}×
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {t('Used by every regular adjustment in this cycle')}
+                  {t('本周期每次常规调配都使用这个上限')}
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader>
                   <CardDescription>
-                    {t('Temporary quota reserve')}
+                    {t('临时额度预留')}
                   </CardDescription>
                   <CardTitle>
                     {formatQuota(cycle.temporary_quota_reserve)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-1'>
-                  <div>{t('Reserved for temporary quota requests')}</div>
+                  <div>{t('为临时额度申请预留')}</div>
                   <div>
                     {cycle.temporary_quota_auto_approval_enabled
-                      ? t('Automatic approval enabled')
-                      : t('Automatic approval disabled')}
+                      ? t('自动批准已开启')
+                      : t('自动批准已关闭')}
                   </div>
                 </CardContent>
               </Card>
@@ -591,11 +583,11 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               </Card>
               <Card>
                 <CardHeader>
-                  <CardDescription>{t('Balance rollover')}</CardDescription>
+                  <CardDescription>{t('余额结转')}</CardDescription>
                   <CardTitle>
                     {cycle.balance_policy === 'carry'
-                      ? t('Carry over')
-                      : t('Reset at close')}
+                      ? t('结转')
+                      : t('到期不结转')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>{rolloverDescription}</CardContent>
@@ -603,11 +595,9 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
             </div>
             <Card>
               <CardHeader>
-                <CardTitle>{t('Allocation plans')}</CardTitle>
+                <CardTitle>{t('额度调配方案')}</CardTitle>
                 <CardDescription>
-                  {t(
-                    'Each plan is one reviewable quota allocation in this cycle'
-                  )}
+                  {t('每个方案代表本周期内一次可审核的额度调配')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -627,11 +617,9 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
           <DialogHeader>
-            <DialogTitle>{t('Edit quota cycle')}</DialogTitle>
+            <DialogTitle>{t('编辑额度周期')}</DialogTitle>
             <DialogDescription>
-              {t(
-                'Before the cycle starts, settings can be edited. After it starts, only the cycle total quota can change'
-              )}
+              {t('周期开始前可修改各项设置，开始后仅可调整周期总额度')}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -643,7 +631,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
             <FieldGroup>
               <Field data-invalid={!!form.formState.errors.budgetAmount}>
                 <FieldLabel htmlFor='edit-cycle-budget'>
-                  {t('Budget')} ({currencyLabel})
+                  {t('预算')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='edit-cycle-budget'
@@ -666,7 +654,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 data-invalid={!!form.formState.errors.initialGrantAmount}
               >
                 <FieldLabel htmlFor='edit-cycle-grant'>
-                  {t('Initial grant per user')} ({currencyLabel})
+                  {t('每人首次发放额度')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='edit-cycle-grant'
@@ -692,7 +680,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                 }
               >
                 <FieldLabel htmlFor='edit-cycle-temporary-reserve'>
-                  {t('Temporary quota reserve')} ({currencyLabel})
+                  {t('临时额度预留')} ({currencyLabel})
                 </FieldLabel>
                 <Input
                   id='edit-cycle-temporary-reserve'
@@ -723,12 +711,10 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                   >
                     <div className='flex-1'>
                       <FieldLabel htmlFor='edit-cycle-auto-temporary-quota'>
-                        {t(
-                          'Automatically approve eligible temporary quota requests'
-                        )}
+                        {t('自动批准符合条件的临时额度申请')}
                       </FieldLabel>
                       <FieldDescription>
-                        {t('The policy is frozen after the cycle starts')}
+                        {t('周期开始后策略将被冻结')}
                       </FieldDescription>
                     </div>
                     <Switch
@@ -749,7 +735,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                     }
                   >
                     <FieldLabel htmlFor='edit-cycle-auto-single'>
-                      {t('Automatic single-request limit')} ({currencyLabel})
+                      {t('单次最多自动批准额度')} ({currencyLabel})
                     </FieldLabel>
                     <Input
                       id='edit-cycle-auto-single'
@@ -784,7 +770,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                     }
                   >
                     <FieldLabel htmlFor='edit-cycle-auto-threshold'>
-                      {t('Automatic balance threshold')} ({currencyLabel})
+                      {t('仅在余额低于此值时自动批准')} ({currencyLabel})
                     </FieldLabel>
                     <Input
                       id='edit-cycle-auto-threshold'
@@ -818,7 +804,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                     }
                   >
                     <FieldLabel htmlFor='edit-cycle-auto-count'>
-                      {t('Automatic requests per user')}
+                      {t('每人最多自动批准次数')}
                     </FieldLabel>
                     <Input
                       id='edit-cycle-auto-count'
@@ -852,7 +838,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
                     }
                   >
                     <FieldLabel htmlFor='edit-cycle-auto-total'>
-                      {t('Automatic total per user')} ({currencyLabel})
+                      {t('每人最多自动批准总额')} ({currencyLabel})
                     </FieldLabel>
                     <Input
                       id='edit-cycle-auto-total'
@@ -906,7 +892,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
       <AlertDialog open={closeOpen} onOpenChange={setCloseOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('Close this quota cycle?')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('关闭此额度周期')}</AlertDialogTitle>
             <AlertDialogDescription>
               {closeCycleDescription}
             </AlertDialogDescription>
@@ -921,7 +907,7 @@ export function QuotaCycleDetail(props: { cycleId: number }) {
               onClick={() => closeMutation.mutate(undefined)}
             >
               {closeMutation.isPending && <Spinner data-icon='inline-start' />}
-              {t('Close cycle')}
+              {t('关闭周期')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

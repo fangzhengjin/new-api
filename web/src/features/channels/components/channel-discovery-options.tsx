@@ -111,13 +111,13 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
     <Tabs defaultValue='models' className='min-w-0'>
       <TabsList className='grid w-full grid-cols-2 sm:w-fit'>
         <TabsTrigger value='models'>{t('Models')}</TabsTrigger>
-        <TabsTrigger value='mapping'>{t('Mapping')}</TabsTrigger>
+        <TabsTrigger value='mapping'>{t('映射')}</TabsTrigger>
       </TabsList>
 
       <TabsContent value='models' className='space-y-2'>
         <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
           <p className='text-muted-foreground text-sm'>
-            {t('{{selected}} of {{total}} selected', {
+            {t('已选择 {{selected}} / {{total}}', {
               selected: selectedVisibleCount,
               total: visibleChoices.length,
             })}
@@ -151,7 +151,7 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
                 ])
               }
             >
-              {t('Invert selection')}
+              {t('反选')}
             </Button>
             <Button
               type='button'
@@ -206,14 +206,12 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
 
       <TabsContent value='mapping' className='space-y-3'>
         <FieldDescription>
-          {t(
-            'Mapping sources are exposed model names; targets are upstream model IDs.'
-          )}
+          {t('映射来源是对外模型名称，目标是上游模型 ID。')}
         </FieldDescription>
         <div className='space-y-2 rounded-lg border p-2'>
           {Object.keys(props.mapping).length === 0 && (
             <p className='text-muted-foreground px-1 py-2 text-sm'>
-              {t('No model mappings')}
+              {t('没有模型映射')}
             </p>
           )}
           {Object.entries(props.mapping).map(([source, target]) => (
@@ -226,7 +224,7 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
               </div>
               <NativeSelect
                 className='w-full'
-                aria-label={t('Upstream model for {{model}}', {
+                aria-label={t('{{model}} 的上游模型', {
                   model: source,
                 })}
                 value={target}
@@ -245,7 +243,7 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
                 variant='ghost'
                 size='icon'
                 className='max-sm:min-h-11 max-sm:w-full'
-                aria-label={t('Remove mapping for {{model}}', {
+                aria-label={t('移除 {{model}} 的映射', {
                   model: source,
                 })}
                 onClick={() => props.onRemoveMapping(source)}
@@ -259,14 +257,14 @@ export function ChannelDiscoveryOptions(props: ChannelDiscoveryOptionsProps) {
           <Input
             value={newMappingSource}
             onChange={(event) => setNewMappingSource(event.target.value)}
-            placeholder={t('Exposed model name')}
-            aria-label={t('Exposed model name')}
+            placeholder={t('对外模型名称')}
+            aria-label={t('对外模型名称')}
           />
           <NativeSelect
             className='w-full'
             value={effectiveTarget}
             onChange={(event) => setNewMappingTarget(event.target.value)}
-            aria-label={t('Upstream model')}
+            aria-label={t('上游模型')}
           >
             {props.connection.models.map((model) => (
               <NativeSelectOption key={model} value={model}>
@@ -326,7 +324,7 @@ export function ChannelDiscoveryEndpoints(
                 onChange={(event) =>
                   props.onSetRoute(protocol, event.target.value)
                 }
-                aria-label={t('{{protocol}} upstream path', { protocol })}
+                aria-label={t('{{protocol}} 上游路径', { protocol })}
               />
             </div>
           )

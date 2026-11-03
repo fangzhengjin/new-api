@@ -100,11 +100,11 @@ test('cycle quota management shows the whitelist badge and filters managed users
   expect(screen.getByText('Whitelist')).toBeInTheDocument()
 
   const filterButton = screen.getByRole('button', {
-    name: /Quota Management/,
+    name: /额度调配/,
   })
   filterButton.focus()
   await user.keyboard('{Enter}')
-  await user.click(await screen.findByText('Managed users'))
+  await user.click(await screen.findByText('受管用户'))
 
   await waitFor(() =>
     expect(mocks.searchUsers).toHaveBeenCalledWith(
@@ -121,7 +121,7 @@ test('disabled cycle quota management hides quota whitelist controls', async () 
 
   expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
   expect(screen.queryByText('Whitelist')).toBeNull()
-  expect(screen.queryByRole('button', { name: /Quota Management/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: /额度调配/ })).toBeNull()
 })
 
 test('removing a user from the whitelist states that all current drafts are cancelled', async () => {
@@ -130,10 +130,10 @@ test('removing a user from the whitelist states that all current drafts are canc
 
   expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Open menu' }))
-  await user.click(screen.getByText('Remove quota whitelist'))
+  await user.click(screen.getByText('移出额度白名单'))
 
   expect(await screen.findByRole('alertdialog')).toHaveTextContent(
-    'All unexecuted drafts in the current cycle will be cancelled'
+    '当前周期所有未执行草稿都会被取消'
   )
 })
 
@@ -152,11 +152,11 @@ test('adding a user to the whitelist states its exclusions and draft cancellatio
 
   expect(await screen.findByText('whitelist-user')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Open menu' }))
-  await user.click(screen.getByText('Add to quota whitelist'))
+  await user.click(screen.getByText('加入额度白名单'))
 
   const confirmation = await screen.findByRole('alertdialog')
-  expect(confirmation).toHaveTextContent('manual adjustment')
+  expect(confirmation).toHaveTextContent('管理员调额')
   expect(confirmation).toHaveTextContent(
-    'All unexecuted drafts in the current cycle will be cancelled'
+    '当前周期内所有未执行草稿将被取消'
   )
 })

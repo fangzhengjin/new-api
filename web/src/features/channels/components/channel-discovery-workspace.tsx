@@ -101,18 +101,18 @@ function ProtocolProbeStatus(props: ProtocolProbeStatusProps) {
   const isError = props.status === 'error'
   const isSuccess = props.status === 'success'
   let statusIcon = AiScanIcon
-  let statusLabel = t('Not probed yet')
+  let statusLabel = t('尚未探测')
   if (props.status === 'probing') {
-    statusLabel = t('Probing {{model}} with key {{number}}', {
+    statusLabel = t('正在使用密钥 {{number}} 探测 {{model}}', {
       model: props.model,
       number: props.keyIndex + 1,
     })
   } else if (isSuccess) {
     statusIcon = CheckmarkCircle02Icon
-    statusLabel = t('Probe completed for {{model}}', { model: props.model })
+    statusLabel = t('已完成 {{model}} 的协议探测', { model: props.model })
   } else if (isError) {
     statusIcon = Alert02Icon
-    statusLabel = t('Probe failed for {{model}}', { model: props.model })
+    statusLabel = t('{{model}} 协议探测失败', { model: props.model })
   }
 
   return (
@@ -155,15 +155,13 @@ function ProtocolProbeStatus(props: ProtocolProbeStatusProps) {
                 </Badge>
               ))}
               {protocols.length === 0 && (
-                <Badge variant='destructive'>{t('No protocol detected')}</Badge>
+                <Badge variant='destructive'>{t('未检测到协议')}</Badge>
               )}
             </div>
           )}
           {isError && (
             <p className='text-muted-foreground text-xs'>
-              {t(
-                'Try again after checking the Base URL, API key, and upstream protocol support.'
-              )}
+              {t('请检查 API 地址、API 密钥和上游协议支持后重试。')}
             </p>
           )}
         </div>
@@ -200,7 +198,7 @@ export function ChannelDiscoveryWorkspace(
             </Badge>
             {props.connection.matches.length > 0 && (
               <Badge variant='warning'>
-                {t('{{count}} matching channels', {
+                {t('{{count}} 个匹配渠道', {
                   count: props.connection.matches.length,
                 })}
               </Badge>
@@ -215,11 +213,9 @@ export function ChannelDiscoveryWorkspace(
             <>
               <section className='space-y-3'>
                 <div>
-                  <h3 className='text-sm font-medium'>{t('Protocol probe')}</h3>
+                  <h3 className='text-sm font-medium'>{t('协议探测')}</h3>
                   <p className='text-muted-foreground text-sm'>
-                    {t(
-                      'Probe one representative upstream model. Chat is tried only when Responses is unavailable.'
-                    )}
+                    {t('探测一个代表性上游模型。仅当 Responses 不可用时才尝试 Chat。')}
                   </p>
                 </div>
                 <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
@@ -229,7 +225,7 @@ export function ChannelDiscoveryWorkspace(
                     onChange={(event) =>
                       props.onProbeModelChange(event.target.value)
                     }
-                    aria-label={t('Representative model')}
+                    aria-label={t('代表性模型')}
                   >
                     {props.selectedModels.map((model) => (
                       <NativeSelectOption key={model} value={model}>
@@ -248,7 +244,7 @@ export function ChannelDiscoveryWorkspace(
                     onClick={props.onProbe}
                   >
                     {props.probing && <Spinner />}
-                    {props.probing ? t('Probing...') : t('Run probe')}
+                    {props.probing ? t('正在探测……') : t('开始探测')}
                   </Button>
                 </div>
                 <ProtocolProbeStatus
@@ -283,7 +279,7 @@ export function ChannelDiscoveryWorkspace(
                   value='update'
                   disabled={props.connection.matches.length === 0}
                 >
-                  {t('Update matching channel')}
+                  {t('更新匹配渠道')}
                 </NativeSelectOption>
               </NativeSelect>
             </Field>
@@ -326,7 +322,7 @@ export function ChannelDiscoveryWorkspace(
                 </Field>
                 <Field>
                   <FieldLabel htmlFor='discovery-key-mode'>
-                    {t('API key mode')}
+                    {t('API 密钥模式')}
                   </FieldLabel>
                   <NativeSelect
                     id='discovery-key-mode'
@@ -334,16 +330,16 @@ export function ChannelDiscoveryWorkspace(
                     {...props.form.register('keyMode')}
                   >
                     <NativeSelectOption value='append'>
-                      {t('Append keys')}
+                      {t('追加密钥')}
                     </NativeSelectOption>
                     <NativeSelectOption value='replace'>
-                      {t('Replace keys')}
+                      {t('替换密钥')}
                     </NativeSelectOption>
                   </NativeSelect>
                 </Field>
                 <Field orientation='horizontal'>
                   <FieldLabel htmlFor='discovery-sync'>
-                    {t('Sync models and endpoints')}
+                    {t('同步模型和端点')}
                   </FieldLabel>
                   <Switch
                     id='discovery-sync'
@@ -355,7 +351,7 @@ export function ChannelDiscoveryWorkspace(
                 </Field>
                 <Field orientation='horizontal'>
                   <FieldLabel htmlFor='discovery-reenable'>
-                    {t('Re-enable channel')}
+                    {t('重新启用渠道')}
                   </FieldLabel>
                   <Switch
                     id='discovery-reenable'
@@ -390,7 +386,7 @@ export function ChannelDiscoveryWorkspace(
                 </Field>
                 <Field orientation='horizontal'>
                   <FieldLabel htmlFor='discovery-enabled'>
-                    {t('Enable channel')}
+                    {t('启用渠道')}
                   </FieldLabel>
                   <Switch
                     id='discovery-enabled'
@@ -434,7 +430,7 @@ export function ChannelDiscoveryWorkspace(
           </section>
 
           <section className='space-y-2'>
-            <h3 className='text-sm font-medium'>{t('Usable API keys')}</h3>
+            <h3 className='text-sm font-medium'>{t('可用 API 密钥')}</h3>
             <div className='flex flex-wrap gap-2'>
               {(props.connection.usable_key_indexes ?? []).map((keyIndex) => (
                 <FieldLabel
@@ -460,13 +456,13 @@ export function ChannelDiscoveryWorkspace(
                       )
                     }
                   />
-                  {t('Key {{number}}', { number: keyIndex + 1 })}
+                  {t('密钥 {{number}}', { number: keyIndex + 1 })}
                 </FieldLabel>
               ))}
             </div>
             {props.connection.rejected_key_count > 0 && (
               <FieldDescription>
-                {t('{{count}} keys could not access model discovery', {
+                {t('{{count}} 个密钥无法访问模型发现接口', {
                   count: props.connection.rejected_key_count,
                 })}
               </FieldDescription>

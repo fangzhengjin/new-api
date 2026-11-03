@@ -305,7 +305,7 @@ export function useUsersColumns(
       },
       {
         accessorKey: 'quota_whitelist',
-        header: t('Quota Management'),
+        header: t('额度调配'),
         filterFn: (row, id, value) => {
           return value.includes(String(Boolean(row.getValue(id))))
         },

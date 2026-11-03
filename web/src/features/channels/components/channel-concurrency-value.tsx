@@ -123,7 +123,7 @@ export function ChannelConcurrencyValue(props: ChannelConcurrencyValueProps) {
                 <span
                   className='cursor-help text-amber-600 dark:text-amber-400'
                   tabIndex={0}
-                  aria-label={t('Waiting requests: {{count}}', {
+                  aria-label={t('排队中的请求：{{count}}', {
                     count: waiting,
                   })}
                 />
@@ -132,7 +132,7 @@ export function ChannelConcurrencyValue(props: ChannelConcurrencyValueProps) {
               · {waiting}
             </TooltipTrigger>
             <TooltipContent side='top'>
-              {t('Waiting requests: {{count}}', { count: waiting })}
+              {t('排队中的请求：{{count}}', { count: waiting })}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

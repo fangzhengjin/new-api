@@ -69,10 +69,10 @@ describe('Claude Code client version settings', () => {
         .map((heading) => heading.textContent)
     ).toEqual([
       'Claude',
-      'Claude Code Client Version Validation',
-      'Claude Code Client Identity Simulation',
-      'Model Request Configuration',
-      'Thinking Suffix Adaptation',
+      'Claude Code 客户端版本校验',
+      'Claude Code 客户端身份模拟',
+      '模型请求配置',
+      'Thinking 后缀适配',
     ])
   })
 
@@ -85,12 +85,12 @@ describe('Claude Code client version settings', () => {
     )
 
     const minimumVersion = screen.getByRole('textbox', {
-      name: 'Minimum Allowed Version',
+      name: '最低允许版本',
     })
     expect(minimumVersion).toBeDisabled()
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Claude Code Client Version Validation',
+        name: 'Claude Code 客户端版本校验',
       })
     )
     expect(minimumVersion).toBeEnabled()
@@ -113,10 +113,10 @@ describe('Claude Code client version settings', () => {
     )
 
     const identityVersion = screen.getByRole('textbox', {
-      name: 'Client Version',
+      name: '客户端版本',
     })
     const modelPatterns = screen.getByRole('textbox', {
-      name: 'Target Model Patterns',
+      name: '目标模型规则',
     })
     expect(identityVersion).toBeDisabled()
     expect(modelPatterns).toBeDisabled()
@@ -124,7 +124,7 @@ describe('Claude Code client version settings', () => {
 
     fireEvent.click(
       screen.getByRole('switch', {
-        name: 'Claude Code Client Identity Simulation',
+        name: 'Claude Code 客户端身份模拟',
       })
     )
     expect(identityVersion).toBeEnabled()
@@ -156,7 +156,7 @@ describe('Claude Code client version settings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Restore defaults' }))
     expect(
-      screen.getByRole('textbox', { name: 'Minimum Allowed Version' })
+      screen.getByRole('textbox', { name: '最低允许版本' })
     ).toHaveValue('2.1.233')
     expect(mutateAsync).not.toHaveBeenCalled()
     expect(

@@ -159,9 +159,9 @@ describe('backend chat preset launch', () => {
 
     await user.click(screen.getByRole('button', { name: /Canvas/ }))
 
-    expect(await screen.findByText('Choose a Token')).toBeInTheDocument()
+    expect(await screen.findByText('选择 Token')).toBeInTheDocument()
     expect(
-      screen.getByRole('checkbox', { name: 'Remember my choice' })
+      screen.getByRole('checkbox', { name: '记住我的选择' })
     ).not.toBeChecked()
     expect(open).not.toHaveBeenCalled()
   })
@@ -198,7 +198,7 @@ describe('backend chat preset launch', () => {
 
     await user.click(screen.getByRole('button', { name: /Canvas/ }))
     await user.click(
-      await screen.findByRole('checkbox', { name: 'Remember my choice' })
+      await screen.findByRole('checkbox', { name: '记住我的选择' })
     )
     await user.click(screen.getByRole('button', { name: /Key 1/ }))
 
@@ -223,7 +223,7 @@ describe('backend chat preset launch', () => {
     await waitFor(() =>
       expect(mocks.launchChatPreset).toHaveBeenCalledWith('Canvas', 1)
     )
-    expect(screen.queryByText('Choose a Token')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择 Token')).not.toBeInTheDocument()
     expect(window.localStorage.getItem(storageKey)).toBeNull()
   })
 
@@ -241,7 +241,7 @@ describe('backend chat preset launch', () => {
     await waitFor(() =>
       expect(mocks.launchChatPreset).toHaveBeenCalledWith('Canvas', 2)
     )
-    expect(screen.queryByText('Choose a Token')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择 Token')).not.toBeInTheDocument()
     expect(window.localStorage.getItem(storageKey)).toBe('2')
   })
 
@@ -262,7 +262,7 @@ describe('backend chat preset launch', () => {
 
     await user.click(screen.getByRole('button', { name: /Other Canvas/ }))
 
-    expect(await screen.findByText('Choose a Token')).toBeInTheDocument()
+    expect(await screen.findByText('选择 Token')).toBeInTheDocument()
     expect(mocks.launchChatPreset).not.toHaveBeenCalled()
   })
 
@@ -278,7 +278,7 @@ describe('backend chat preset launch', () => {
     await waitFor(() =>
       expect(mocks.launchChatPreset).toHaveBeenCalledWith('Canvas', 1)
     )
-    expect(screen.queryByText('Choose a Token')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择 Token')).not.toBeInTheDocument()
     expect(window.localStorage.getItem(storageKey)).toBeNull()
   })
 
@@ -353,7 +353,7 @@ describe('backend chat preset launch', () => {
         search: { tokenId: 1 },
       })
     )
-    expect(screen.queryByText('Choose a Token')).not.toBeInTheDocument()
+    expect(screen.queryByText('选择 Token')).not.toBeInTheDocument()
     expect(mocks.launchChatPreset).not.toHaveBeenCalled()
   })
 
@@ -399,8 +399,8 @@ describe('backend chat preset launch', () => {
 
     await user.click(screen.getByRole('button', { name: /Canvas/ }))
 
-    expect(await screen.findByText('No usable Token')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Go to Tokens' })).toHaveAttribute(
+    expect(await screen.findByText('没有可用的 Token')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往 Token 页面' })).toHaveAttribute(
       'href',
       '/keys'
     )

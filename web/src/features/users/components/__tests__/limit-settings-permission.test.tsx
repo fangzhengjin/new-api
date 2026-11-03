@@ -114,11 +114,11 @@ test('root can open limit settings for the root account', async () => {
   await user.click(screen.getByRole('button', { name: 'Open menu' }))
 
   expect(
-    screen.getByText('Limit Settings').closest('[role="menuitem"]')
+    screen.getByText('限制设置').closest('[role="menuitem"]')
   ).not.toHaveAttribute('aria-disabled', 'true')
-  await user.click(screen.getByText('Limit Settings'))
+  await user.click(screen.getByText('限制设置'))
   expect(
-    await screen.findByRole('heading', { name: 'User Limit Settings' })
+    await screen.findByRole('heading', { name: '用户限制设置' })
   ).toBeVisible()
 })
 
@@ -146,6 +146,6 @@ test('admin cannot open limit settings for an admin peer', async () => {
   await user.click(screen.getByRole('button', { name: 'Open menu' }))
 
   expect(
-    screen.getByText('Limit Settings').closest('[role="menuitem"]')
+    screen.getByText('限制设置').closest('[role="menuitem"]')
   ).toHaveAttribute('aria-disabled', 'true')
 })

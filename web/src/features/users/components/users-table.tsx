@@ -282,10 +282,10 @@ export function UsersTable() {
             ? [
                 {
                   columnId: 'quota_whitelist',
-                  title: t('Quota Management'),
+                  title: t('额度调配'),
                   options: [
                     {
-                      label: t('Managed users'),
+                      label: t('受管用户'),
                       value: 'false',
                       icon: Users,
                     },

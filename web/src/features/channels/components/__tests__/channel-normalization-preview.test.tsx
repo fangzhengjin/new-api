@@ -171,10 +171,10 @@ describe('channel normalization preview', () => {
       </I18nextProvider>
     )
 
-    assert.match(container.textContent ?? '', /Sort model names/)
+    assert.match(container.textContent ?? '', /排序模型名称/)
     assert.match(
       container.textContent ?? '',
-      /Model names are sorted automatically when models change\./
+      /模型发生变化时会自动按名称排序。/
     )
     assert.equal(container.querySelector('[role="switch"]'), null)
   })
@@ -272,9 +272,9 @@ describe('channel normalization preview', () => {
   test('shows selection summaries and exposes an accessible collapse control', () => {
     renderPreview(bulkData, bulkSelections)
 
-    assert.ok(screen.getByText('Selected changes: 3'))
-    assert.ok(screen.getByText('Models: 2 → 3'))
-    assert.ok(screen.getByText('Warnings: 1'))
+    assert.ok(screen.getByText('已选变更：3'))
+    assert.ok(screen.getByText('模型：2 → 3'))
+    assert.ok(screen.getByText('警告：1'))
 
     const trigger = screen.getByRole('button', { name: 'example: Details' })
     assert.equal(trigger.getAttribute('aria-expanded'), 'true')

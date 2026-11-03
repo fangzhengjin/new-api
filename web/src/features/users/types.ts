@@ -43,6 +43,7 @@ export const userSchema = z.object({
   telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  quota_whitelist: z.boolean().optional(),
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
@@ -78,6 +79,71 @@ export interface ApiResponse<T = unknown> {
   data?: T
 }
 
+export type LimitSource = 'global' | 'group' | 'user'
+
+export interface AccessSourceAssociation {
+  ip: string
+  last_seen_at: number
+  is_current: boolean
+}
+
+export type AccessSourceRejectionReason =
+  | 'switch_cooldown'
+  | 'account_ip_limit'
+  | 'ip_account_limit'
+
+export interface AccessSourceRejection {
+  event_id: string
+  ip: string
+  reason: AccessSourceRejectionReason
+  occurred_at: number
+}
+
+export interface UserLimitOverrides {
+  model_request_rate_limit_count: number | null
+  model_request_rate_limit_success_count: number | null
+  model_request_concurrency_limit: number | null
+  access_source_max_ips: number | null
+  access_source_switch_cooldown_minutes: number | null
+}
+
+export interface UserLimitsData {
+  user: Pick<User, 'id' | 'username'>
+  overrides: UserLimitOverrides
+  effective: {
+    model_request_rate_limit_count: number
+    model_request_rate_limit_count_source: LimitSource
+    model_request_rate_limit_success_count: number
+    model_request_rate_limit_success_source: LimitSource
+    model_request_concurrency_limit: number
+    model_request_concurrency_limit_source: LimitSource
+    access_source_max_ips: number
+    access_source_max_ips_source: LimitSource
+    access_source_switch_cooldown_minutes: number
+    access_source_switch_cooldown_source: LimitSource
+  }
+  global: {
+    model_request_rate_limit_enabled: boolean
+    model_request_rate_limit_duration_minutes: number
+    model_request_ip_rate_limit_count: number
+    model_request_ip_rate_limit_success_count: number
+    model_request_concurrency_limit_enabled: boolean
+    model_request_ip_concurrency_limit: number
+    access_source_limit_enabled: boolean
+    access_source_association_window_hours: number
+    access_source_max_users_per_ip: number
+  }
+  access_source_state: {
+    current_ip: string
+    current_last_seen_at: number
+    associated_count: number
+    cooldown_remaining_seconds: number
+    associations: AccessSourceAssociation[] | null
+    pending: AccessSourceRejection | null
+    recent_rejections: AccessSourceRejection[] | null
+  }
+}
+
 export type UserSortBy =
   | 'id'
   | 'username'
@@ -111,6 +177,7 @@ export interface SearchUsersParams {
   group?: string
   role?: string
   status?: string
+  quota_whitelist?: boolean
   p?: number
   page_size?: number
   sort_by?: UserSortBy
@@ -135,6 +202,7 @@ export type ManageUserAction =
   | 'disable'
   | 'delete'
   | 'add_quota'
+  | 'quota_whitelist'
 
 export type QuotaAdjustMode = 'add' | 'subtract' | 'override'
 
@@ -143,6 +211,7 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+  reason?: string
 }
 
 // ============================================================================

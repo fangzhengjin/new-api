@@ -51,6 +51,10 @@ var accessTokenExemptRoutes = []string{
 	"GET /api/oauth/telegram/login",
 	"GET /api/oauth/telegram/bind/:flow_token",
 
+	// Anonymous integration code exchange and its CORS preflight.
+	"POST /api/integrations/exchange",
+	"OPTIONS /api/integrations/exchange",
+
 	// Browser session cookie endpoints.
 	"POST /api/user/auth/refresh",
 	"POST /api/user/auth/logout",

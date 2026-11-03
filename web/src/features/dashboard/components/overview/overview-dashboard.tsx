@@ -37,7 +37,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -63,6 +63,10 @@ import {
   useApiInfo,
   useDashboardContentVisibility,
 } from '../../hooks/use-status-data'
+import type {
+  OverviewPanelId,
+  OverviewPanelSpan,
+} from '../../lib/overview-panels'
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
@@ -72,6 +76,12 @@ import { UptimePanel } from './uptime-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
   'dashboard_overview_setup_guide_expanded'
+
+const overviewPanelSpanClassNames: Record<OverviewPanelSpan, string> = {
+  1: '',
+  2: 'lg:col-span-2 xl:col-span-2',
+  3: 'lg:col-span-2 xl:col-span-3',
+}
 
 const SETUP_GUIDE_CODE_PATTERN = [
   'const request = await client.responses.create({',
@@ -463,7 +473,6 @@ function CompactQuickAction(props: { action: QuickAction }) {
 export function OverviewDashboard() {
   const { t } = useTranslation()
   const setupGuideId = useId()
-  const setupGuideToggleRef = useRef<HTMLButtonElement>(null)
   const user = useAuthStore((state) => state.auth.user)
   const { items: apiInfoItems } = useApiInfo()
   const {
@@ -471,6 +480,7 @@ export function OverviewDashboard() {
     announcements: showAnnouncementsPanel,
     faq: showFAQPanel,
     uptimeKuma: showUptimePanel,
+    panelLayout,
   } = useDashboardContentVisibility()
   const [manualSetupGuideExpanded, setManualSetupGuideExpanded] = useState<
     boolean | null
@@ -610,41 +620,32 @@ export function OverviewDashboard() {
   }, [apiInfoItems, modelsQuery.data, preferredKey, t])
 
   const completedStepCount = startSteps.filter((step) => step.completed).length
-  const setupComplete = completedStepCount === startSteps.length
+  const setupComplete =
+    user?.setup_guide_completed === true ||
+    completedStepCount === startSteps.length
   const setupStatusReady = apiKeysQuery.isFetched && Boolean(user)
   const setupGuideExpanded =
-    manualSetupGuideExpanded ?? (setupStatusReady && !setupComplete)
-  const showLeftContentPanels =
-    isAdmin || showApiInfoPanel || showAnnouncementsPanel || showFAQPanel
-  const showContentPanels = showLeftContentPanels || showUptimePanel
+    !setupComplete && (manualSetupGuideExpanded ?? setupStatusReady)
+  const contentPanels: Record<OverviewPanelId, ReactNode | null> = {
+    'api-info': showApiInfoPanel ? <ApiInfoPanel /> : null,
+    announcements: showAnnouncementsPanel ? <AnnouncementsPanel /> : null,
+    faq: showFAQPanel ? <FAQPanel /> : null,
+    'uptime-kuma': showUptimePanel ? <UptimePanel /> : null,
+  }
+  const visiblePanelLayout = panelLayout.filter(
+    (item) => contentPanels[item.id] !== null
+  )
+  const showContentPanels = isAdmin || visiblePanelLayout.length > 0
 
   const handleSetupGuideToggle = () => {
     const nextExpanded = !setupGuideExpanded
     setManualSetupGuideExpanded(nextExpanded)
     saveSetupGuideExpanded(nextExpanded)
-    if (!nextExpanded && setupComplete) {
-      setupGuideToggleRef.current?.focus()
-    }
   }
 
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Overview')}</SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        {setupStatusReady && setupComplete && (
-          <Button
-            ref={setupGuideToggleRef}
-            variant='ghost'
-            size='sm'
-            className='text-muted-foreground hover:text-foreground h-auto min-h-7 max-w-[60vw] whitespace-normal'
-            aria-expanded={setupGuideExpanded}
-            aria-controls={setupGuideId}
-            onClick={handleSetupGuideToggle}
-          >
-            {t('Setup guide')}
-          </Button>
-        )}
-      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex flex-col gap-4'>
           <div id={setupGuideId} hidden={!setupGuideExpanded}>
@@ -790,51 +791,23 @@ export function OverviewDashboard() {
           <SummaryCards />
 
           {showContentPanels && (
-            <CardStaggerContainer
-              className={cn(
-                'grid grid-cols-1 gap-4',
-                showLeftContentPanels &&
-                  showUptimePanel &&
-                  'xl:grid-cols-[minmax(0,1fr)_22rem]'
-              )}
-            >
-              {showLeftContentPanels && (
-                <div
-                  className={cn(
-                    'grid min-w-0 grid-cols-1 gap-4',
-                    (showApiInfoPanel ||
-                      showAnnouncementsPanel ||
-                      showFAQPanel) &&
-                      'lg:grid-cols-2'
-                  )}
-                >
-                  {isAdmin && (
-                    <CardStaggerItem className='lg:col-span-2'>
-                      <PerformanceHealthPanel />
-                    </CardStaggerItem>
-                  )}
-                  {showApiInfoPanel && (
-                    <CardStaggerItem>
-                      <ApiInfoPanel />
-                    </CardStaggerItem>
-                  )}
-                  {showAnnouncementsPanel && (
-                    <CardStaggerItem>
-                      <AnnouncementsPanel />
-                    </CardStaggerItem>
-                  )}
-                  {showFAQPanel && (
-                    <CardStaggerItem>
-                      <FAQPanel />
-                    </CardStaggerItem>
-                  )}
-                </div>
-              )}
-              {showUptimePanel && (
-                <CardStaggerItem>
-                  <UptimePanel />
+            <CardStaggerContainer className='grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3'>
+              {isAdmin && (
+                <CardStaggerItem className='lg:col-span-2 xl:col-span-3'>
+                  <PerformanceHealthPanel />
                 </CardStaggerItem>
               )}
+              {visiblePanelLayout.map((item) => (
+                <CardStaggerItem
+                  key={item.id}
+                  className={cn(
+                    'h-full min-w-0',
+                    overviewPanelSpanClassNames[item.span]
+                  )}
+                >
+                  {contentPanels[item.id]}
+                </CardStaggerItem>
+              ))}
             </CardStaggerContainer>
           )}
         </div>

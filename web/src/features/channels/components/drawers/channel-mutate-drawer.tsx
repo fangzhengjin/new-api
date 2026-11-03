@@ -25,6 +25,7 @@ import {
   PanelLeftOpen,
   AlertCircle,
   Puzzle,
+  Boxes,
   ChevronDown,
   ClipboardPaste,
   Loader2,
@@ -340,10 +341,13 @@ const SENSITIVE_FORM_FIELDS = [
   'http_protocol',
   'http2_connection_shards',
   'tls_insecure_skip_verify',
+  'max_concurrency',
+  'concurrency_wait_timeout_seconds',
   'pass_through_body_enabled',
   'responses_websocket_enabled',
   'system_prompt',
-  'system_prompt_override',
+  'system_prompt_mode',
+  'user_hidden_model_mappings',
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
@@ -655,6 +659,7 @@ export function ChannelMutateDrawer({
   const currentKey = formValues.key
   const currentModels = formValues.models
   const currentModelMapping = formValues.model_mapping
+  const currentUserHiddenModelMappings = formValues.user_hidden_model_mappings
   const awsKeyType = formValues.aws_key_type
   const vertexKeyType = formValues.vertex_key_type
   const upstreamModelUpdateCheckEnabled =
@@ -664,6 +669,7 @@ export function ChannelMutateDrawer({
   const currentHeaderOverride = formValues.header_override
   const currentProxy = formValues.proxy
   const currentHttpProtocol = formValues.http_protocol
+  const currentMaxConcurrency = formValues.max_concurrency
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -755,6 +761,16 @@ export function ChannelMutateDrawer({
         ? ADD_MODE_OPTIONS
         : ADD_MODE_OPTIONS.filter((option) => option.value === 'single'),
     [supportsMultiKeyAddMode]
+  )
+
+  const systemPromptModeOptions = useMemo(
+    () => [
+      { value: 'none', label: t('Disabled (default)') },
+      { value: 'prepend', label: t('Prepend channel prompt') },
+      { value: 'append', label: t('Append channel prompt') },
+      { value: 'override', label: t('Override identified prompt') },
+    ],
+    [t]
   )
 
   const advancedCustomStats = useMemo(
@@ -1978,15 +1994,13 @@ export function ChannelMutateDrawer({
           <FormLabel>{t('System Prompt')}</FormLabel>
           <FormControl>
             <Textarea
-              placeholder={t(
-                'Enter system prompt (user prompt takes priority)'
-              )}
+              placeholder={t('Enter channel system prompt')}
               rows={3}
               {...field}
             />
           </FormControl>
           <FormDescription>
-            {t('Default system prompt for this channel')}
+            {t('Prompt used by the selected strategy')}
           </FormDescription>
           <FormMessage />
         </FormItem>
@@ -1994,25 +2008,40 @@ export function ChannelMutateDrawer({
     />
   )
 
-  const systemPromptOverrideFields = (
+  const systemPromptModeFields = (
     <FormField
       control={form.control}
-      name='system_prompt_override'
+      name='system_prompt_mode'
       render={({ field }) => (
-        <FormItem className='flex items-center justify-between'>
-          <div className='space-y-0.5'>
-            <FormLabel>{t('System Prompt Concatenation')}</FormLabel>
-            <FormDescription>
-              {t('Concatenate channel system prompt with user&apos;s prompt')}
-            </FormDescription>
-          </div>
-          <FormControl>
-            <Switch
-              disabled={sensitiveLocked}
-              checked={field.value}
-              onCheckedChange={field.onChange}
-            />
-          </FormControl>
+        <FormItem>
+          <FormLabel>{t('System Prompt Strategy')}</FormLabel>
+          <Select
+            disabled={sensitiveLocked}
+            items={systemPromptModeOptions}
+            value={field.value ?? 'none'}
+            onValueChange={field.onChange}
+          >
+            <FormControl>
+              <SelectTrigger className='w-full'>
+                <SelectValue />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {systemPromptModeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <FormDescription>
+            {t(
+              'Controls how this channel prompt modifies an identified request system prompt. Responses Lite preserves other developer messages.'
+            )}
+          </FormDescription>
+          <FormMessage />
         </FormItem>
       )}
     />
@@ -2339,6 +2368,90 @@ export function ChannelMutateDrawer({
     />
   )
 
+  const concurrencyFields = (
+    <div
+      role='group'
+      aria-label={t('Concurrency Control')}
+      className={channelConfigurationBlockClassName(
+        configuration.blocks.extraSettings,
+        'flex flex-col gap-4 border-t pt-4'
+      )}
+    >
+      <SubHeading
+        title={t('Concurrency Control')}
+        icon={<Boxes className='h-3.5 w-3.5' />}
+        iconTone='warning'
+      />
+      <fieldset
+        disabled={sensitiveLocked}
+        className='space-y-4 disabled:opacity-60'
+      >
+        <div className='grid gap-4 sm:grid-cols-2'>
+          <FormField
+            control={form.control}
+            name='max_concurrency'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Maximum concurrent requests')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={0}
+                    max={10000}
+                    step={1}
+                    {...field}
+                    onChange={(event) =>
+                      field.onChange(Number(event.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Maximum in-flight requests across all instances. Set to 0 for unlimited.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='concurrency_wait_timeout_seconds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Concurrency wait timeout (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={0}
+                    max={3600}
+                    step={1}
+                    disabled={sensitiveLocked || !currentMaxConcurrency}
+                    {...field}
+                    onChange={(event) =>
+                      field.onChange(Number(event.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'How long a request waits for a slot. Set to 0 to fail immediately.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Concurrency limits are shared across instances through Redis. Streaming requests hold a slot until the response ends.'
+          )}
+        </p>
+      </fieldset>
+    </div>
+  )
+
   const routingFields = (
     <div
       role='group'
@@ -2642,6 +2755,13 @@ export function ChannelMutateDrawer({
               <ModelMappingEditor
                 value={field.value || ''}
                 onChange={field.onChange}
+                userHiddenModelMappings={currentUserHiddenModelMappings || []}
+                onUserHiddenModelMappingsChange={(models) =>
+                  form.setValue('user_hidden_model_mappings', models, {
+                    shouldDirty: true,
+                  })
+                }
+                userHiddenModelMappingsDisabled={sensitiveLocked}
                 disabled={isSubmitting}
                 sourceModelOptions={currentModelsArray}
                 targetModelOptions={modelOptions.map((option) => option.value)}
@@ -5040,7 +5160,7 @@ export function ChannelMutateDrawer({
                 {thinkingFields}
                 {passthroughFields}
                 {systemPromptFields}
-                {systemPromptOverrideFields}
+                {systemPromptModeFields}
               </fieldset>
             </div>
             {fieldPassthroughFields}
@@ -5070,6 +5190,7 @@ export function ChannelMutateDrawer({
                 {httpProtocolFields}
                 {httpShardsFields}
                 {tlsInsecureSkipVerifyFields}
+                {concurrencyFields}
               </fieldset>
             </div>
             {upstreamModelDetectionFields}

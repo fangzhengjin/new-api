@@ -32,6 +32,15 @@ import { buildQuotaAuditOperation } from './quota-audit-operation'
 
 export { normalizeTierLabel }
 
+/** Returns the current display name only when it adds information beyond the logged username. */
+export function getDistinctUserDisplayName(
+  log: Pick<UsageLog, 'username' | 'display_name'>
+): string {
+  return log.display_name && log.display_name !== log.username
+    ? log.display_name
+    : ''
+}
+
 const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
   set: 'Set',
   delete: 'Delete',
@@ -170,6 +179,76 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+/** Format structured retry attempts, falling back to historical channel-only logs. */
+export function getRetryTargetChain(
+  adminInfo: LogOtherData['admin_info'],
+  keyLabel: string
+): string[] {
+  const targets = adminInfo?.retry_targets
+  if (Array.isArray(targets)) {
+    const labels: string[] = []
+    for (const target of targets) {
+      if (!Number.isInteger(target?.channel_id) || target.channel_id <= 0) {
+        continue
+      }
+      const keyIndex = target.multi_key_index
+      let label =
+        typeof keyIndex === 'number' &&
+        Number.isInteger(keyIndex) &&
+        keyIndex >= 0
+          ? `#${target.channel_id} / ${keyLabel} ${keyIndex}`
+          : `#${target.channel_id}`
+      const statusCode = target.status_code
+      const error = typeof target.error === 'string' ? target.error.trim() : ''
+      if (
+        typeof statusCode === 'number' &&
+        Number.isInteger(statusCode) &&
+        statusCode >= 100 &&
+        statusCode <= 599
+      ) {
+        label += ` · ${statusCode}${error ? `: ${error}` : ''}`
+      } else if (error) {
+        label += ` · ${error}`
+      }
+      labels.push(label)
+    }
+    if (labels.length > 0) {
+      if (adminInfo?.retry_targets_truncated === true) labels.push('…')
+      return labels
+    }
+  }
+
+  const channels = adminInfo?.use_channel
+  return Array.isArray(channels)
+    ? channels.map(String).filter((channel) => channel !== '')
+    : []
+}
+
+export interface ReasoningEffortDisplay {
+  original?: string
+  final: string
+}
+
+function normalizeReasoningEffort(value?: string): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed || undefined
+}
+
+/** Normalize legacy and structured reasoning-effort log values for display. */
+export function getReasoningEffortDisplay(
+  value?: LogOtherData['reasoning_effort']
+): ReasoningEffortDisplay {
+  if (value && typeof value === 'object') {
+    return {
+      original: normalizeReasoningEffort(value.original) ?? 'none',
+      final: normalizeReasoningEffort(value.final) ?? 'none',
+    }
+  }
+  return {
+    final: normalizeReasoningEffort(value) ?? 'none',
+  }
+}
+
 export function getReasoningEffortVariant(
   effort: string | undefined
 ): StatusBadgeProps['variant'] {
@@ -188,7 +267,6 @@ export function getReasoningEffortVariant(
       return 'grey'
   }
 }
-
 /**
  * Get time color based on duration (in seconds)
  */
@@ -340,6 +418,76 @@ export function hasAnyCacheTokens(
     (other.cache_creation_tokens_1h || 0) > 0 ||
     (other.cache_creation_tokens_12h || 0) > 0
   )
+}
+
+/** Provider-neutral token totals and cache breakdown for one usage log. */
+export interface LogTokenSummary {
+  inputTotal: number
+  outputTotal: number
+  cacheRead: number
+  cacheWrite: number
+  cacheWrite5m: number
+  cacheWrite1h: number
+  cacheWrite12h: number
+  cacheWriteUnclassified: number
+  cacheTotal: number
+  uncachedInput: number
+  inputBreakdownValid: boolean
+}
+
+/**
+ * Normalize provider-specific log token fields for display.
+ * @param log Stored prompt/output token fields.
+ * @param other Parsed provider-specific token details.
+ * @returns Total input/output with cache components identified separately.
+ */
+export function getLogTokenSummary(
+  log: UsageLog,
+  other: LogOtherData | null | undefined
+): LogTokenSummary {
+  const promptTokens = log.prompt_tokens || 0
+  const cacheRead = Math.max(other?.cache_tokens || 0, 0)
+  const cacheWrite5m = Math.max(other?.cache_creation_tokens_5m || 0, 0)
+  const cacheWrite1h = Math.max(other?.cache_creation_tokens_1h || 0, 0)
+  const cacheWrite12h = Math.max(other?.cache_creation_tokens_12h || 0, 0)
+  const classifiedCacheWrite = cacheWrite5m + cacheWrite1h + cacheWrite12h
+  const cacheWrite = Math.max(
+    other?.cache_write_tokens || 0,
+    other?.cache_creation_tokens || 0,
+    classifiedCacheWrite,
+    0
+  )
+  const isAnthropic =
+    other?.usage_semantic === 'anthropic' ||
+    (!other?.usage_semantic && other?.claude === true)
+
+  let inputTotal = promptTokens
+  if (
+    typeof other?.input_tokens_total === 'number' &&
+    Number.isFinite(other.input_tokens_total) &&
+    other.input_tokens_total > 0
+  ) {
+    inputTotal = other.input_tokens_total
+  } else if (isAnthropic) {
+    inputTotal += cacheRead + cacheWrite
+  }
+
+  const cacheTotal = cacheRead + cacheWrite
+  const inputBreakdownValid = cacheTotal <= inputTotal
+
+  return {
+    inputTotal,
+    outputTotal: log.completion_tokens || 0,
+    cacheRead,
+    cacheWrite,
+    cacheWrite5m,
+    cacheWrite1h,
+    cacheWrite12h,
+    cacheWriteUnclassified: Math.max(cacheWrite - classifiedCacheWrite, 0),
+    cacheTotal,
+    uncachedInput: inputBreakdownValid ? inputTotal - cacheTotal : 0,
+    inputBreakdownValid,
+  }
 }
 
 export function getTieredBillingSummary(

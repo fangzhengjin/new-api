@@ -120,10 +120,15 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   responses_websocket_enabled?: boolean
   system_prompt?: string
+  system_prompt_mode?: 'none' | 'prepend' | 'append' | 'override'
+  user_hidden_model_mappings?: string[]
+  /** Legacy compatibility: true maps to system_prompt_mode=prepend. */
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
   tls_insecure_skip_verify?: boolean
+  max_concurrency?: number
+  concurrency_wait_timeout_seconds?: number
 }
 
 export interface ChannelOtherSettings {
@@ -227,6 +232,15 @@ export interface ChannelOpsResponse {
       automatic_disable: boolean
       source: string
     }
+  }
+}
+
+export interface ChannelConcurrencyResponse {
+  success: boolean
+  message?: string
+  data?: {
+    available: boolean
+    counts: Record<string, { active: number; waiting: number }>
   }
 }
 

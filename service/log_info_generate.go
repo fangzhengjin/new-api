@@ -85,10 +85,20 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 		if len(relayInfo.RequestPluginSteps) > 0 {
 			other.SetAdmin("request_plugins", relayInfo.RequestPluginSteps)
 		}
+		if len(relayInfo.RetryTargets) > 0 {
+			other.SetAdmin("retry_targets", relayInfo.RetryTargets)
+		}
+		if relayInfo.RetryTargetsTruncated {
+			other.SetAdmin("retry_targets_truncated", true)
+		}
 	}
 	if common.GetContextKeyBool(ctx, constant.ContextKeyChannelIsMultiKey) {
 		other.SetAdmin("is_multi_key", true)
 		other.SetAdmin("multi_key_index", common.GetContextKeyInt(ctx, constant.ContextKeyChannelMultiKeyIndex))
+	}
+	if relayInfo != nil && relayInfo.ChannelMeta != nil && relayInfo.ChannelIsMultiKey {
+		other.SetAdmin("is_multi_key", true)
+		other.SetAdmin("multi_key_index", relayInfo.ChannelMultiKeyIndex)
 	}
 	if common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens) {
 		other.SetAdmin("local_count_tokens", true)
@@ -98,6 +108,15 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	if events := RequestPolicy(ctx).Events(); len(events) > 0 {
 		other.SetAdmin("request_policy", events)
 	}
+}
+
+func appendModelMappingLogInfo(other *model.LogOther, relayInfo *relaycommon.RelayInfo) {
+	if other == nil || relayInfo == nil || !relayInfo.IsModelMapped {
+		return
+	}
+	other.SetPublic("is_model_mapped", true)
+	other.SetPublic("upstream_model_name", relayInfo.UpstreamModelName)
+	other.SetPublic("model_mapping_visible_to_users", !relayInfo.ShouldHideModelMappingFromUsers())
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
@@ -112,13 +131,21 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other.SetPublic("model_price", modelPrice)
 	other.SetPublic("user_group_ratio", userGroupRatio)
 	other.SetPublic("frt", float64(relayInfo.FirstResponseTime.UnixMilli()-relayInfo.StartTime.UnixMilli()))
-	if relayInfo.ReasoningEffort != "" {
-		other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
+	if relayInfo.ReasoningEffort != "" || (relayInfo.ReasoningEffortChecked && relayInfo.ReasoningEffortRequest != "") {
+		if relayInfo.ReasoningEffortRequest != "" && relayInfo.ReasoningEffortRequest == relayInfo.ReasoningEffort {
+			other.SetPublic("reasoning_effort", relayInfo.ReasoningEffort)
+		} else {
+			effort := map[string]string{}
+			if relayInfo.ReasoningEffortRequest != "" {
+				effort["original"] = relayInfo.ReasoningEffortRequest
+			}
+			if relayInfo.ReasoningEffort != "" {
+				effort["final"] = relayInfo.ReasoningEffort
+			}
+			other.SetPublic("reasoning_effort", effort)
+		}
 	}
-	if relayInfo.IsModelMapped {
-		other.SetPublic("is_model_mapped", true)
-		other.SetPublic("upstream_model_name", relayInfo.UpstreamModelName)
-	}
+	appendModelMappingLogInfo(other, relayInfo)
 
 	isSystemPromptOverwritten := common.GetContextKeyBool(ctx, constant.ContextKeySystemPromptOverride)
 	if isSystemPromptOverwritten {

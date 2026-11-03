@@ -38,6 +38,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelConcurrencyResponse,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -229,6 +230,22 @@ export async function getChannelDefaultBaseURLs(): Promise<
 }
 
 /**
+ * Get active request counts for the supplied channels
+ * @param ids - Channel IDs to query.
+ * @returns Availability and active request counts keyed by channel ID.
+ */
+export async function getChannelConcurrency(
+  ids: number[]
+): Promise<ChannelConcurrencyResponse> {
+  const res = await api.post(
+    '/api/channel/concurrency',
+    { ids },
+    channelActionConfig()
+  )
+  return res.data
+}
+
+/**
  * Create new channel(s)
  * Supports single, batch, and multi-key modes
  */
@@ -327,7 +344,12 @@ export async function batchSetChannelTag(
  */
 export async function testChannel(
   id: number,
-  params?: { model?: string; endpoint_type?: string; stream?: boolean }
+  params?: {
+    model?: string
+    endpoint_type?: string
+    stream?: boolean
+    manual_model_batch?: boolean
+  }
 ): Promise<ChannelTestResponse> {
   const res = await api.get(
     `/api/channel/test/${id}`,

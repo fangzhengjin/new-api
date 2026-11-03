@@ -10,6 +10,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestChannelSettingsSystemPromptMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		setting  ChannelSettings
+		existing string
+		wantMode string
+		want     string
+		changed  bool
+	}{
+		{name: "no prompt stays disabled", setting: ChannelSettings{}, existing: "base", wantMode: SystemPromptModeNone, want: "base"},
+		{name: "legacy prompt fills an empty target", setting: ChannelSettings{SystemPrompt: "extra"}, wantMode: SystemPromptModeLegacy, want: "extra", changed: true},
+		{name: "legacy prompt leaves existing content untouched", setting: ChannelSettings{SystemPrompt: "extra"}, existing: "base", wantMode: SystemPromptModeLegacy, want: "base"},
+		{name: "legacy override prepends", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptOverride: true}, existing: "base", wantMode: SystemPromptModePrepend, want: "extra\n\nbase", changed: true},
+		{name: "prepend", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModePrepend}, existing: "base", wantMode: SystemPromptModePrepend, want: "extra\n\nbase", changed: true},
+		{name: "append", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeAppend}, existing: "base", wantMode: SystemPromptModeAppend, want: "base\n\nextra", changed: true},
+		{name: "override", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeOverride}, existing: "base", wantMode: SystemPromptModeOverride, want: "extra", changed: true},
+		{name: "empty target avoids separator", setting: ChannelSettings{SystemPrompt: "extra", SystemPromptMode: SystemPromptModeAppend}, wantMode: SystemPromptModeAppend, want: "extra", changed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantMode, tt.setting.EffectiveSystemPromptMode())
+			got, changed := tt.setting.RewriteSystemPrompt(tt.existing)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.changed, changed)
+		})
+	}
+}
+
+func TestChannelSettingsValidateSystemPromptMode(t *testing.T) {
+	require.NoError(t, (&ChannelSettings{SystemPromptMode: SystemPromptModeOverride}).ValidateSystemPromptMode())
+	require.Error(t, (&ChannelSettings{SystemPromptMode: SystemPromptModeLegacy}).ValidateSystemPromptMode())
+	require.Error(t, (&ChannelSettings{SystemPromptMode: "replace"}).ValidateSystemPromptMode())
+	require.Error(t, (&ChannelSettings{SystemPromptMode: " PREPEND "}).ValidateSystemPromptMode())
+}
+
+func TestChannelSettingsModelMappingVisibility(t *testing.T) {
+	settings := ChannelSettings{UserHiddenModelMappings: []string{"private-model"}}
+
+	assert.True(t, settings.IsModelMappingVisibleToUsers("public-model"))
+	assert.False(t, settings.IsModelMappingVisibleToUsers("private-model"))
+	assert.True(t, (*ChannelSettings)(nil).IsModelMappingVisibleToUsers("public-model"))
+}
+
 func TestAdvancedCustomValidateResponsesToChatConverterPath(t *testing.T) {
 	valid := &AdvancedCustomConfig{
 		Routes: []AdvancedCustomRoute{
@@ -735,4 +779,10 @@ func TestChannelOtherSettingsValidateToolLossPolicy(t *testing.T) {
 	err := (&ChannelOtherSettings{ToolLossPolicy: "drop"}).ValidateToolLossPolicy()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool_loss_policy")
+}
+
+func TestChannelSettingsConcurrencyWaitTimeout(t *testing.T) {
+	assert.Equal(t, 90, (&ChannelSettings{}).ConcurrencyWaitTimeout())
+	zero := 0
+	assert.Zero(t, (&ChannelSettings{ConcurrencyWaitTimeoutSeconds: &zero}).ConcurrencyWaitTimeout())
 }

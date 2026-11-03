@@ -34,6 +34,7 @@ function makeLog(other: LogOtherData): UsageLog {
     type: 5,
     content: 'request rejected',
     username: 'user',
+    display_name: '',
     token_name: 'token',
     model_name: 'gpt-test',
     quota: 0,

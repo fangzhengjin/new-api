@@ -46,6 +46,7 @@ function makeLog(other: LogOtherData): UsageLog {
     type: 2,
     content: '',
     username: 'user',
+    display_name: '',
     token_name: 'token',
     model_name: 'wan2.5-i2v-preview',
     quota: 5000,
@@ -199,7 +200,7 @@ describe('usage facts billing details', () => {
       '400'
     )
     expect(
-      screen.getByText('Input Tokens').nextElementSibling
+      screen.getByText('Total Input Tokens').nextElementSibling
     ).toHaveTextContent('1,000')
     expect(
       screen

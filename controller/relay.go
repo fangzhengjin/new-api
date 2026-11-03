@@ -29,6 +29,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -82,6 +84,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
 	)
+	releaseQuotaRequest, err := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if err != nil {
+		if relayFormat == types.RelayFormatClaude {
+			c.JSON(http.StatusConflict, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		} else {
+			c.JSON(http.StatusConflict, gin.H{"error": types.OpenAIError{Message: err.Error(), Type: "new_api_error", Code: "quota_cycle_unavailable"}})
+		}
+		return
+	}
+	defer releaseQuotaRequest()
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -109,6 +121,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				return
 			}
 			logger.LogError(c, common.LogText("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
+			if writeCodexMappedErrorResponse(c, relayFormat, newAPIError) {
+				return
+			}
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			upstreamURLs := common.UpstreamAddresses(c)
 			if relayFormat != types.RelayFormatOpenAIRealtime && c.Writer.Written() &&
@@ -135,6 +150,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	checkCodexVersion := relayFormat == types.RelayFormatOpenAIResponses ||
+		relayFormat == types.RelayFormatOpenAIResponsesCompaction ||
+		relayFormat == types.RelayFormatOpenAIAlphaSearch
+	if outdated := model_setting.CheckClientVersion(c.Request.UserAgent(), relayFormat == types.RelayFormatClaude, checkCodexVersion); outdated != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(outdated.Message()),
+			types.ErrorCodeClientVersionTooLow,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+		service.RecordRelayErrorLog(c, newAPIError, nil, &types.ChannelError{})
+		return
+	}
+
 	// Ingress takes the request plugin plan and may patch the stored body
 	// before it is parsed. A Realtime session runs its instances on its
 	// events instead.
@@ -146,7 +175,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// plugins did.
 		ingress := &relaycommon.RelayInfo{}
 		ingress.SetRequestPluginIngress(ingressSteps, ingressRecord)
-		service.RecordRelayErrorLog(c, 0, newAPIError, ingress)
+		service.RecordRelayErrorLog(c, newAPIError, ingress, &types.ChannelError{})
 		return
 	}
 
@@ -318,7 +347,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if lastChannelError != nil && newAPIError == lastRelayError && shouldRecordRelayFailure(c, newAPIError) {
-		service.RecordRelayErrorLog(c, lastChannelError.ChannelId, newAPIError, relayInfo)
+		service.RecordRelayErrorLog(c, newAPIError, relayInfo, lastChannelError)
 	}
 }
 
@@ -337,6 +366,29 @@ func writeRelayStreamError(c *gin.Context, format types.RelayFormat, apiError *t
 	}
 	_ = helper.ObjectData(c, gin.H{"error": apiError.ToOpenAIError(upstreamURLs...)})
 	helper.Done(c)
+}
+
+func writeCodexMappedErrorResponse(c *gin.Context, relayFormat types.RelayFormat, newAPIError *types.NewAPIError) bool {
+	if relayFormat != types.RelayFormatOpenAIResponses || newAPIError == nil || newAPIError.UpstreamStatusCode == 0 {
+		return false
+	}
+	rewrite, matched := model_setting.MatchCodexErrorResponse(
+		c.Request.UserAgent(),
+		c.Request.URL.Path,
+		newAPIError.UpstreamStatusCode,
+		newAPIError.ToOpenAIError().Message,
+	)
+	if !matched {
+		return false
+	}
+	c.JSON(rewrite.StatusCode, gin.H{
+		"error": gin.H{
+			"type":    rewrite.Type,
+			"code":    rewrite.Code,
+			"message": rewrite.Message,
+		},
+	})
+	return true
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.
@@ -403,7 +455,10 @@ func recordRelayTarget(c *gin.Context, info *relaycommon.RelayInfo) bool {
 }
 
 func recordRelayTargetError(c *gin.Context, info *relaycommon.RelayInfo, err *types.NewAPIError, targetRecorded bool) {
-	if !targetRecorded || err == nil || len(info.RetryTargets) == 0 {
+	// A request plugin's rejection is not a channel outcome; it must not be
+	// attributed to the retry target the way an upstream error is.
+	if !targetRecorded || err == nil || len(info.RetryTargets) == 0 ||
+		err.GetErrorCode() == types.ErrorCodeRequestRejected || err.GetErrorCode() == types.ErrorCodeRequestPluginFailed {
 		return
 	}
 	target := &info.RetryTargets[len(info.RetryTargets)-1]
@@ -611,6 +666,17 @@ func RelayMidjourney(c *gin.Context) {
 	}
 
 	var mjErr *taskdto.MidjourneyResponse
+	if relayInfo.RelayMode != relayconstant.RelayModeMidjourneyNotify &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetch &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskFetchByCondition &&
+		relayInfo.RelayMode != relayconstant.RelayModeMidjourneyTaskImageSeed {
+		releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+		if admissionErr != nil {
+			c.JSON(http.StatusConflict, gin.H{"description": admissionErr.Error(), "type": "quota_cycle_unavailable", "code": 4})
+			return
+		}
+		defer releaseQuotaRequest()
+	}
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeMidjourneyNotify:
 		mjErr = relay.RelayMidjourneyNotify(c)
@@ -673,7 +739,7 @@ func midjourneyRequestPlugins(c *gin.Context, relayInfo *relaycommon.RelayInfo) 
 		relayInfo.SetRequestPluginIngress(relayInfo.RequestPluginSteps, relayInfo.RequestPluginRecord)
 	}
 	if apiErr != nil {
-		service.RecordRelayErrorLog(c, channelID, apiErr, relayInfo)
+		service.RecordRelayErrorLog(c, apiErr, relayInfo, &types.ChannelError{ChannelId: channelID})
 	}
 	return apiErr
 }
@@ -759,6 +825,13 @@ type taskSubmissionOutcome struct {
 }
 
 func RelayTask(c *gin.Context) {
+	releaseQuotaRequest, admissionErr := quotaService.AdmitQuotaRequestDuringSettlement(c)
+	if admissionErr != nil {
+		c.JSON(http.StatusConflict, &taskdto.TaskError{Code: "quota_cycle_unavailable", Message: admissionErr.Error(), StatusCode: http.StatusConflict})
+		return
+	}
+	defer releaseQuotaRequest()
+
 	var relayInfo *relaycommon.RelayInfo
 	var taskErr *taskdto.TaskError
 	// Registered first so that it runs last: the request plugins' report
@@ -866,7 +939,7 @@ func executeTaskSubmissionWith(
 	if ingressErr != nil {
 		// The submission reached no channel and reserved nothing; its error
 		// log shows what the plugins did.
-		service.RecordRelayErrorLog(c, 0, ingressErr, relayInfo)
+		service.RecordRelayErrorLog(c, ingressErr, relayInfo, &types.ChannelError{})
 		taskErr = requestplugin.TaskError(ingressErr)
 		diagnostics.failed(stage, "request_plugin", taskErr, false)
 		return nil, taskErr
@@ -984,7 +1057,7 @@ func executeTaskSubmissionWith(
 			} else if requestplugin.Stopped(taskErr) {
 				// A request plugin stopped the attempt; its error log shows what
 				// the plugins did.
-				service.RecordRelayErrorLog(c, channel.Id, taskReportError(taskErr), relayInfo)
+				service.RecordRelayErrorLog(c, taskReportError(taskErr), relayInfo, &types.ChannelError{ChannelId: channel.Id})
 			}
 			diagnostics.attemptFailed(retryIndex+1, channel, taskErr, canRetry || advanceTarget)
 			retryIndex++
@@ -1025,7 +1098,7 @@ func executeTaskSubmissionWith(
 	if taskErr != nil {
 		diagnostics.failed(stage, "task_error", taskErr, false)
 		if lastChannelError != nil && !taskErr.LocalError && shouldRecordRelayFailure(c, lastRelayError) {
-			service.RecordRelayErrorLog(c, lastChannelError.ChannelId, lastRelayError, relayInfo)
+			service.RecordRelayErrorLog(c, lastRelayError, relayInfo, lastChannelError)
 		}
 		return nil, taskErr
 	}

@@ -11,16 +11,19 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-const channelConcurrencyPoll = 200 * time.Millisecond
+const concurrencyPoll = 200 * time.Millisecond
 
-var channelConcurrencyLease = time.Minute
+var concurrencyLease = time.Minute
 
 var (
 	ErrChannelConcurrencyLimit       = errors.New("channel concurrency limit reached")
 	ErrChannelConcurrencyUnavailable = errors.New("channel concurrency control unavailable")
+	ErrAccountConcurrencyLimit       = errors.New("account concurrency limit reached")
+	ErrIPConcurrencyLimit            = errors.New("IP concurrency limit reached")
+	ErrModelConcurrencyUnavailable   = errors.New("model request concurrency control unavailable")
 )
 
-const acquireChannelConcurrencyScript = `
+const acquireConcurrencyScript = `
 local now = redis.call('TIME')
 local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms)
@@ -34,7 +37,7 @@ redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[3]) * 2)
 return 1
 `
 
-const addChannelConcurrencyWaiterScript = `
+const addConcurrencyWaiterScript = `
 local now = redis.call('TIME')
 local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
 redis.call('ZADD', KEYS[1], now_ms + tonumber(ARGV[2]), ARGV[1])
@@ -45,7 +48,7 @@ end
 return 1
 `
 
-const countChannelConcurrencyScript = `
+const countConcurrencyScript = `
 local now = redis.call('TIME')
 local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms)
@@ -53,7 +56,7 @@ redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now_ms)
 return {redis.call('ZCARD', KEYS[1]), redis.call('ZCARD', KEYS[2])}
 `
 
-const renewChannelConcurrencyScript = `
+const renewConcurrencyScript = `
 local now = redis.call('TIME')
 local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
 if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then
@@ -68,15 +71,76 @@ return 1
 // The parameters are the request context, channel ID, non-negative concurrency limit, and wait timeout.
 // It returns a derived context canceled on lease failure, an idempotent release function, and any acquisition error.
 func AcquireChannelConcurrency(ctx context.Context, channelID, limit int, waitTimeout time.Duration) (context.Context, func(), error) {
+	key := fmt.Sprintf("channel_concurrency:v1:%d", channelID)
+	waitingKey := fmt.Sprintf("channel_concurrency_waiting:v1:%d", channelID)
+	return acquireRedisConcurrency(ctx, key, waitingKey, limit, waitTimeout, ErrChannelConcurrencyLimit, ErrChannelConcurrencyUnavailable)
+}
+
+// AcquireModelRequestConcurrency enforces account then IP concurrency limits for one model request.
+// Both limits are non-negative; zero disables that scope. The returned release function is idempotent.
+func AcquireModelRequestConcurrency(ctx context.Context, userID int, ip string, accountLimit, ipLimit int) (context.Context, func(), error) {
+	limitedCtx := ctx
+	releases := make([]func(), 0, 2)
+	releaseAll := func() {
+		for index := len(releases) - 1; index >= 0; index-- {
+			releases[index]()
+		}
+	}
+
+	if accountLimit > 0 {
+		var release func()
+		var err error
+		limitedCtx, release, err = acquireRedisConcurrency(
+			limitedCtx,
+			fmt.Sprintf("model_request_concurrency:v1:user:%d", userID),
+			fmt.Sprintf("model_request_concurrency_waiting:v1:user:%d", userID),
+			accountLimit,
+			0,
+			ErrAccountConcurrencyLimit,
+			ErrModelConcurrencyUnavailable,
+		)
+		if err != nil {
+			return ctx, nil, err
+		}
+		releases = append(releases, release)
+	}
+
+	if ipLimit > 0 {
+		var release func()
+		var err error
+		limitedCtx, release, err = acquireRedisConcurrency(
+			limitedCtx,
+			"model_request_concurrency:v1:ip:"+ip,
+			"model_request_concurrency_waiting:v1:ip:"+ip,
+			ipLimit,
+			0,
+			ErrIPConcurrencyLimit,
+			ErrModelConcurrencyUnavailable,
+		)
+		if err != nil {
+			releaseAll()
+			return ctx, nil, err
+		}
+		releases = append(releases, release)
+	}
+	if len(releases) > 0 {
+		go func() {
+			<-limitedCtx.Done()
+			releaseAll()
+		}()
+	}
+
+	return limitedCtx, releaseAll, nil
+}
+
+func acquireRedisConcurrency(ctx context.Context, key, waitingKey string, limit int, waitTimeout time.Duration, limitError, unavailableError error) (context.Context, func(), error) {
 	if common.RDB == nil || !common.RedisEnabled {
 		if limit == 0 {
 			return ctx, func() {}, nil
 		}
-		return ctx, nil, ErrChannelConcurrencyUnavailable
+		return ctx, nil, unavailableError
 	}
 
-	key := fmt.Sprintf("channel_concurrency:v1:%d", channelID)
-	waitingKey := fmt.Sprintf("channel_concurrency_waiting:v1:%d", channelID)
 	member := common.GetUUID()
 	deadline := time.Now().Add(waitTimeout)
 	waitingRegistered := false
@@ -89,27 +153,27 @@ func AcquireChannelConcurrency(ctx context.Context, channelID, limit int, waitTi
 		_ = common.RDB.ZRem(removeCtx, waitingKey, member).Err()
 	}()
 	for {
-		acquired, err := common.RDB.Eval(ctx, acquireChannelConcurrencyScript, []string{key, waitingKey}, limit, member, channelConcurrencyLease.Milliseconds()).Int()
+		acquired, err := common.RDB.Eval(ctx, acquireConcurrencyScript, []string{key, waitingKey}, limit, member, concurrencyLease.Milliseconds()).Int()
 		if err != nil {
 			if limit == 0 {
 				return ctx, func() {}, nil
 			}
-			return ctx, nil, fmt.Errorf("%w: %v", ErrChannelConcurrencyUnavailable, err)
+			return ctx, nil, fmt.Errorf("%w: %v", unavailableError, err)
 		}
 		if acquired == 1 {
 			break
 		}
 		if waitTimeout <= 0 || !time.Now().Before(deadline) {
-			return ctx, nil, ErrChannelConcurrencyLimit
+			return ctx, nil, limitError
 		}
 		if !waitingRegistered {
 			remaining := max(time.Until(deadline).Milliseconds(), int64(1))
-			if _, err := common.RDB.Eval(ctx, addChannelConcurrencyWaiterScript, []string{waitingKey}, member, remaining, channelConcurrencyLease.Milliseconds()).Result(); err == nil {
+			if _, err := common.RDB.Eval(ctx, addConcurrencyWaiterScript, []string{waitingKey}, member, remaining, concurrencyLease.Milliseconds()).Result(); err == nil {
 				waitingRegistered = true
 			}
 		}
 
-		wait := min(channelConcurrencyPoll, time.Until(deadline))
+		wait := min(concurrencyPoll, time.Until(deadline))
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -133,7 +197,7 @@ func AcquireChannelConcurrency(ctx context.Context, channelID, limit int, waitTi
 	}
 
 	go func() {
-		ticker := time.NewTicker(channelConcurrencyLease / 3)
+		ticker := time.NewTicker(concurrencyLease / 3)
 		defer ticker.Stop()
 		for {
 			select {
@@ -143,10 +207,11 @@ func AcquireChannelConcurrency(ctx context.Context, channelID, limit int, waitTi
 				release()
 				return
 			case <-ticker.C:
-				renewed, err := common.RDB.Eval(leaseCtx, renewChannelConcurrencyScript, []string{key}, member, channelConcurrencyLease.Milliseconds()).Int()
+				renewed, err := common.RDB.Eval(leaseCtx, renewConcurrencyScript, []string{key}, member, concurrencyLease.Milliseconds()).Int()
 				if err != nil || renewed != 1 {
 					if limit > 0 {
-						cancel(ErrChannelConcurrencyUnavailable)
+						cancel(unavailableError)
+						release()
 					}
 					return
 				}
@@ -178,7 +243,7 @@ func GetChannelConcurrencyCounts(ctx context.Context, channelIDs []int) (map[int
 			}
 			key := fmt.Sprintf("channel_concurrency:v1:%d", channelID)
 			waitingKey := fmt.Sprintf("channel_concurrency_waiting:v1:%d", channelID)
-			commands[channelID] = pipe.Eval(ctx, countChannelConcurrencyScript, []string{key, waitingKey})
+			commands[channelID] = pipe.Eval(ctx, countConcurrencyScript, []string{key, waitingKey})
 		}
 		return nil
 	})

@@ -197,6 +197,8 @@ export type RequestPluginAdminStep = {
   error_class?: string
   rule?: string
   findings?: { rule: string; category?: string; count: number }[]
+}
+
 export interface RelayRetryTarget {
   channel_id: number
   multi_key_index?: number
@@ -240,6 +242,19 @@ export interface LogOtherData {
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo
+    user_agent?: {
+      client: string
+      upstream_before_fallback?: string
+      upstream_after_fallback?: string
+    }
+    request_headers?: {
+      incoming?: Record<string, string>
+      outgoing?: Record<string, string>
+      omitted?: {
+        incoming?: Array<{ name: string; byte_length: number }>
+        outgoing?: Array<{ name: string; byte_length: number }>
+      }
+    }
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo

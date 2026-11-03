@@ -15,11 +15,12 @@ import (
 
 type failChannelConcurrencyRenewalHook struct {
 	attempted chan struct{}
+	key       string
 }
 
 func (hook failChannelConcurrencyRenewalHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.Context, error) {
 	args := cmd.Args()
-	if cmd.Name() == "eval" && len(args) > 1 && args[1] == renewChannelConcurrencyScript {
+	if cmd.Name() == "eval" && len(args) > 3 && args[1] == renewConcurrencyScript && (hook.key == "" || args[3] == hook.key) {
 		select {
 		case hook.attempted <- struct{}{}:
 		default:
@@ -62,6 +63,48 @@ func TestChannelConcurrencySharesAndReleasesRedisSlots(t *testing.T) {
 	_, releaseAgain, err := AcquireChannelConcurrency(context.Background(), 7, 1, 0)
 	require.NoError(t, err)
 	releaseAgain()
+}
+
+func TestModelRequestConcurrencyPrioritizesAccountAndRollsBackIPRejection(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	previousRDB, previousEnabled := common.RDB, common.RedisEnabled
+	common.RDB, common.RedisEnabled = client, true
+	t.Cleanup(func() {
+		common.RDB, common.RedisEnabled = previousRDB, previousEnabled
+		_ = client.Close()
+	})
+
+	_, releaseFirst, err := AcquireModelRequestConcurrency(context.Background(), 101, "192.0.2.1", 1, 1)
+	require.NoError(t, err)
+	_, _, err = AcquireModelRequestConcurrency(context.Background(), 101, "192.0.2.1", 1, 1)
+	assert.ErrorIs(t, err, ErrAccountConcurrencyLimit)
+	_, _, err = AcquireModelRequestConcurrency(context.Background(), 102, "192.0.2.1", 1, 1)
+	assert.ErrorIs(t, err, ErrIPConcurrencyLimit)
+
+	_, releaseSecond, err := AcquireModelRequestConcurrency(context.Background(), 102, "192.0.2.2", 1, 1)
+	require.NoError(t, err, "IP rejection must release the account slot")
+	releaseSecond()
+	releaseFirst()
+}
+
+func TestModelRequestConcurrencyRecoversExpiredLease(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	previousRDB, previousEnabled := common.RDB, common.RedisEnabled
+	common.RDB, common.RedisEnabled = client, true
+	t.Cleanup(func() {
+		common.RDB, common.RedisEnabled = previousRDB, previousEnabled
+		_ = client.Close()
+	})
+
+	_, releaseFirst, err := AcquireModelRequestConcurrency(context.Background(), 103, "192.0.2.3", 1, 0)
+	require.NoError(t, err)
+	server.FastForward(2*concurrencyLease + time.Millisecond)
+	_, releaseSecond, err := AcquireModelRequestConcurrency(context.Background(), 103, "192.0.2.3", 1, 0)
+	require.NoError(t, err)
+	releaseSecond()
+	releaseFirst()
 }
 
 func TestChannelConcurrencyWaitsForReleasedSlot(t *testing.T) {
@@ -155,7 +198,7 @@ func TestChannelConcurrencyRenewalDoesNotRestoreReleasedMember(t *testing.T) {
 	require.NoError(t, client.ZAdd(context.Background(), key, &redis.Z{Score: 1, Member: member}).Err())
 	require.NoError(t, client.ZRem(context.Background(), key, member).Err())
 
-	renewed, err := client.Eval(context.Background(), renewChannelConcurrencyScript, []string{key}, member, channelConcurrencyLease.Milliseconds()).Int()
+	renewed, err := client.Eval(context.Background(), renewConcurrencyScript, []string{key}, member, concurrencyLease.Milliseconds()).Int()
 	require.NoError(t, err)
 	assert.Zero(t, renewed)
 	assert.ErrorIs(t, client.ZScore(context.Background(), key, member).Err(), redis.Nil)
@@ -167,12 +210,12 @@ func TestUnlimitedChannelRenewalFailureDoesNotCancelRequest(t *testing.T) {
 	renewalAttempted := make(chan struct{}, 1)
 	client.AddHook(failChannelConcurrencyRenewalHook{attempted: renewalAttempted})
 	previousRDB, previousEnabled := common.RDB, common.RedisEnabled
-	previousLease := channelConcurrencyLease
+	previousLease := concurrencyLease
 	common.RDB, common.RedisEnabled = client, true
-	channelConcurrencyLease = 30 * time.Millisecond
+	concurrencyLease = 30 * time.Millisecond
 	t.Cleanup(func() {
 		common.RDB, common.RedisEnabled = previousRDB, previousEnabled
-		channelConcurrencyLease = previousLease
+		concurrencyLease = previousLease
 		_ = client.Close()
 	})
 
@@ -200,5 +243,44 @@ func TestUnlimitedChannelRenewalFailureDoesNotCancelRequest(t *testing.T) {
 		t.Fatal("limited channel lease failure did not cancel the request")
 	}
 	assert.ErrorIs(t, context.Cause(limitedCtx), ErrChannelConcurrencyUnavailable)
+	require.Eventually(t, func() bool {
+		return client.ZCard(context.Background(), "channel_concurrency:v1:14").Val() == 0
+	}, time.Second, 10*time.Millisecond)
 	limitedRelease()
+}
+
+func TestModelRequestConcurrencyReleasesAllScopesOnIPRenewalFailure(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	renewalAttempted := make(chan struct{}, 1)
+	ipKey := "model_request_concurrency:v1:ip:192.0.2.4"
+	client.AddHook(failChannelConcurrencyRenewalHook{attempted: renewalAttempted, key: ipKey})
+	previousRDB, previousEnabled := common.RDB, common.RedisEnabled
+	previousLease := concurrencyLease
+	common.RDB, common.RedisEnabled = client, true
+	concurrencyLease = 30 * time.Millisecond
+	t.Cleanup(func() {
+		common.RDB, common.RedisEnabled = previousRDB, previousEnabled
+		concurrencyLease = previousLease
+		_ = client.Close()
+	})
+
+	limitedCtx, release, err := AcquireModelRequestConcurrency(context.Background(), 104, "192.0.2.4", 1, 1)
+	require.NoError(t, err)
+	select {
+	case <-renewalAttempted:
+	case <-time.After(time.Second):
+		t.Fatal("IP lease was not renewed")
+	}
+	select {
+	case <-limitedCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("IP lease failure did not cancel the request")
+	}
+	require.Eventually(t, func() bool {
+		accountCount := client.ZCard(context.Background(), "model_request_concurrency:v1:user:104").Val()
+		ipCount := client.ZCard(context.Background(), ipKey).Val()
+		return accountCount == 0 && ipCount == 0
+	}, time.Second, 10*time.Millisecond)
+	release()
 }

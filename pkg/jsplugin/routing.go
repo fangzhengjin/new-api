@@ -489,11 +489,13 @@ var reservedRouteNamespaces = []string{
 	"/request-processing",
 	"/security",
 	"/subscriptions",
+	"/temporary-quota",
 	"/system-info",
 	"/task-plugins",
 	"/usage-logs",
 	"/users",
 	"/wallet",
+	"/quota-management",
 }
 
 func (g *RoutingGeneration) Get(key string) (*LoadedPlugin, bool) {

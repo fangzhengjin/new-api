@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
+import { ShieldCheck } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -25,6 +26,7 @@ import { BadgeCell } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
+import { Badge } from '@/components/ui/badge'
 import { TableId } from '@/components/table-id'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -46,7 +48,9 @@ import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { UserQuotaCell } from './user-quota-cell'
 
-export function useUsersColumns(): ColumnDef<User>[] {
+export function useUsersColumns(
+  cycleQuotaManagementEnabled: boolean
+): ColumnDef<User>[] {
   const { t } = useTranslation()
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const { meta: currency } = getCurrencyDisplay()
@@ -96,9 +100,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
         accessorKey: 'username',
         header: t('Username'),
         cell: ({ row }) => {
+          const user = row.original
           const username = row.getValue('username') as string
-          const displayName = row.original.display_name
-          const remark = row.original.remark
+          const displayName = user.display_name
+          const remark = user.remark
 
           return (
             <div className='flex min-w-[160px] flex-col gap-1'>
@@ -123,6 +128,15 @@ export function useUsersColumns(): ColumnDef<User>[] {
                       <p className='text-xs'>{remark}</p>
                     </TooltipContent>
                   </Tooltip>
+                )}
+                {cycleQuotaManagementEnabled && user.quota_whitelist && (
+                  <Badge
+                    variant='outline'
+                    className='border-info/30 bg-info/10 text-info shrink-0'
+                  >
+                    <ShieldCheck aria-hidden='true' />
+                    {t('Whitelist')}
+                  </Badge>
                 )}
               </div>
               {displayName && displayName !== username && (
@@ -290,6 +304,15 @@ export function useUsersColumns(): ColumnDef<User>[] {
         meta: { mobileHidden: true },
       },
       {
+        accessorKey: 'quota_whitelist',
+        header: t('Quota Management'),
+        filterFn: (row, id, value) => {
+          return value.includes(String(Boolean(row.getValue(id))))
+        },
+        enableSorting: false,
+        enableHiding: false,
+      },
+      {
         id: 'actions',
         header: () => t('Actions'),
         cell: ({ row }) => <DataTableRowActions row={row} />,
@@ -298,6 +321,6 @@ export function useUsersColumns(): ColumnDef<User>[] {
     ],
     // formatQuota reads the currency configuration from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t, quotaUnit, currencyConfig]
+    [t, cycleQuotaManagementEnabled, quotaUnit, currencyConfig]
   )
 }

@@ -18,19 +18,31 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, createFileRoute, redirect } from '@tanstack/react-router'
 import { Loader2, MessageCircleWarning } from 'lucide-react'
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import z from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { useActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
+import { useTheme } from '@/context/theme-provider'
+import { useChatPresetLauncher } from '@/features/chat/components/chat-preset-launcher'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import {
   chatLinkRequiresApiKey,
+  chatLinkRequiresBackendLaunch,
+  chatPresetOpensInNewTab,
+  getChatIframeSandbox,
+  postChatTheme,
   resolveChatUrl,
+  type ChatPreset,
 } from '@/features/chat/lib/chat-links'
 
+const chatSearchSchema = z.object({
+  tokenId: z.coerce.number().int().positive().optional().catch(undefined),
+})
+
 export const Route = createFileRoute('/_authenticated/chat/$chatId')({
+  validateSearch: chatSearchSchema,
   loader: async ({ params }) => {
     if (!Number.isInteger(Number(params.chatId))) {
       throw redirect({ to: '/dashboard' })
@@ -41,7 +53,10 @@ export const Route = createFileRoute('/_authenticated/chat/$chatId')({
 
 function ChatRouteComponent() {
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
   const { chatId } = Route.useParams()
+  const { tokenId } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const { chatPresets, serverAddress } = useChatPresets()
   const preset = useMemo(() => {
     const index = Number(chatId)
@@ -49,29 +64,83 @@ function ChatRouteComponent() {
     return chatPresets[index]
   }, [chatId, chatPresets])
 
-  const isWebLink = preset?.type === 'web'
+  const isEmbeddedWebLink =
+    preset?.type === 'web' && !chatPresetOpensInNewTab(preset)
+  const requiresToken = Boolean(
+    preset &&
+    isEmbeddedWebLink &&
+    (chatLinkRequiresBackendLaunch(preset.url) ||
+      chatLinkRequiresApiKey(preset.url))
+  )
 
-  const requiresActiveKey = useMemo(() => {
-    if (!preset || !isWebLink) return false
-    return chatLinkRequiresApiKey(preset.url ?? '')
-  }, [isWebLink, preset])
+  const [preparedIframeSrc, setPreparedIframeSrc] = useState('')
+  const [launchTheme] = useState(resolvedTheme)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const launchedPresetRef = useRef<string | null>(null)
+  const handleLaunched = useCallback(
+    (_preset: ChatPreset, launchURL: string) => {
+      setPreparedIframeSrc(launchURL)
+      if (tokenId) {
+        void navigate({
+          to: '/chat/$chatId',
+          params: { chatId },
+          search: {},
+          replace: true,
+        })
+      }
+    },
+    [chatId, navigate, tokenId]
+  )
+  const handleLaunchAborted = useCallback(() => {
+    void navigate({ to: '/dashboard', replace: true })
+  }, [navigate])
+  const presetLauncher = useChatPresetLauncher(
+    handleLaunched,
+    serverAddress,
+    undefined,
+    handleLaunchAborted
+  )
+  const prepareLaunch = presetLauncher.prepareLaunch
+  const launchWithTokenId = presetLauncher.launchWithTokenId
 
-  const {
-    data: activeKey,
-    isPending,
-    isError,
-    error,
-  } = useActiveChatKey(Boolean(preset && requiresActiveKey))
+  useEffect(() => {
+    if (!preset || !requiresToken) return
+    const launchKey = `${preset.id}:${tokenId ?? 'choose'}`
+    if (launchedPresetRef.current === launchKey) return
+    launchedPresetRef.current = launchKey
+    setPreparedIframeSrc('')
+    if (tokenId) {
+      void launchWithTokenId(preset, tokenId).then((success) => {
+        if (!success) void prepareLaunch(preset)
+      })
+      return
+    }
+    void prepareLaunch(preset)
+  }, [launchWithTokenId, prepareLaunch, preset, requiresToken, tokenId])
 
   const iframeSrc = useMemo(() => {
-    if (!preset || !isWebLink) return ''
-    if (requiresActiveKey && !activeKey) return ''
+    if (!preset || !isEmbeddedWebLink) return ''
+    if (requiresToken) return preparedIframeSrc
     return resolveChatUrl({
       template: preset.url,
-      apiKey: requiresActiveKey ? activeKey : undefined,
       serverAddress,
+      theme: launchTheme,
     })
-  }, [activeKey, isWebLink, preset, requiresActiveKey, serverAddress])
+  }, [
+    isEmbeddedWebLink,
+    launchTheme,
+    preset,
+    preparedIframeSrc,
+    requiresToken,
+    serverAddress,
+  ])
+
+  const syncIframeTheme = useCallback(() => {
+    if (!iframeSrc) return
+    postChatTheme(iframeRef.current?.contentWindow ?? null, resolvedTheme)
+  }, [iframeSrc, resolvedTheme])
+
+  useEffect(syncIframeTheme, [syncIframeTheme])
 
   if (!preset) {
     return (
@@ -92,7 +161,7 @@ function ChatRouteComponent() {
     )
   }
 
-  if (!isWebLink) {
+  if (!isEmbeddedWebLink) {
     return (
       <div className='flex h-full flex-col items-center justify-center gap-4 p-6 text-center'>
         <MessageCircleWarning className='text-muted-foreground h-12 w-12' />
@@ -112,33 +181,25 @@ function ChatRouteComponent() {
     )
   }
 
-  if (requiresActiveKey && isPending) {
+  if (requiresToken && !iframeSrc) {
     return (
-      <div className='flex h-full flex-col items-center justify-center gap-4'>
-        <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
-        <p className='text-muted-foreground text-sm'>
-          {t('Preparing your chat link…')}
-        </p>
-      </div>
+      <>
+        <div
+          role='status'
+          aria-label={t('Preparing your chat link…')}
+          className='flex h-full items-center justify-center p-6'
+        >
+          <Loader2
+            aria-hidden='true'
+            className='text-muted-foreground size-9 animate-spin'
+          />
+        </div>
+        {presetLauncher.dialog}
+      </>
     )
   }
 
-  if (requiresActiveKey && (isError || !activeKey || !iframeSrc)) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Unable to generate chat link. Please check your API keys.'
-    return (
-      <div className='flex h-full flex-col items-center justify-center p-6'>
-        <Alert variant='destructive' className='max-w-xl'>
-          <AlertTitle>{t('Unable to open chat')}</AlertTitle>
-          <AlertDescription>{message}</AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
-
-  if (!requiresActiveKey && !iframeSrc) {
+  if (!iframeSrc) {
     return (
       <div className='flex h-full flex-col items-center justify-center p-6'>
         <Alert variant='destructive' className='max-w-xl'>
@@ -155,11 +216,18 @@ function ChatRouteComponent() {
 
   return (
     <iframe
+      ref={iframeRef}
       src={iframeSrc}
       key={iframeSrc}
       className='h-full w-full border-0'
       allow='camera; microphone'
-      title={`Chat preset: ${preset.name}`}
+      sandbox={getChatIframeSandbox(
+        iframeSrc,
+        window.location.origin,
+        preset.sandbox
+      )}
+      title={t('Chat preset: {{name}}', { name: preset.name })}
+      onLoad={syncIframeTheme}
     />
   )
 }

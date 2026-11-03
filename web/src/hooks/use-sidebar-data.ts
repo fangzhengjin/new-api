@@ -20,9 +20,11 @@ import {
   Activity,
   Box,
   ClipboardList,
+  Coins,
   CreditCard,
   FileText,
   FlaskConical,
+  HandCoins,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -42,6 +44,8 @@ import { useTranslation } from 'react-i18next'
 
 import type { SidebarBadges, SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
+import { useSystemConfigStore } from '@/stores/system-config-store'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -51,6 +55,12 @@ import { ROLE } from '@/lib/roles'
  */
 export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
   const { t } = useTranslation()
+  const temporaryQuotaRequestEligible = useAuthStore(
+    (state) => state.auth.user?.temporary_quota_request_eligible === true
+  )
+  const cycleQuotaManagementEnabled = useSystemConfigStore(
+    (state) => state.config.cycleQuotaManagementEnabled === true
+  )
 
   return {
     navGroups: [
@@ -117,6 +127,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/wallet',
             icon: Wallet,
           },
+          ...(cycleQuotaManagementEnabled && temporaryQuotaRequestEligible
+            ? [
+                {
+                  title: t('Temporary quota'),
+                  url: '/temporary-quota',
+                  icon: HandCoins,
+                },
+              ]
+            : []),
           {
             title: t('Profile'),
             url: '/profile',
@@ -164,6 +183,17 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: ServerCog,
             requiredRole: ROLE.SUPER_ADMIN,
           },
+          ...(cycleQuotaManagementEnabled
+            ? [
+                {
+                  title: t('Cycle Quota Management'),
+                  url: '/quota-management',
+                  activeUrls: ['/quota-management'],
+                  icon: Coins,
+                  requiredRole: ROLE.ADMIN,
+                },
+              ]
+            : []),
           {
             title: t('Plugins'),
             url: '/task-plugins',

@@ -15,6 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	quotaService "github.com/QuantumNous/new-api/service/quota"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -108,8 +109,10 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	extraReserved := s.extraReserved
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
+	releaseBillingLease := quotaService.AcquireQuotaSettlementBillingLease(c.Request.Context(), s.relayInfo.StartTime.Unix())
 
 	gopool.Go(func() {
+		defer releaseBillingLease()
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
 			common.SysLog(common.LogText("error refunding billing source: %s", err.Error()))

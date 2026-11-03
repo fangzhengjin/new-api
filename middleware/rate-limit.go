@@ -50,6 +50,12 @@ func redisUserRateLimitKey(mark string, userID int) string {
 	return fmt.Sprintf("%s:user:%s:%d", redisRateLimitNamespace, mark, userID)
 }
 
+// redisGroupRateLimitKey scopes a user's counter to one group, for groups that
+// set their own limit.
+func redisGroupRateLimitKey(mark string, group string, userID int) string {
+	return fmt.Sprintf("%s:group:%s:%s:%d", redisRateLimitNamespace, mark, group, userID)
+}
+
 func redisReplyInteger(value any) (int64, error) {
 	switch typed := value.(type) {
 	case int64:

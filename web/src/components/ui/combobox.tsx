@@ -91,6 +91,8 @@ function Combobox(
         popupClassName={props.popupClassName}
         allowCustomValue={props.allowCustomValue}
         openOnFocus={props.openOnFocus}
+        disabled={props.disabled}
+        aria-describedby={props['aria-describedby']}
       />
     )
   }

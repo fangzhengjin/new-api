@@ -22,6 +22,31 @@ import (
 type Adaptor struct {
 }
 
+var claudeClientPassThroughHeaders = []string{
+	"Anthropic-Beta",
+	"Anthropic-Dangerous-Direct-Browser-Access",
+	"Anthropic-Version",
+	"User-Agent",
+	"X-Anthropic-Additional-Protection",
+	"X-App",
+	"X-Claude-Code-Agent-Id",
+	"X-Claude-Code-Parent-Agent-Id",
+	"X-Claude-Code-Session-Id",
+	"X-Claude-Remote-Container-Id",
+	"X-Claude-Remote-Session-Id",
+	"X-Client-App",
+	"X-Stainless-Arch",
+	"X-Stainless-Helper",
+	"X-Stainless-Helper-Method",
+	"X-Stainless-Lang",
+	"X-Stainless-Os",
+	"X-Stainless-Package-Version",
+	"X-Stainless-Retry-Count",
+	"X-Stainless-Runtime",
+	"X-Stainless-Runtime-Version",
+	"X-Stainless-Timeout",
+}
+
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	if request == nil {
 		return nil, errors.New("request is nil")
@@ -104,11 +129,20 @@ func shouldAppendClaudeBetaQuery(info *relaycommon.RelayInfo) bool {
 
 func CommonClaudeHeadersOperation(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) {
 	// common headers operation
-	// A client may send several anthropic-beta lines; the API reads one
-	// comma-separated list, so forward all of them.
-	anthropicBeta := strings.Join(c.Request.Header.Values("anthropic-beta"), ",")
-	if anthropicBeta != "" {
-		req.Set("anthropic-beta", anthropicBeta)
+	if c.Request.URL.Path == "/v1/messages" {
+		for _, name := range claudeClientPassThroughHeaders {
+			// A client may send several anthropic-beta lines; the API reads one
+			// comma-separated list, so forward all of them.
+			if name == "Anthropic-Beta" {
+				if values := strings.Join(c.Request.Header.Values("anthropic-beta"), ","); values != "" {
+					req.Set(name, values)
+				}
+				continue
+			}
+			if value := c.Request.Header.Get(name); value != "" {
+				req.Set(name, value)
+			}
+		}
 	}
 	model_setting.GetClaudeSettings().WriteHeaders(info.OriginModelName, req)
 }

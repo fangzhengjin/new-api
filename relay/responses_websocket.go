@@ -286,7 +286,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	if ingressErr != nil {
 		ingress := &relaycommon.RelayInfo{}
 		ingress.SetRequestPluginIngress(ingressSteps, ingressRecord)
-		service.RecordRelayErrorLog(c, 0, ingressErr, ingress)
+		service.RecordRelayErrorLog(c, ingressErr, ingress, &types.ChannelError{})
 		return ingressErr
 	}
 	if changed {
@@ -761,7 +761,7 @@ func reloadResponsesWSCreate(c *gin.Context, create *responsesWSCreateRequest) *
 func recordResponsesWSPluginError(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) {
 	switch apiErr.GetErrorCode() {
 	case types.ErrorCodeRequestRejected, types.ErrorCodeRequestPluginFailed:
-		service.RecordRelayErrorLog(c, info.ChannelId, apiErr, info)
+		service.RecordRelayErrorLog(c, apiErr, info, &types.ChannelError{ChannelId: info.ChannelId})
 	}
 }
 

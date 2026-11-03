@@ -210,6 +210,7 @@ export type ContentSettings = {
   'console_setting.announcements': string
   'console_setting.faq': string
   'console_setting.uptime_kuma_groups': string
+  'console_setting.overview_panel_order': string
   'console_setting.api_info_enabled': boolean
   'console_setting.announcements_enabled': boolean
   'console_setting.faq_enabled': boolean
@@ -218,6 +219,9 @@ export type ContentSettings = {
   DataExportDefaultTime: string
   DataExportInterval: number
   Chats: string
+  ChatMenuCollapseThreshold: number
+  ChatsDefault: string
+  ChatMenuCollapseThresholdDefault: number
   DrawingEnabled: boolean
   MjNotifyEnabled: boolean
   MjAccountFilterEnabled: boolean
@@ -239,6 +243,26 @@ export type ModelSettings = {
   'gemini.thinking_adapter_budget_tokens_percentage': number
   'gemini.function_call_thought_signature_enabled': boolean
   'gemini.remove_function_response_id_enabled': boolean
+  'codex.client_version_check_enabled': boolean
+  'codex.minimum_client_version': string
+  'codex.desktop_client_version_check_enabled': boolean
+  'codex.minimum_desktop_client_version': string
+  'codex.request_header_fallback_enabled': boolean
+  'codex.request_header_fallback_client': string
+  'codex.request_header_fallback_version': string
+  'codex.request_header_fallback_os': string
+  'codex.request_header_fallback_os_version': string
+  'codex.request_header_fallback_architecture': string
+  'codex.request_header_fallback_terminal': string
+  'codex.request_header_model_patterns': string
+  'codex.default_settings': string
+  'codex.error_response_mappings': string
+  'claude.client_version_check_enabled': boolean
+  'claude.minimum_client_version': string
+  'claude.request_header_fallback_enabled': boolean
+  'claude.request_header_fallback_version': string
+  'claude.request_header_model_patterns': string
+  'claude.default_settings': string
   'claude.model_headers_settings': string
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
@@ -388,6 +412,7 @@ export type OperationsSettings = {
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
   QuotaRemindEnabled: boolean
+  CycleQuotaManagementEnabled: boolean
   QuotaRemindThreshold: string
   EmailProvider: 'smtp' | 'resend'
   ResendApiKey: string
@@ -409,6 +434,11 @@ export type OperationsSettings = {
   'log_setting.user_export_enabled': boolean
   'log_setting.max_range_days': number
   'system_task_setting.retention_days': number
+  RequestHeaderRules: string
+  RequestHeaderRulesDefault: string
+  RequestHeaderCDNRuleGroups: string
+  RequestHeaderSystemRules: string
+  RequestHeaderAuditCapacityBytes: number
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number
@@ -426,9 +456,33 @@ export type OperationsSettings = {
 export type SecuritySettings = {
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
+  ModelRequestIPRateLimitCount: number
+  ModelRequestIPRateLimitSuccessCount: number
   ModelRequestRateLimitSuccessCount: number
   ModelRequestRateLimitDurationMinutes: number
   ModelRequestRateLimitGroup: string
+
+  ModelRequestRateLimitAccountTotalErrorTemplate: string
+  ModelRequestRateLimitAccountSuccessErrorTemplate: string
+  ModelRequestRateLimitIPTotalErrorTemplate: string
+  ModelRequestRateLimitIPSuccessErrorTemplate: string
+  ModelRequestConcurrencyLimitEnabled: boolean
+  ModelRequestConcurrencyLimit: number
+  ModelRequestIPConcurrencyLimit: number
+  ModelRequestConcurrencyAccountErrorTemplate: string
+  ModelRequestConcurrencyIPErrorTemplate: string
+  AccessSourceLimitEnabled: boolean
+  AccessSourceAssociationWindowHours: number
+  AccessSourceMaxIPsPerUser: number
+  AccessSourceSwitchCooldownMinutes: number
+  AccessSourceMaxUsersPerIP: number
+  AccessSourceSwitchCooldownErrorTemplate: string
+  AccessSourceAccountIPLimitErrorTemplate: string
+  AccessSourceIPAccountLimitErrorTemplate: string
+  RequestLimitErrorTemplateDefaults: string
+  CheckSensitiveEnabled: boolean
+  CheckSensitiveOnPromptEnabled: boolean
+  SensitiveWords: string
   'fetch_setting.enable_ssrf_protection': boolean
   'fetch_setting.allow_private_ip': boolean
   'fetch_setting.domain_filter_mode': boolean

@@ -170,7 +170,7 @@ export function ChannelNormalization() {
       queryClient.setQueryData(normalizationQueryKey, nextData)
       setSelections({})
     },
-    onError: handleServerError,
+    onError: (error: unknown) => handleServerError(error),
   })
 
   const applyMutation = useMutation({
@@ -185,7 +185,7 @@ export function ChannelNormalization() {
         t('{{count}} channels normalized', { count: applied.updated })
       )
     },
-    onError: handleServerError,
+    onError: (error: unknown) => handleServerError(error),
   })
 
   const startScan = () => startMutation.mutate(includeDisabled)

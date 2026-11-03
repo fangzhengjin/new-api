@@ -42,6 +42,7 @@ import {
 } from './advanced-custom'
 import { readTaskExtendPluginKeys } from './channel-plugin-extensions'
 import { supportsResponsesWebSocket } from './responses-websocket'
+import { extractMappingSourceModels } from './model-mapping-validation'
 
 // ============================================================================
 // Form Validation Schema
@@ -82,6 +83,10 @@ function isOptionalProxyURL(value: string | undefined): boolean {
 export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
+const MAX_CHANNEL_CONCURRENCY = 10000
+const DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 90
+const MAX_CONCURRENCY_WAIT_TIMEOUT_SECONDS = 3600
+const SYSTEM_PROMPT_MODES = ['none', 'prepend', 'append', 'override'] as const
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -221,6 +226,7 @@ export const channelFormSchema = z
         isOptionalModelMapping,
         'Model mapping must be a JSON object with string values'
       ),
+    user_hidden_model_mappings: z.array(z.string()).optional(),
     priority: z.number().optional(),
     weight: z.number().optional(),
     test_model: z.string().optional(),
@@ -271,10 +277,22 @@ export const channelFormSchema = z
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
+    max_concurrency: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_CHANNEL_CONCURRENCY)
+      .optional(),
+    concurrency_wait_timeout_seconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_CONCURRENCY_WAIT_TIMEOUT_SECONDS)
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
-    system_prompt_override: z.boolean().optional(),
+    system_prompt_mode: z.enum(SYSTEM_PROMPT_MODES).optional(),
     // Type-specific settings (stored in settings JSON)
     is_enterprise_account: z.boolean().optional(), // OpenRouter specific
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -450,6 +468,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   models: '',
   group: ['default'],
   model_mapping: '',
+  user_hidden_model_mappings: [],
   priority: 0,
   weight: 0,
   test_model: '',
@@ -474,10 +493,12 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   tls_insecure_skip_verify: false,
+  max_concurrency: 0,
+  concurrency_wait_timeout_seconds: DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
   system_prompt: '',
-  system_prompt_override: false,
+  system_prompt_mode: 'none',
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -525,10 +546,15 @@ export function transformChannelToFormDefaults(
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     tls_insecure_skip_verify: false,
+    max_concurrency: 0,
+    concurrency_wait_timeout_seconds: DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
     system_prompt: '',
-    system_prompt_override: false,
+    system_prompt_mode: 'none' as NonNullable<
+      ChannelFormValues['system_prompt_mode']
+    >,
+    user_hidden_model_mappings: [] as string[],
   }
 
   if (channel.setting) {
@@ -538,6 +564,14 @@ export function transformChannelToFormDefaults(
       const shards = normalizeHttp2ConnectionShards(
         parsed.http2_connection_shards
       )
+      let systemPromptMode: NonNullable<
+        ChannelFormValues['system_prompt_mode']
+      > = 'none'
+      if (SYSTEM_PROMPT_MODES.includes(parsed.system_prompt_mode)) {
+        systemPromptMode = parsed.system_prompt_mode
+      } else if (parsed.system_prompt_override) {
+        systemPromptMode = 'prepend'
+      }
       extraSettings = {
         task_plugin_key: parsed.task_plugin_key || '',
         task_extend_plugin_keys: readTaskExtendPluginKeys(channel.type, parsed),
@@ -552,11 +586,22 @@ export function transformChannelToFormDefaults(
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         tls_insecure_skip_verify: parsed.tls_insecure_skip_verify === true,
+        max_concurrency: parsed.max_concurrency ?? 0,
+        concurrency_wait_timeout_seconds:
+          parsed.concurrency_wait_timeout_seconds ??
+          DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
         system_prompt: parsed.system_prompt || '',
-        system_prompt_override: parsed.system_prompt_override || false,
+        system_prompt_mode: systemPromptMode,
+        user_hidden_model_mappings: Array.isArray(
+          parsed.user_hidden_model_mappings
+        )
+          ? parsed.user_hidden_model_mappings.filter(
+              (model: unknown): model is string => typeof model === 'string'
+            )
+          : [],
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -686,7 +731,16 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj: Record<string, unknown> = {
+  let settingObj: Record<string, unknown> = {}
+  try {
+    const parsed = parseOptionalJson(formData.setting)
+    if (isJsonObjectValue(parsed)) settingObj = parsed
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to parse existing channel setting:', error)
+  }
+
+  Object.assign(settingObj, {
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
         ? formData.task_plugin_key?.trim() || ''
@@ -709,7 +763,20 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
         formData.type === CHANNEL_TYPE_TASK_PLUGIN) &&
       formData.responses_websocket_enabled === true,
     system_prompt: formData.system_prompt || '',
-    system_prompt_override: formData.system_prompt_override || false,
+    system_prompt_mode: formData.system_prompt_mode || 'none',
+    system_prompt_override: formData.system_prompt_mode === 'prepend',
+  })
+
+  const mappingSources = new Set(
+    extractMappingSourceModels(formData.model_mapping || '')
+  )
+  const userHiddenModelMappings = [
+    ...new Set(formData.user_hidden_model_mappings || []),
+  ].filter((model) => mappingSources.has(model))
+  if (userHiddenModelMappings.length > 0) {
+    settingObj.user_hidden_model_mappings = userHiddenModelMappings
+  } else {
+    delete settingObj.user_hidden_model_mappings
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)
@@ -719,6 +786,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       : normalizeHttp2ConnectionShards(formData.http2_connection_shards)
 
   // Omit defaults so unchanged channels keep equivalent JSON.
+  delete settingObj.http_protocol
+  delete settingObj.http2_connection_shards
   if (protocol === HTTP_PROTOCOL_HTTP1) {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1
   } else if (shards > 1) {
@@ -726,6 +795,18 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
   }
   if (formData.tls_insecure_skip_verify === true) {
     settingObj.tls_insecure_skip_verify = true
+  } else {
+    delete settingObj.tls_insecure_skip_verify
+  }
+
+  if ((formData.max_concurrency ?? 0) > 0) {
+    settingObj.max_concurrency = formData.max_concurrency
+    settingObj.concurrency_wait_timeout_seconds =
+      formData.concurrency_wait_timeout_seconds ??
+      DEFAULT_CONCURRENCY_WAIT_TIMEOUT_SECONDS
+  } else {
+    delete settingObj.max_concurrency
+    delete settingObj.concurrency_wait_timeout_seconds
   }
 
   return JSON.stringify(settingObj)

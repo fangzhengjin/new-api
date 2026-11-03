@@ -46,6 +46,7 @@ function makeLog(other: LogOtherData): UsageLog {
     type: 2,
     content: '',
     username: 'user',
+    display_name: '',
     token_name: 'token',
     model_name: 'wan2.5-i2v-preview',
     quota: 5000,
@@ -124,19 +125,22 @@ test('splits OpenAI cache writes into 30-minute and 12-hour rows with their pric
     },
     4000
   )
-  expect(screen.getByText('500').previousElementSibling).toHaveTextContent(
-    'Cache Write (30m)'
+  const inputBreakdown = screen.getByLabelText('输入构成')
+  const cacheWriteTtl = screen.getByLabelText('缓存写入时效')
+  expect(
+    within(inputBreakdown).getByText('Cache Write').nextElementSibling
+  ).toHaveTextContent('1,500')
+  expect(within(cacheWriteTtl).getByText('30 分钟').nextElementSibling).toHaveTextContent(
+    '500'
   )
-  expect(screen.getByText('1,000').previousElementSibling).toHaveTextContent(
-    'Cache Write (12h)'
+  expect(within(cacheWriteTtl).getByText('12 小时').nextElementSibling).toHaveTextContent(
+    '1,000'
   )
-  expect(screen.queryByText('Cache Write')).toBeNull()
-  expect(screen.getByText('$12.5/M').previousElementSibling).toHaveTextContent(
-    'Cache Write (30m)'
+  expect(within(cacheWriteTtl).getByText('Unknown').nextElementSibling).toHaveTextContent(
+    '0'
   )
-  expect(screen.getByText('$25/M').previousElementSibling).toHaveTextContent(
-    'Cache Write (12h)'
-  )
+  expect(rowValue('Cache Write (30m)')).toBe('$12.5/M')
+  expect(rowValue('Cache Write (12h)')).toBe('$25/M')
   queryClient.clear()
 })
 
@@ -268,7 +272,7 @@ describe('usage facts billing details', () => {
       '400'
     )
     expect(
-      screen.getByText('Input Tokens').nextElementSibling
+      screen.getByText('Total Input Tokens').nextElementSibling
     ).toHaveTextContent('1,000')
     expect(
       screen

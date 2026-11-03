@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	ginKeyChannelAffinityCacheKey    = "channel_affinity_cache_key"
-	ginKeyChannelAffinityTTLSeconds  = "channel_affinity_ttl_seconds"
-	ginKeyChannelAffinityMeta        = "channel_affinity_meta"
-	ginKeyChannelAffinityLogInfo     = "channel_affinity_log_info"
-	ginKeyChannelAffinitySkipRetry   = "channel_affinity_skip_retry_on_failure"
-	ginKeyChannelAffinityRetryOffset = "channel_affinity_retry_offset"
+	ginKeyChannelAffinityCacheKey   = "channel_affinity_cache_key"
+	ginKeyChannelAffinityTTLSeconds = "channel_affinity_ttl_seconds"
+	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
+	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
+	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
+	ginKeyChannelAffinityUsedID     = "channel_affinity_used_channel_id"
 
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
 	channelAffinityUsageCacheStatsNamespace = "new-api:channel_affinity_usage_cache_stats:v1"
@@ -688,9 +688,8 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	if !ok {
 		return
 	}
+	c.Set(ginKeyChannelAffinityUsedID, channelID)
 	c.Set(ginKeyChannelAffinitySkipRetry, meta.SkipRetry)
-	// Affinity consumes an attempt, but does not visit a normal priority tier.
-	c.Set(ginKeyChannelAffinityRetryOffset, 1)
 	info := map[string]any{
 		"reason":         meta.RuleName,
 		"rule_name":      meta.RuleName,
@@ -741,6 +740,10 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		if successChannelID := c.GetInt("channel_id"); successChannelID > 0 {
 			channelID = successChannelID
 		}
+	}
+	// Fixed TTL keeps the original expiry unless a retry succeeds on a different channel.
+	if !setting.RenewTTLOnSuccess && c != nil && c.GetInt(ginKeyChannelAffinityUsedID) == channelID {
+		return
 	}
 	cacheKey, ttlSeconds, ok := getChannelAffinityContext(c)
 	if !ok {

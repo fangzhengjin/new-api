@@ -14,7 +14,13 @@ import (
 // ModelMappedHelper applies one channel model mapping to the relay request.
 // It reads the mapping from c, updates info and the optional request, and returns any parsing error.
 func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request) error {
-	return modelMappedHelper(c, info, request, false)
+	relaycommon.SetUserResponseModelOverride(c, "")
+	err := modelMappedHelper(c, info, request, false)
+	if err != nil {
+		return err
+	}
+	relaycommon.SetUserResponseModelOverride(c, info.GetUserResponseModelOverride())
+	return nil
 }
 
 // TaskModelMappedHelper follows a channel mapping chain so task aliases reach the model declared by the selected plugin.

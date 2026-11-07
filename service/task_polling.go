@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -321,6 +320,15 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			tasks = append(tasks, task)
 		}
 	}
+	// Pick one fallback key per channel per pass (see updateVideoTasks) and
+	// group tasks by their submission key: multi-key channels may hold keys of
+	// different upstream accounts, and one batched query per key keeps every
+	// task visible to the account that submitted it.
+	fallbackKey, _, keyErr := ch.GetNextEnabledKey()
+	if keyErr != nil {
+		common.SysLog(common.LogText("channel #%d has no enabled key for task polling: %s", channelId, keyErr.Error()))
+		return recordPollFailureForTasks(ctx, adaptor, tasks, pollClassAuth, 0, keyErr.Error())
+	}
 	// The channel type tells plugin adaptors whether the upstream is another
 	// New API gateway, the same signal submission derives from the request.
 	info := &relaycommon.RelayInfo{}
@@ -331,35 +339,70 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		ChannelSetting:  ch.GetSetting(),
 		HeadersOverride: ch.GetHeaderOverride(),
 	}
-	info.ApiKey = ch.Key
+	info.ApiKey = fallbackKey
 	adaptor.Init(info)
-	// A batch query carries one credential, so it holds only the tasks one
-	// credential account submitted: another account's answer could report a
-	// finished task missing and refund it.
-	var accounts []string
-	batches := make(map[string][]*model.Task)
-	for _, task := range tasks {
-		account := task.PrivateData.CredentialAccount
-		if _, ok := batches[account]; !ok {
-			accounts = append(accounts, account)
+	if ch.Type == constant.ChannelTypeTaskPlugin {
+		// 任务插件渠道按凭据账户分批：渠道 key 列表持有多个账户的凭据行，
+		// 批量查询只应携带一个账户的凭据，离开渠道的账户不借用他人凭据。
+		for _, account := range groupedTaskAccounts(tasks) {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err := fetchAndUpdateBatchTasks(ctx, adaptor, channelId, ch.Key, batchesByTaskAccount(tasks)[account], taskM, baseURL, proxy); err != nil {
+				return err
+			}
 		}
-		batches[account] = append(batches[account], task)
+		return nil
 	}
-	var errs []error
-	for _, account := range accounts {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err := pollTaskBatch(ctx, adaptor, channelId, baseURL, ch.Key, proxy, batches[account]); err != nil {
-			errs = append(errs, err)
+	for pollKey, bucket := range groupTasksByPollKey(tasks, fallbackKey) {
+		if err := fetchAndUpdateBatchTasks(ctx, adaptor, channelId, pollKey, bucket, taskM, baseURL, proxy); err != nil {
+			return err
 		}
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
-// pollTaskBatch sends one batch query for tasks and applies the results it
-// returns for them.
-func pollTaskBatch(ctx context.Context, adaptor BatchTaskPollingAdaptor, channelId int, baseURL, key, proxy string, tasks []*model.Task) error {
+// groupedTaskAccounts returns the distinct credential accounts of tasks in
+// their first-seen order.
+func groupedTaskAccounts(tasks []*model.Task) []string {
+	var accounts []string
+	seen := make(map[string]struct{})
+	for _, task := range tasks {
+		account := task.PrivateData.CredentialAccount
+		if _, ok := seen[account]; !ok {
+			seen[account] = struct{}{}
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts
+}
+
+// batchesByTaskAccount buckets tasks by the credential account that submitted
+// them.
+func batchesByTaskAccount(tasks []*model.Task) map[string][]*model.Task {
+	buckets := make(map[string][]*model.Task)
+	for _, task := range tasks {
+		buckets[task.PrivateData.CredentialAccount] = append(buckets[task.PrivateData.CredentialAccount], task)
+	}
+	return buckets
+}
+
+// groupTasksByPollKey buckets tasks by the key that should query them: the
+// submission key persisted on the task, or the channel-level fallback key for
+// tasks submitted before keys were persisted.
+func groupTasksByPollKey(tasks []*model.Task, fallbackKey string) map[string][]*model.Task {
+	buckets := make(map[string][]*model.Task)
+	for _, task := range tasks {
+		key := fallbackKey
+		if task.PrivateData.Key != "" {
+			key = task.PrivateData.Key
+		}
+		buckets[key] = append(buckets[key], task)
+	}
+	return buckets
+}
+
+func fetchAndUpdateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, channelId int, key string, tasks []*model.Task, taskM map[string]*model.Task, baseURL string, proxy string) error {
 	resp, err := adaptor.FetchBatchTasks(baseURL, key, tasks, proxy)
 	if err != nil {
 		common.SysLog(common.LogText("Get Task Do req error: %v", err))
@@ -539,6 +582,20 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	if adaptor == nil {
 		return fmt.Errorf("video adaptor not found")
 	}
+	// Pick one fallback key per channel per pass; tasks submitted before the
+	// key was persisted poll with it. Calling GetNextEnabledKey per task would
+	// advance the polling-mode key cursor shared with relay requests.
+	fallbackKey, _, keyErr := cacheGetChannel.GetNextEnabledKey()
+	if keyErr != nil {
+		logger.LogWarn(ctx, common.LogText("channel #%d has no enabled key for task polling: %s", channelId, keyErr.Error()))
+		var tasks []*model.Task
+		for _, upstreamID := range taskIds {
+			if t, ok := taskM[upstreamID]; ok {
+				tasks = append(tasks, t)
+			}
+		}
+		return recordPollFailureForTasks(ctx, adaptor, tasks, pollClassAuth, 0, keyErr.Error())
+	}
 	info := &relaycommon.RelayInfo{}
 	info.ChannelMeta = &relaycommon.ChannelMeta{
 		ChannelType:     cacheGetChannel.Type,
@@ -547,14 +604,14 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		ChannelSetting:  cacheGetChannel.GetSetting(),
 		HeadersOverride: cacheGetChannel.GetHeaderOverride(),
 	}
-	info.ApiKey = cacheGetChannel.Key
+	info.ApiKey = fallbackKey
 	adaptor.Init(info)
 	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
 	for i, taskId := range taskIds {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
+		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, fallbackKey, taskId, taskM); err != nil {
 			logger.LogError(ctx, common.LogText("Failed to update video task %s: %s", taskId, err.Error()))
 		}
 		if disablePollingSleep || i == len(taskIds)-1 {
@@ -571,7 +628,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	return nil
 }
 
-func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, taskId string, taskM map[string]*model.Task) error {
+func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, fallbackKey string, taskId string, taskM map[string]*model.Task) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -586,7 +643,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		logger.LogError(ctx, common.LogText("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
 	}
-	key := ch.Key
+	key := fallbackKey
 
 	privateData := task.PrivateData
 	if privateData.Key != "" {

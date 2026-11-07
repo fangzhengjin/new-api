@@ -27,6 +27,7 @@ type taskPollingFetchAdaptor struct {
 	mu           sync.Mutex
 	initInfo     *relaycommon.RelayInfo
 	taskIDs      []string
+	taskKeys     []string
 	fetched      chan string
 	blockTaskID  string
 	blockStarted chan struct{}
@@ -38,12 +39,14 @@ type batchPollingAdaptor struct {
 	taskPollingFetchAdaptor
 	batchCalls int
 	batchIDs   []string
+	batchKeys  []string
 	results    map[string]*BatchTaskResult
 }
 
 func (a *batchPollingAdaptor) FetchMode() string { return "batch" }
-func (a *batchPollingAdaptor) FetchBatchTasks(_ string, _ string, tasks []*model.Task, _ string) (*http.Response, error) {
+func (a *batchPollingAdaptor) FetchBatchTasks(_ string, key string, tasks []*model.Task, _ string) (*http.Response, error) {
 	a.batchCalls++
+	a.batchKeys = append(a.batchKeys, key)
 	a.batchIDs = a.batchIDs[:0]
 	for _, task := range tasks {
 		a.batchIDs = append(a.batchIDs, task.GetUpstreamTaskID())
@@ -75,7 +78,7 @@ func (a *taskPollingFetchAdaptor) initChannelMeta() *relaycommon.ChannelMeta {
 	return a.initInfo.ChannelMeta
 }
 
-func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task, _ string) (*http.Response, error) {
+func (a *taskPollingFetchAdaptor) FetchTask(_ string, key string, task *model.Task, _ string) (*http.Response, error) {
 	taskID := ""
 	if task != nil {
 		taskID = task.GetUpstreamTaskID()
@@ -91,6 +94,7 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task
 
 	a.mu.Lock()
 	a.taskIDs = append(a.taskIDs, taskID)
+	a.taskKeys = append(a.taskKeys, key)
 	a.mu.Unlock()
 	if a.fetched != nil {
 		select {
@@ -135,6 +139,12 @@ func (a *taskPollingFetchAdaptor) fetchedTaskIDs() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]string(nil), a.taskIDs...)
+}
+
+func (a *taskPollingFetchAdaptor) fetchedKeys() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.taskKeys...)
 }
 
 func TestRedactVideoResponseBodyPreservesPollingPayloadShape(t *testing.T) {
@@ -287,6 +297,123 @@ func TestPollingPassesExecutingChannelTypeToAdaptor(t *testing.T) {
 	assert.Equal(t, channelID, meta.ChannelId)
 	assert.Equal(t, baseURL, meta.ChannelBaseUrl)
 	assert.Equal(t, map[string]any{"X-API-Key": "{api_key}"}, meta.HeadersOverride)
+}
+
+// seedMultiKeyPollingChannel creates an enabled multi-key channel; the keys
+// may belong to different upstream accounts, which is the unsafe case for
+// polling with the raw key list.
+func seedMultiKeyPollingChannel(t *testing.T, id int, keys string) *model.Channel {
+	t.Helper()
+	ch := &model.Channel{
+		Id:     id,
+		Type:   constant.ChannelTypeKling,
+		Name:   "multi_key_polling_channel",
+		Key:    keys,
+		Status: common.ChannelStatusEnabled,
+	}
+	ch.SetOtherSettings(dto.ChannelOtherSettings{DisableTaskPollingSleep: true})
+	ch.ChannelInfo.IsMultiKey = true
+	require.NoError(t, model.DB.Create(ch).Error)
+	return ch
+}
+
+func TestUpdateVideoTasksPollsWithSingleKeyOnMultiKeyChannel(t *testing.T) {
+	truncate(t)
+
+	const channelID = 121
+	seedMultiKeyPollingChannel(t, channelID, "sk-a\nsk-b")
+	withoutStoredKey := seedPollingTask(t, channelID, "task_public_1", "upstream_1")
+	withStoredKey := seedPollingTask(t, channelID, "task_public_2", "upstream_2")
+	withStoredKey.PrivateData.Key = "sk-b"
+	require.NoError(t, model.DB.Save(withStoredKey).Error)
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	taskChannels := map[int][]string{channelID: {withoutStoredKey.GetUpstreamTaskID(), withStoredKey.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{
+		withoutStoredKey.GetUpstreamTaskID(): withoutStoredKey,
+		withStoredKey.GetUpstreamTaskID():    withStoredKey,
+	}
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), taskChannels, tasks))
+
+	keys := adaptor.fetchedKeys()
+	require.Len(t, keys, 2, "each task is fetched exactly once")
+	assert.NotContains(t, keys, "sk-a\nsk-b", "the raw multi-key string must never reach the adaptor")
+	assert.Contains(t, keys, "sk-b", "a task with a stored submission key polls with that key")
+	fallback := keys[0]
+	if fallback == "sk-b" {
+		fallback = keys[1]
+	}
+	assert.Contains(t, []string{"sk-a", "sk-b"}, fallback, "a task without a stored key polls with one enabled channel key")
+	meta := adaptor.initChannelMeta()
+	require.NotNil(t, meta)
+	assert.Equal(t, fallback, meta.ApiKey, "the adaptor metadata carries the same single fallback key")
+}
+
+func TestUpdateBatchTasksBucketsByPollKeyOnMultiKeyChannel(t *testing.T) {
+	truncate(t)
+
+	const channelID = 122
+	seedMultiKeyPollingChannel(t, channelID, "sk-a\nsk-b")
+	first := seedPollingTask(t, channelID, "task_public_1", "upstream_1")
+	second := seedPollingTask(t, channelID, "task_public_2", "upstream_2")
+	first.PrivateData.Key = "sk-a"
+	second.PrivateData.Key = "sk-b"
+	require.NoError(t, model.DB.Save(first).Error)
+	require.NoError(t, model.DB.Save(second).Error)
+
+	adaptor := &batchPollingAdaptor{}
+	taskChannels := map[int][]string{channelID: {first.GetUpstreamTaskID(), second.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{
+		first.GetUpstreamTaskID():  first,
+		second.GetUpstreamTaskID(): second,
+	}
+	require.NoError(t, UpdateBatchTasks(context.Background(), adaptor, taskChannels, tasks))
+
+	assert.Equal(t, 2, adaptor.batchCalls, "tasks under different submission keys are polled in separate batches")
+	assert.ElementsMatch(t, []string{"sk-a", "sk-b"}, adaptor.batchKeys)
+	meta := adaptor.initChannelMeta()
+	require.NotNil(t, meta)
+	assert.Contains(t, []string{"sk-a", "sk-b"}, meta.ApiKey, "the adaptor metadata carries one enabled channel key")
+}
+
+func TestUpdateBatchTasksPollsWithFallbackKeyWithoutStoredKey(t *testing.T) {
+	truncate(t)
+
+	const channelID = 123
+	seedMultiKeyPollingChannel(t, channelID, "sk-a\nsk-b")
+	task := seedPollingTask(t, channelID, "task_public_1", "upstream_1")
+
+	adaptor := &batchPollingAdaptor{}
+	taskChannels := map[int][]string{channelID: {task.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+	require.NoError(t, UpdateBatchTasks(context.Background(), adaptor, taskChannels, tasks))
+
+	assert.Equal(t, 1, adaptor.batchCalls)
+	require.Len(t, adaptor.batchKeys, 1)
+	assert.Contains(t, []string{"sk-a", "sk-b"}, adaptor.batchKeys[0], "a task without a stored key polls with one enabled channel key")
+}
+
+func TestUpdateVideoTasksSingleKeyChannelUnchanged(t *testing.T) {
+	truncate(t)
+
+	const channelID = 124
+	seedTaskPollingChannel(t, channelID, true)
+	task := seedPollingTask(t, channelID, "task_public_1", "upstream_1")
+
+	adaptor := &taskPollingFetchAdaptor{}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+
+	taskChannels := map[int][]string{channelID: {task.GetUpstreamTaskID()}}
+	tasks := map[string]*model.Task{task.GetUpstreamTaskID(): task}
+	require.NoError(t, UpdateVideoTasks(context.Background(), constant.TaskPlatform("kling"), taskChannels, tasks))
+
+	assert.Equal(t, []string{"sk-test"}, adaptor.fetchedKeys(), "a single-key channel keeps polling with its original key")
 }
 
 func TestDispatchPlatformUpdateUsesFetchMode(t *testing.T) {
@@ -1078,7 +1205,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			require.NoError(t, model.DB.Create(task).Error)
 
 			adaptor := &scriptedPollingAdaptor{statusCode: testCase.statusCode, fetchErr: testCase.fetchErr, parse: testCase.parse, parseErr: testCase.parseErr}
-			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, task.GetUpstreamTaskID(), map[string]*model.Task{
+			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, ch.Key, task.GetUpstreamTaskID(), map[string]*model.Task{
 				task.GetUpstreamTaskID(): task,
 			}))
 
@@ -1215,7 +1342,7 @@ func TestTaskReportsOnceAtTheFinalState(t *testing.T) {
 	}
 	poll := func(task *model.Task, status model.TaskStatus) {
 		adaptor := &scriptedPollingAdaptor{parse: &relaycommon.TaskInfo{Status: string(status), Url: "https://cdn.example.com/v.mp4"}}
-		require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, task.GetUpstreamTaskID(), map[string]*model.Task{
+		require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, ch.Key, task.GetUpstreamTaskID(), map[string]*model.Task{
 			task.GetUpstreamTaskID(): task,
 		}))
 	}

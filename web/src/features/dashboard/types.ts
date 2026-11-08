@@ -26,6 +26,7 @@ export interface QuotaDataItem {
   id?: number
   user_id?: number
   username?: string
+  display_name?: string
   model_name?: string
   created_at: number
   cache_read_tokens?: number
@@ -38,6 +39,7 @@ export interface QuotaDataItem {
 export interface FlowQuotaDataItem {
   user_id?: number
   username?: string
+  display_name?: string
   node_name?: string
   use_group?: string
   token_id?: number

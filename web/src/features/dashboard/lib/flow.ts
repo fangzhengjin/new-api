@@ -175,7 +175,10 @@ function userNode(row: FlowQuotaDataItem): FlowPathNode {
   const userID = numberValue(row.user_id)
   return {
     id: userID > 0 ? `user:${userID}` : `user:${row.username || 'unknown'}`,
-    label: row.username || (userID > 0 ? `user-${userID}` : 'Unknown User'),
+    label:
+      row.display_name ||
+      row.username ||
+      (userID > 0 ? `user-${userID}` : 'Unknown User'),
     kind: 'user',
   }
 }

@@ -14,6 +14,8 @@ func seedFlowQuotaData(t *testing.T, quotaData QuotaData) {
 
 func seedFlowLookupData(t *testing.T) {
 	t.Helper()
+	require.NoError(t, DB.Create(&User{Id: 1, Username: "alice", DisplayName: "Alice D.", AffCode: "aff-alice"}).Error)
+	require.NoError(t, DB.Create(&User{Id: 2, Username: "bob", AffCode: "aff-bob"}).Error)
 	require.NoError(t, DB.Create(&Channel{Id: 1, Name: "east"}).Error)
 	require.NoError(t, DB.Create(&Channel{Id: 2, Name: "west"}).Error)
 	require.NoError(t, DB.Create(&Token{Id: 11, UserId: 1, Key: "sk-primary", Name: "primary"}).Error)
@@ -95,6 +97,7 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 	require.Equal(t, FlowQuotaData{
 		UserID:      1,
 		Username:    "alice",
+		DisplayName: "Alice D.",
 		NodeName:    "node-a",
 		TokenID:     11,
 		TokenName:   "",
@@ -117,6 +120,7 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 	require.Empty(t, adminRows[0].TokenName)
 	require.Empty(t, adminRows[0].NodeName)
 	require.Equal(t, "alice", adminRows[0].Username)
+	require.Equal(t, "Alice D.", adminRows[0].DisplayName)
 	require.Equal(t, "vip", adminRows[0].UseGroup)
 	require.Equal(t, "east", adminRows[0].ChannelName)
 	require.Equal(t, 150, adminRows[0].Quota)
@@ -125,6 +129,7 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, selfRows, 1)
 	require.Empty(t, selfRows[0].Username)
+	require.Empty(t, selfRows[0].DisplayName)
 	require.Equal(t, 0, selfRows[0].ChannelID)
 	require.Empty(t, selfRows[0].ChannelName)
 	require.Empty(t, selfRows[0].TokenName)

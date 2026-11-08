@@ -756,11 +756,16 @@ export function processUserChartData(
   if (!data || data.length === 0) return emptyResult
 
   const userQuotaTotal = new Map<string, number>()
+  // Labels prefer the display name, while aggregation keys stay on the unique
+  // username so duplicate or empty display names cannot merge users.
+  const userLabels = new Map<string, string>()
   data.forEach((item) => {
     const username = item.username || 'unknown'
+    userLabels.set(username, item.display_name || username)
     const prev = userQuotaTotal.get(username) || 0
     userQuotaTotal.set(username, prev + (Number(item.quota) || 0))
   })
+  const labelOf = (username: string) => userLabels.get(username) || username
 
   const sorted = [...userQuotaTotal.entries()].sort((a, b) => b[1] - a[1])
   const topUsers = sorted.slice(0, limit).map(([u]) => u)
@@ -768,14 +773,14 @@ export function processUserChartData(
   const totalQuota = sorted.slice(0, limit).reduce((s, [, q]) => s + q, 0)
 
   const rankValues = sorted.slice(0, limit).map(([username, quota]) => ({
-    User: username,
+    User: labelOf(username),
     rawQuota: quota,
     Usage: Number((quota / quotaPerUnit).toFixed(4)),
   }))
 
   const userColorMap = topUsers.reduce<Record<string, string>>(
     (acc, user, i) => {
-      acc[user] = USER_COLORS[i % USER_COLORS.length]
+      acc[labelOf(user)] = USER_COLORS[i % USER_COLORS.length]
       return acc
     },
     {}
@@ -813,7 +818,7 @@ export function processUserChartData(
       const q = timeUserMap.get(time)?.get(user) || 0
       trendValues.push({
         Time: time,
-        User: user,
+        User: labelOf(user),
         rawQuota: q,
         Usage: Number((q / quotaPerUnit).toFixed(4)),
       })

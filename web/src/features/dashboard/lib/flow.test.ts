@@ -182,6 +182,25 @@ describe('dashboard flow data', () => {
     ])
   })
 
+  test('labels user nodes by display name with username fallback', () => {
+    const result = buildDashboardFlowData(
+      rows.map((row) =>
+        row.user_id === 1 ? { ...row, display_name: 'Alice Display' } : row
+      ),
+      'quota',
+      { role: 'admin' }
+    )
+
+    expect(
+      result.flow.nodes
+        .filter((node) => node.kind === 'user')
+        .map((node) => [node.id, node.label])
+    ).toEqual([
+      ['user:1', 'Alice Display'],
+      ['user:2', 'bob'],
+    ])
+  })
+
   test('filters rows by selected flow nodes', () => {
     const result = buildDashboardFlowData(rows, 'quota', {
       role: 'admin',

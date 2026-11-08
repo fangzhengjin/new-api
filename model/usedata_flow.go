@@ -10,6 +10,7 @@ import (
 type FlowQuotaData struct {
 	UserID      int    `json:"user_id,omitempty" gorm:"column:user_id"`
 	Username    string `json:"username,omitempty" gorm:"column:username"`
+	DisplayName string `json:"display_name,omitempty" gorm:"-"`
 	NodeName    string `json:"node_name,omitempty" gorm:"column:node_name"`
 	TokenID     int    `json:"token_id,omitempty" gorm:"column:token_id"`
 	TokenName   string `json:"token_name,omitempty" gorm:"-"`
@@ -68,6 +69,9 @@ func getAdminFlowQuotaData(startTime int64, endTime int64, username string) ([]*
 	if err != nil {
 		return nil, err
 	}
+	if err := fillFlowUserDisplayNames(rows); err != nil {
+		return rows, err
+	}
 	return rows, fillFlowChannelNames(rows)
 }
 
@@ -85,10 +89,51 @@ func getRootFlowQuotaData(startTime int64, endTime int64, username string) ([]*F
 	if err != nil {
 		return nil, err
 	}
+	if err := fillFlowUserDisplayNames(rows); err != nil {
+		return rows, err
+	}
 	if err := fillFlowTokenNames(rows); err != nil {
 		return rows, err
 	}
 	return rows, fillFlowChannelNames(rows)
+}
+
+func fillFlowUserDisplayNames(rows []*FlowQuotaData) error {
+	userIDSet := make(map[int]struct{})
+	userIDs := make([]int, 0)
+	for _, row := range rows {
+		if row.UserID == 0 {
+			continue
+		}
+		if _, ok := userIDSet[row.UserID]; ok {
+			continue
+		}
+		userIDSet[row.UserID] = struct{}{}
+		userIDs = append(userIDs, row.UserID)
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	var users []struct {
+		Id          int    `gorm:"column:id"`
+		DisplayName string `gorm:"column:display_name"`
+	}
+	if err := DB.Model(&User{}).Select("id, display_name").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return err
+	}
+	displayNameByID := make(map[int]string, len(users))
+	for _, user := range users {
+		displayNameByID[user.Id] = user.DisplayName
+	}
+	// Only overwrite with non-empty names so the username stays available as
+	// the frontend fallback label.
+	for _, row := range rows {
+		if name := displayNameByID[row.UserID]; name != "" {
+			row.DisplayName = name
+		}
+	}
+	return nil
 }
 
 func fillFlowTokenNames(rows []*FlowQuotaData) error {

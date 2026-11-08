@@ -154,3 +154,44 @@ describe.each(cases)('dashboard $granularity chart chronology', (scenario) => {
     }
   })
 })
+
+describe('user chart display names', () => {
+  const displayNameRows: QuotaDataItem[] = [
+    {
+      created_at: new Date('2025-12-31T20:00:00').getTime() / 1000,
+      model_name: 'model-a',
+      username: 'alice',
+      display_name: 'Alice Display',
+      quota: 300000,
+      count: 1,
+    },
+    {
+      created_at: new Date('2025-12-31T21:00:00').getTime() / 1000,
+      model_name: 'model-a',
+      username: 'bob',
+      quota: 100000,
+      count: 1,
+    },
+  ]
+
+  test('labels user series by display name with username fallback', () => {
+    const result = processUserChartData(displayNameRows, 'day')
+    const rankValues: Array<{ User: string }> =
+      result.spec_user_rank.data[0].values
+    expect(rankValues.map((row) => row.User)).toEqual([
+      'Alice Display',
+      'bob',
+    ])
+    // The per-series color map is keyed by the rendered label and must follow.
+    expect(Object.keys(result.spec_user_rank.color.specified)).toEqual([
+      'Alice Display',
+      'bob',
+    ])
+    const trendValues: Array<{ User: string }> =
+      result.spec_user_trend.data[0].values
+    expect([...new Set(trendValues.map((row) => row.User))].sort()).toEqual([
+      'Alice Display',
+      'bob',
+    ])
+  })
+})

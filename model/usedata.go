@@ -17,6 +17,7 @@ type QuotaData struct {
 	Id                  int    `json:"id"`
 	UserID              int    `json:"user_id" gorm:"index"`
 	Username            string `json:"username" gorm:"index:idx_qdt_model_user_name,priority:2;size:64;default:''"`
+	DisplayName         string `json:"display_name,omitempty" gorm:"-"`
 	ModelName           string `json:"model_name" gorm:"index:idx_qdt_model_user_name,priority:1;size:64;default:''"`
 	CreatedAt           int64  `json:"created_at" gorm:"bigint;index:idx_qdt_created_at,priority:2"`
 	UseGroup            string `json:"use_group" gorm:"index;size:64;default:''"`
@@ -219,7 +220,43 @@ func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*Quota
 		Where("created_at >= ? and created_at <= ?", startTime, endTime).
 		Group("username, created_at").
 		Find(&quotaDatas).Error
-	return quotaDatas, err
+	if err != nil {
+		return quotaDatas, err
+	}
+	// quota_data only stores usernames; resolve display names from the users
+	// table so dashboards can render them without a per-row lookup.
+	usernameSet := make(map[string]struct{})
+	usernames := make([]string, 0)
+	for _, row := range quotaDatas {
+		if row.Username == "" {
+			continue
+		}
+		if _, ok := usernameSet[row.Username]; ok {
+			continue
+		}
+		usernameSet[row.Username] = struct{}{}
+		usernames = append(usernames, row.Username)
+	}
+	if len(usernames) == 0 {
+		return quotaDatas, nil
+	}
+	var users []struct {
+		Username    string `gorm:"column:username"`
+		DisplayName string `gorm:"column:display_name"`
+	}
+	if err := DB.Model(&User{}).Select("username, display_name").Where("username IN ?", usernames).Find(&users).Error; err != nil {
+		return quotaDatas, err
+	}
+	displayNameByUsername := make(map[string]string, len(users))
+	for _, user := range users {
+		displayNameByUsername[user.Username] = user.DisplayName
+	}
+	for _, row := range quotaDatas {
+		if name := displayNameByUsername[row.Username]; name != "" {
+			row.DisplayName = name
+		}
+	}
+	return quotaDatas, nil
 }
 
 func GetAllQuotaDates(startTime int64, endTime int64, username string) (quotaData []*QuotaData, err error) {

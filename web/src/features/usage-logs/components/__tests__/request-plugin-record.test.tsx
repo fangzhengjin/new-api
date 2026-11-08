@@ -120,6 +120,7 @@ function makeLog(logOther: LogOtherData = other): UsageLog {
     type: 2,
     content: '',
     username: 'user',
+    display_name: 'User',
     token_name: 'token',
     model_name: 'gpt-test',
     quota: 0,

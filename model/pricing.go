@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -290,24 +291,56 @@ func updatePricing() {
 		modelSupportEndpointsStr[ability.Model] = endpoints
 	}
 
-	// 再补充模型自定义端点：若配置有效则追加到已有推断，不再裁剪渠道真实能力
+	// 再应用模型自定义端点：显式声明视为权威配置，收窄渠道推导结果；
+	// 接受与 ValidateModelEndpoints 一致的两种声明写法——map 形态（自定义
+	// path/method）与端点类型数组；推导顺序中的命中项保持原优先级（首端
+	// 点即优先使用端点），声明中推导没有的端点按字母序追加；未声明任何
+	// 合法端点时保留渠道推导
 	for modelName, meta := range metaMap {
 		if strings.TrimSpace(meta.Endpoints) == "" {
 			continue
 		}
-		var raw map[string]any
-		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			endpoints := modelSupportEndpointsStr[modelName]
-			for k, v := range raw {
-				switch v.(type) {
-				case string, map[string]any:
-					endpoints = appendPricingEndpoint(endpoints, k)
+		var raw any
+		if err := common.UnmarshalJsonStr(meta.Endpoints, &raw); err != nil {
+			continue
+		}
+		declared := make([]string, 0)
+		switch endpoints := raw.(type) {
+		case []any:
+			for _, endpoint := range endpoints {
+				if text, ok := endpoint.(string); ok {
+					declared = appendPricingEndpoint(declared, text)
 				}
 			}
-			if len(endpoints) > 0 {
-				modelSupportEndpointsStr[modelName] = endpoints
+		case map[string]any:
+			for k, v := range endpoints {
+				switch v.(type) {
+				case string, map[string]any:
+					declared = appendPricingEndpoint(declared, k)
+				}
 			}
 		}
+		if len(declared) == 0 {
+			continue
+		}
+		sort.Strings(declared)
+		declaredSet := make(map[string]struct{}, len(declared))
+		for _, endpoint := range declared {
+			declaredSet[endpoint] = struct{}{}
+		}
+		merged := make([]string, 0, len(declared))
+		for _, endpoint := range modelSupportEndpointsStr[modelName] {
+			if _, ok := declaredSet[endpoint]; ok {
+				merged = append(merged, endpoint)
+				delete(declaredSet, endpoint)
+			}
+		}
+		for _, endpoint := range declared {
+			if _, ok := declaredSet[endpoint]; ok {
+				merged = append(merged, endpoint)
+			}
+		}
+		modelSupportEndpointsStr[modelName] = merged
 	}
 
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)

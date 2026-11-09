@@ -107,7 +107,7 @@ func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	}, byModel["gpt-4o"])
 }
 
-func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testing.T) {
+func TestPricingModelMetadataEndpointsOverrideChannelInference(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
 	insertPricingEndpointChannel(t, 103, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
@@ -130,10 +130,105 @@ func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testin
 
 	byModel := pricingEndpointTypesByModel(t)
 
+	// The declared endpoint set is authoritative: the channel-inferred
+	// openai-response endpoint is narrowed away by the explicit declaration.
 	assert.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAIResponse,
 		constant.EndpointTypeOpenAI,
 	}, byModel["gemini-2.5-flash"])
+}
+
+func TestPricingModelMetadataEndpointsNarrowImageAndVideoModels(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 105, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 105, "wan2.7-image")
+	insertPricingEndpointAbility(t, 105, "wan2.7-image-pro")
+	insertPricingEndpointAbility(t, 105, "wan3.0-video")
+	insertPricingEndpointAbility(t, 105, "plain-text-model")
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "wan2.7-image",
+		Endpoints: `{
+			"image-generation": {"path": "/v1/images/generations", "method": "POST"}
+		}`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "wan3.0-video",
+		Endpoints: `{
+			"openai-video": {"path": "/v1/video/generations", "method": "POST"}
+		}`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "wan2.7-image-pro",
+		Endpoints: `["image-generation"]`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "plain-text-model",
+		Endpoints: `{
+			"openai": 123
+		}`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+
+	byModel := pricingEndpointTypesByModel(t)
+
+	// wan2.7-image: channel inference is [image-generation, openai]; the
+	// explicit declaration keeps only image-generation so the model no longer
+	// shows up in the text model list.
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeImageGeneration,
+	}, byModel["wan2.7-image"])
+	// wan3.0-video: channel inference is [openai]; the declaration replaces
+	// it with the video endpoint only.
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAIVideo,
+	}, byModel["wan3.0-video"])
+	// wan2.7-image-pro: the type-array declaration form narrows exactly like
+	// the map form (channel inference is [image-generation, openai]).
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeImageGeneration,
+	}, byModel["wan2.7-image-pro"])
+	// A declaration without any valid endpoint entry falls back to channel
+	// inference unchanged.
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAI,
+	}, byModel["plain-text-model"])
+}
+
+func TestPricingModelMetadataEndpointsPreserveInferenceOrder(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	// A multi-endpoint declaration keeps the channel-inference order for the
+	// intersection (the first endpoint stays the preferred one) and appends
+	// declaration-only endpoints in stable alphabetical order.
+	insertPricingEndpointChannel(t, 106, constant.ChannelTypeNewAPI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 106, "multi-endpoint-model")
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "multi-endpoint-model",
+		Endpoints: `{
+			"jina-rerank": "/v1/rerank",
+			"anthropic": "/v1/messages",
+			"openai": "/v1/chat/completions"
+		}`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+
+	byModel := pricingEndpointTypesByModel(t)
+
+	// Channel inference order is openai, anthropic (among the declared);
+	// jina-rerank is declaration-only and appended last.
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAI,
+		constant.EndpointTypeAnthropic,
+		constant.EndpointTypeJinaRerank,
+	}, byModel["multi-endpoint-model"])
 }
 
 func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(t *testing.T) {

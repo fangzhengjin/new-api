@@ -163,6 +163,48 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	require.Contains(t, logBuffer.String(), body)
 }
 
+func TestRelayErrorHandlerExtractsSSEErrorPayload(t *testing.T) {
+	message := "The current model only supports text modality and does not support image input. Please remove the image content from your messages and retry."
+
+	t.Run("extracts message from SSE error body", func(t *testing.T) {
+		body := "event:error\ndata:{\"request_id\":\"1f30e61e-86a4-42e4-9c44-06a83adc5aa7\",\"code\":\"InvalidParameter\",\"message\":\"" + message + "\"}\n\n"
+		resp := &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}
+
+		newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+		require.NotNil(t, newAPIError)
+		require.Equal(t, http.StatusBadRequest, newAPIError.StatusCode)
+		require.Equal(t, http.StatusBadRequest, newAPIError.UpstreamStatusCode)
+		require.Equal(t, message, newAPIError.Error())
+	})
+
+	t.Run("falls back to status code when data payload is not JSON", func(t *testing.T) {
+		var logBuffer bytes.Buffer
+		common.LogWriterMu.Lock()
+		oldWriter := gin.DefaultErrorWriter
+		gin.DefaultErrorWriter = &logBuffer
+		common.LogWriterMu.Unlock()
+		t.Cleanup(func() {
+			common.LogWriterMu.Lock()
+			gin.DefaultErrorWriter = oldWriter
+			common.LogWriterMu.Unlock()
+		})
+
+		resp := &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       io.NopCloser(strings.NewReader("event:error\ndata: upstream rejected the request\n\n")),
+		}
+
+		newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+		require.NotNil(t, newAPIError)
+		require.Equal(t, "bad response status code 500", newAPIError.Error())
+	})
+}
+
 func withDebugEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 

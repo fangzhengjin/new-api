@@ -84,6 +84,21 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 	return claudeErr
 }
 
+// extractSSEDataPayload returns the first SSE data line that carries a JSON
+// object, for upstreams that deliver error bodies as event streams
+// ("event:error\ndata:{...}"). It returns nil when no such line exists;
+// whether the payload is a usable error body is decided by the caller.
+func extractSSEDataPayload(body string) []byte {
+	for line := range strings.SplitSeq(body, "\n") {
+		if data, ok := strings.CutPrefix(strings.TrimSpace(line), "data:"); ok {
+			if data = strings.TrimSpace(data); strings.HasPrefix(data, "{") {
+				return []byte(data)
+			}
+		}
+	}
+	return nil
+}
+
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 	defer func() {
@@ -108,6 +123,14 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	}
 
 	err = common.Unmarshal(responseBody, &errResponse)
+	if err != nil {
+		// Some upstreams return the error body as an SSE event stream
+		// ("event:error\ndata:{...}"); extract the JSON payload from the data
+		// lines so clients still see the upstream message.
+		if ssePayload := extractSSEDataPayload(responseBodyText); ssePayload != nil {
+			err = common.Unmarshal(ssePayload, &errResponse)
+		}
+	}
 	if err != nil {
 		if showBodyWhenFail {
 			newApiErr.Err = buildErrWithBody("")
